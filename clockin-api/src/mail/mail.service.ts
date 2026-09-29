@@ -40,8 +40,9 @@ export class MailService {
       secure: port === 465,
       auth: user && pass ? { user, pass } : undefined,
       // Render free/outbound often cannot reach Gmail over IPv6 (ENETUNREACH).
+      // Nodemailer types omit `family`; it is passed through to Node's net.connect.
       family: 4,
-    });
+    } as nodemailer.TransportOptions);
 
     const greeting = opts.inviteeName?.trim()
       ? `Hi ${opts.inviteeName.trim()},`

@@ -12,8 +12,11 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  /// Pooled Neon URL for the running API (hostname contains `-pooler`).
+  url       = env("DATABASE_URL")
+  /// Direct Neon URL for migrate/introspect (no `-pooler`). Required on Render.
+  directUrl = env("DIRECT_URL")
 }
 
 // ============================================================

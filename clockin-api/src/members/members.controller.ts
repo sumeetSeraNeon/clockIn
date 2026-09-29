@@ -93,7 +93,8 @@ export class MembersController {
     );
   }
 
-  @Delete(':id')
+  @Post(':id/deactivate')
+  @HttpCode(HttpStatus.OK)
   @RequirePermission('membership', 'edit')
   deactivate(
     @CurrentOrg() organisationId: string,
@@ -105,5 +106,16 @@ export class MembersController {
       membership.id,
       id,
     );
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission('membership', 'edit')
+  remove(
+    @CurrentOrg() organisationId: string,
+    @CurrentMembership() membership: AuthMembership,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.membersService.remove(organisationId, membership.id, id);
   }
 }

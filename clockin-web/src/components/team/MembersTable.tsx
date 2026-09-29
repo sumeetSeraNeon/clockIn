@@ -16,6 +16,7 @@ type MembersTableProps = {
   onEdit: (member: Member) => void;
   onApprove: (member: Member) => void;
   onDeactivate: (member: Member) => void;
+  onDelete: (member: Member) => void;
 };
 
 function statusColor(status: string) {
@@ -49,6 +50,7 @@ export function MembersTable({
   onEdit,
   onApprove,
   onDeactivate,
+  onDelete,
 }: MembersTableProps) {
   const columns: DataTableColumn<Member>[] = [
     {
@@ -156,6 +158,17 @@ export function MembersTable({
                 onClick={() => onDeactivate(row)}
               >
                 Deactivate
+              </Button>
+            ) : null}
+            {!isSelf ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-danger hover:text-danger"
+                onClick={() => onDelete(row)}
+              >
+                Delete
               </Button>
             ) : null}
           </div>

@@ -536,6 +536,156 @@ export class MembersService {
     }
   }
 
+  /**
+   * Hard-remove a membership so the email can be invited again.
+   * Deletes the User + Firebase Auth when the account looks unused;
+   * otherwise disables the User and keeps history.
+   */
+  async remove(
+    organisationId: string,
+    actorMembershipId: string,
+    id: string,
+  ): Promise<{ id: string; deleted: true }> {
+    if (actorMembershipId === id) {
+      throw new BadRequestException('You cannot delete your own membership');
+    }
+
+    const existing = await this.findOwnedOrThrow(organisationId, id);
+    const isOwner = existing.membershipRoles.some(
+      (mr) => mr.role.name === 'owner',
+    );
+
+    if (isOwner) {
+      const otherOwners = await this.prisma.membership.count({
+        where: {
+          organisationId,
+          id: { not: id },
+          membershipRoles: { some: { role: { name: 'owner' } } },
+        },
+      });
+      if (otherOwners === 0) {
+        throw new BadRequestException(
+          'You cannot delete the last owner in the organisation',
+        );
+      }
+    }
+
+    const oldAudit = this.toAuditJson(existing);
+    const userId = existing.userId;
+    const firebaseUid = existing.user.firebaseUid;
+    const userEmail = existing.user.email;
+    let deleteFirebase = false;
+
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.membership.updateMany({
+          where: { managerId: id },
+          data: { managerId: null },
+        });
+
+        await tx.client.updateMany({
+          where: { ownerId: id },
+          data: { ownerId: null },
+        });
+        await tx.project.updateMany({
+          where: { ownerId: id },
+          data: { ownerId: null },
+        });
+        await tx.task.updateMany({
+          where: { assigneeId: id },
+          data: { assigneeId: null },
+        });
+        await tx.auditEvent.updateMany({
+          where: { actorId: id },
+          data: { actorId: null },
+        });
+        await tx.changeRequest.updateMany({
+          where: { approvedBy: id },
+          data: { approvedBy: null },
+        });
+        await tx.approval.updateMany({
+          where: { approverId: id },
+          data: { approverId: null },
+        });
+        await tx.timeOffRequest.updateMany({
+          where: { approverId: id },
+          data: { approverId: null },
+        });
+        await tx.apiKey.updateMany({
+          where: { createdBy: id },
+          data: { createdBy: null },
+        });
+        await tx.portalAccess.deleteMany({ where: { membershipId: id } });
+
+        await tx.membershipRole.deleteMany({ where: { membershipId: id } });
+        await tx.membership.delete({ where: { id } });
+
+        const otherMemberships = await tx.membership.count({
+          where: { userId },
+        });
+
+        if (otherMemberships > 0) {
+          return;
+        }
+
+        const [timeEntries, rates, expenses, timeOff, ai] = await Promise.all([
+          tx.timeEntry.count({ where: { userId } }),
+          tx.rate.count({ where: { userId } }),
+          tx.expense.count({ where: { userId } }),
+          tx.timeOffRequest.count({ where: { userId } }),
+          tx.aiInteraction.count({ where: { userId } }),
+        ]);
+
+        const unusedForReinvite =
+          existing.user.status === 'invited' &&
+          timeEntries === 0 &&
+          rates === 0 &&
+          expenses === 0 &&
+          timeOff === 0 &&
+          ai === 0;
+
+        if (unusedForReinvite) {
+          await tx.notification.deleteMany({ where: { userId } });
+          await tx.workingCalendar.deleteMany({ where: { userId } });
+          await tx.overrunAttempt.deleteMany({ where: { userId } });
+          await tx.timesheetPeriod.deleteMany({ where: { userId } });
+          await tx.contractorProfile.deleteMany({ where: { userId } });
+          await tx.user.delete({ where: { id: userId } });
+          deleteFirebase = true;
+        } else {
+          await tx.user.update({
+            where: { id: userId },
+            data: { status: 'disabled' },
+          });
+        }
+      });
+
+      if (deleteFirebase) {
+        await this.firebase.deleteAuthUser(firebaseUid || userEmail);
+      }
+
+      await this.audit.writeAudit({
+        organisationId,
+        actorMembershipId,
+        entityType: ENTITY_TYPE,
+        entityId: id,
+        action: 'delete',
+        oldValue: oldAudit,
+        newValue: null,
+      });
+
+      return { id, deleted: true };
+    } catch (error) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException
+      ) {
+        throw error;
+      }
+      mapPrismaError(error);
+    }
+  }
+
   private async findOwnedOrThrow(
     organisationId: string,
     id: string,

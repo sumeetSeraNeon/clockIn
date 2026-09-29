@@ -50,8 +50,10 @@ export default function TeamPage() {
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [editing, setEditing] = useState<Member | null>(null);
   const [deactivating, setDeactivating] = useState<Member | null>(null);
+  const [deleting, setDeleting] = useState<Member | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [deactivateLoading, setDeactivateLoading] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [allMembers, setAllMembers] = useState<Member[]>([]);
   const [inviteResetLink, setInviteResetLink] = useState<string | null>(null);
@@ -226,7 +228,7 @@ export default function TeamPage() {
     if (!deactivating) return;
     setDeactivateLoading(true);
     try {
-      await api(`/members/${deactivating.id}`, { method: 'DELETE' });
+      await api(`/members/${deactivating.id}/deactivate`, { method: 'POST' });
       toast.success(
         `Deactivated ${deactivating.user.name || deactivating.user.email}`,
       );
@@ -237,6 +239,24 @@ export default function TeamPage() {
       toast.error(getErrorMessage(err, 'Could not deactivate member'));
     } finally {
       setDeactivateLoading(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!deleting) return;
+    setDeleteLoading(true);
+    try {
+      await api(`/members/${deleting.id}`, { method: 'DELETE' });
+      toast.success(
+        `Removed ${deleting.user.name || deleting.user.email} — you can invite this email again`,
+      );
+      setDeleting(null);
+      reload();
+      void loadLookups();
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Could not delete member'));
+    } finally {
+      setDeleteLoading(false);
     }
   }
 
@@ -340,6 +360,7 @@ export default function TeamPage() {
             onEdit={openEdit}
             onApprove={(m) => void handleApprove(m)}
             onDeactivate={setDeactivating}
+            onDelete={setDeleting}
           />
           <Pagination
             page={page}
@@ -444,6 +465,23 @@ export default function TeamPage() {
         onConfirm={() => void handleDeactivate()}
         onCancel={() => {
           if (!deactivateLoading) setDeactivating(null);
+        }}
+      />
+
+      <ConfirmDialog
+        open={Boolean(deleting)}
+        title="Remove from organisation?"
+        description={
+          deleting
+            ? `Remove ${deleting.user.name || deleting.user.email} from the organisation? You can invite this email again. This cannot be undone.`
+            : ''
+        }
+        confirmLabel="Delete"
+        danger
+        loading={deleteLoading}
+        onConfirm={() => void handleDelete()}
+        onCancel={() => {
+          if (!deleteLoading) setDeleting(null);
         }}
       />
     </div>

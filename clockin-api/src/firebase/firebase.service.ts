@@ -154,6 +154,57 @@ export class FirebaseService implements OnModuleInit {
     return { uid, passwordResetLink };
   }
 
+  /**
+   * Best-effort Firebase Auth user deletion (by uid or email).
+   * Logs and continues when the Auth user is already gone.
+   */
+  async deleteAuthUser(uidOrEmail: string): Promise<void> {
+    if (!uidOrEmail?.trim()) return;
+
+    try {
+      this.assertReady();
+    } catch {
+      this.logger.warn(
+        `Skipping Firebase Auth delete for ${uidOrEmail}: Admin not ready`,
+      );
+      return;
+    }
+
+    const raw = uidOrEmail.trim();
+    try {
+      let uid = raw;
+      if (raw.includes('@')) {
+        try {
+          const existing = await this.auth.getUserByEmail(raw.toLowerCase());
+          uid = existing.uid;
+        } catch (error) {
+          const code =
+            error && typeof error === 'object' && 'code' in error
+              ? String((error as { code: string }).code)
+              : '';
+          if (code === 'auth/user-not-found') {
+            return;
+          }
+          throw error;
+        }
+      }
+      await this.auth.deleteUser(uid);
+      this.logger.log(`Deleted Firebase Auth user ${uid}`);
+    } catch (error) {
+      const code =
+        error && typeof error === 'object' && 'code' in error
+          ? String((error as { code: string }).code)
+          : '';
+      if (code === 'auth/user-not-found') {
+        return;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `Could not delete Firebase Auth user ${raw}: ${message}`,
+      );
+    }
+  }
+
   private tryInitFromFile(
     credentialPath: string,
     projectId?: string,

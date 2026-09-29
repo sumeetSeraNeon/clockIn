@@ -39,6 +39,8 @@ export class MailService {
       port,
       secure: port === 465,
       auth: user && pass ? { user, pass } : undefined,
+      // Render free/outbound often cannot reach Gmail over IPv6 (ENETUNREACH).
+      family: 4,
     });
 
     const greeting = opts.inviteeName?.trim()

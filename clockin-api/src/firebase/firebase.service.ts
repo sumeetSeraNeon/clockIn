@@ -34,6 +34,7 @@ export class FirebaseService implements OnModuleInit {
     }
 
     const projectId = this.config.get<string>('FIREBASE_PROJECT_ID');
+    const jsonEnv = this.config.get<string>('FIREBASE_SERVICE_ACCOUNT_JSON');
     const envPath = this.config.get<string>('GOOGLE_APPLICATION_CREDENTIALS');
     const relativeFallback = join(
       process.cwd(),
@@ -42,6 +43,35 @@ export class FirebaseService implements OnModuleInit {
     );
 
     const tried: string[] = [];
+
+    if (jsonEnv?.trim()) {
+      tried.push('FIREBASE_SERVICE_ACCOUNT_JSON');
+      try {
+        const sa = JSON.parse(jsonEnv) as ServiceAccountJson;
+        const resolvedProjectId = sa.project_id || projectId;
+        if (!sa.client_email || !sa.private_key) {
+          throw new Error('missing client_email or private_key');
+        }
+        this.app = initializeApp({
+          credential: cert({
+            projectId: resolvedProjectId,
+            clientEmail: sa.client_email,
+            privateKey: sa.private_key,
+          }),
+          projectId: resolvedProjectId,
+        });
+        this.ready = true;
+        this.logger.log(
+          `Firebase Admin initialised successfully from FIREBASE_SERVICE_ACCOUNT_JSON (project: ${resolvedProjectId})`,
+        );
+        return;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(
+          `Failed to load FIREBASE_SERVICE_ACCOUNT_JSON: ${message}. Falling back to file credentials.`,
+        );
+      }
+    }
 
     if (envPath) {
       tried.push(envPath);
@@ -62,7 +92,7 @@ export class FirebaseService implements OnModuleInit {
       `Firebase Admin failed to initialise. Tried: ${tried.join(' | ')}`,
     );
     throw new ServiceUnavailableException(
-      'Firebase Admin is not configured. Check GOOGLE_APPLICATION_CREDENTIALS or secrets/firebase-service-account.json',
+      'Firebase Admin is not configured. Check FIREBASE_SERVICE_ACCOUNT_JSON, GOOGLE_APPLICATION_CREDENTIALS, or secrets/firebase-service-account.json',
     );
   }
 

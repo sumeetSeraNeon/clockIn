@@ -10,7 +10,7 @@ async function bootstrap() {
     process.env.CORS_ORIGINS ?? 'http://localhost:3001,http://127.0.0.1:3001'
   )
     .split(',')
-    .map((o) => o.trim())
+    .map((o) => o.trim().replace(/\/$/, ''))
     .filter(Boolean);
 
   app.enableCors({
@@ -30,6 +30,15 @@ async function bootstrap() {
     }),
   );
   app.useGlobalFilters(new HttpExceptionFilter());
-  await app.listen(process.env.PORT ?? 3000);
+
+  const rawPort = process.env.PORT;
+  const port =
+    rawPort && String(rawPort).trim() !== ''
+      ? Number(rawPort)
+      : 3000;
+  if (!Number.isFinite(port) || port < 0 || port >= 65536) {
+    throw new Error(`Invalid PORT: ${JSON.stringify(rawPort)}`);
+  }
+  await app.listen(port);
 }
 bootstrap();

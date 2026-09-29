@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "permissions" ADD COLUMN "scope" TEXT;
+ALTER TABLE "permissions" ADD COLUMN "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;

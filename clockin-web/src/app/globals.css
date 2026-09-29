@@ -1,0 +1,229 @@
+@import "tailwindcss";
+
+:root {
+  /* Sera Neon — navy #14142b + coral primary */
+  --coral: #ff494a;
+  --coral-dark: #e03a3b;
+  --coral-tint: #ffe8e8;
+  --ink: #14142b;
+  --navy: #14142b;
+  --slate: #5c5b66;
+  --paper: #f4f4f6;
+  --card: #ffffff;
+  --border: #e2e1e8;
+  --success: #1d9e75;
+  --warning: #ba7517;
+  --danger: #c0392b;
+}
+
+@theme inline {
+  --color-coral: var(--coral);
+  --color-coral-dark: var(--coral-dark);
+  --color-coral-tint: var(--coral-tint);
+  --color-ink: var(--ink);
+  --color-navy: var(--navy);
+  --color-slate: var(--slate);
+  --color-paper: var(--paper);
+  --color-card: var(--card);
+  --color-border: var(--border);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  --radius-control: 6px;
+  --radius-card: 8px;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+/* Main content scroll — no rubber-band, quiet scrollbar */
+.app-scroll {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--slate) 35%, transparent) transparent;
+}
+
+.app-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.app-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.app-scroll::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--slate) 30%, transparent);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.app-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--slate) 50%, transparent);
+}
+
+/* Quiet focus: skip mouse-only focus rings; keep :focus-visible for keyboard */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+:focus-visible:not(input):not(textarea):not(select) {
+  outline: 2px solid color-mix(in srgb, var(--coral) 45%, transparent);
+  outline-offset: 3px;
+}
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+}
+
+/* Screen-reader only utility (Tailwind may already provide sr-only) */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+.focus\:not-sr-only:focus {
+  position: static;
+  width: auto;
+  height: auto;
+  padding: inherit;
+  margin: inherit;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+}
+
+/* FIX 8 — FullCalendar (Sera Neon) */
+.clockin-calendar .fc {
+  --fc-border-color: var(--border);
+  --fc-page-bg-color: transparent;
+  --fc-neutral-bg-color: color-mix(in srgb, var(--paper) 80%, white);
+  --fc-list-event-hover-bg-color: var(--coral-tint);
+  --fc-today-bg-color: color-mix(in srgb, var(--coral-tint) 55%, transparent);
+  --fc-highlight-color: color-mix(in srgb, var(--coral) 18%, transparent);
+  --fc-event-bg-color: var(--coral);
+  --fc-event-border-color: var(--coral-dark);
+  --fc-event-text-color: #ffffff;
+  --fc-button-bg-color: var(--card);
+  --fc-button-border-color: var(--border);
+  --fc-button-text-color: var(--ink);
+  --fc-button-hover-bg-color: var(--coral-tint);
+  --fc-button-hover-border-color: color-mix(in srgb, var(--coral) 40%, var(--border));
+  --fc-button-hover-text-color: var(--ink);
+  --fc-button-active-bg-color: var(--coral);
+  --fc-button-active-border-color: var(--coral-dark);
+  --fc-button-active-text-color: #ffffff;
+  --fc-now-indicator-color: var(--coral);
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  color: var(--ink);
+}
+
+.clockin-calendar .fc .fc-toolbar-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.clockin-calendar .fc .fc-button {
+  border-radius: 8px;
+  box-shadow: none;
+  font-weight: 500;
+  text-transform: none;
+  padding: 0.35rem 0.65rem;
+}
+
+.clockin-calendar .fc .fc-button-primary:not(:disabled).fc-button-active,
+.clockin-calendar .fc .fc-button-primary:not(:disabled):active {
+  background-color: var(--coral);
+  border-color: var(--coral-dark);
+  color: #ffffff;
+}
+
+.clockin-calendar .fc .fc-col-header-cell-cushion,
+.clockin-calendar .fc .fc-daygrid-day-number {
+  color: var(--slate);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.clockin-calendar .fc .fc-daygrid-day.fc-day-today .fc-daygrid-day-number {
+  color: var(--coral-dark);
+  font-weight: 700;
+}
+
+.clockin-calendar .fc .fc-event {
+  border-radius: 6px;
+  border-width: 1px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 1px 4px;
+  cursor: pointer;
+}
+
+/* FINAL FIX 5 — locked (submitted / approved) entries: grey, read-only look */
+.clockin-calendar .fc .fc-event.fc-event-locked {
+  background-color: #8a8884 !important;
+  border-color: #5f5e5a !important;
+  opacity: 0.85;
+  cursor: default;
+  filter: grayscale(0.35);
+}
+
+.clockin-calendar .fc .fc-event.fc-event-running {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--coral) 50%, transparent);
+}
+
+.clockin-calendar .fc .fc-timegrid-slot-label-cushion {
+  color: var(--slate);
+  font-size: 0.75rem;
+}
+
+.clockin-calendar .fc .fc-scrollgrid {
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+@media (max-width: 640px) {
+  .clockin-calendar .fc .fc-toolbar {
+    flex-direction: column;
+    gap: 0.5rem;
+    align-items: stretch;
+  }
+
+  .clockin-calendar .fc .fc-toolbar-chunk {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+  }
+
+  .clockin-calendar .fc .fc-toolbar-title {
+    font-size: 1rem;
+    text-align: center;
+  }
+}

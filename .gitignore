@@ -1,0 +1,32 @@
+# Root safety net for clockIn monorepo push
+# (also covered by clockin-api/.gitignore and clockin-web/.gitignore)
+
+# dependencies & build
+**/node_modules/
+**/dist/
+**/.next/
+**/out/
+**/build/
+**/coverage/
+
+# secrets — never commit
+**/.env
+**/.env.local
+**/.env.*.local
+!**/.env.example
+**/secrets/
+**/firebase-service-account*.json
+**/*-firebase-adminsdk-*.json
+**/*.pem
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+
+# logs & caches
+*.log
+**/.eslintcache
+**/*.tsbuildinfo
+**/.vercel/

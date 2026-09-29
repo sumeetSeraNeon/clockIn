@@ -1,0 +1,1208 @@
+// ============================================================
+// ClockIn — COMPLETE Prisma schema (ALL PHASES 1–6)
+// 45 tables. Converted from ClockIn_Schema_AllPhases.dbml.
+// Schema exists up front; backend LOGIC is built phase by phase.
+// British spelling: organisation (not organization).
+// Money: Decimal / decimal(14,2). Hours: Decimal with DBML precision.
+// Timestamps stored in UTC (timestamptz).
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// PHASE 1 — IDENTITY, TENANCY & ACCESS
+// ============================================================
+
+/// The tenant. Every tenant-owned row carries organisationId.
+model Organisation {
+  id        String   @id @default(uuid())
+  name      String
+  code      String?
+  currency  String   @default("GBP")
+  timezone  String   @default("UTC")
+  /// active | suspended
+  status    String   @default("active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  memberships            Membership[]
+  roles                  Role[]
+  clients                Client[]
+  projects               Project[]
+  tasks                  Task[]
+  tickets                Ticket[]
+  timeEntries            TimeEntry[]
+  timeLines              TimeLine[]
+  tags                   Tag[]
+  rates                  Rate[]
+  workingCalendars       WorkingCalendar[]
+  holidays               Holiday[]
+  auditEvents            AuditEvent[]
+  changeRequests         ChangeRequest[]
+  crConsumptions         CrConsumption[]
+  overrunAttempts        OverrunAttempt[]
+  invoices               Invoice[]
+  invoiceAllocations     InvoiceAllocation[]
+  timesheetPeriods       TimesheetPeriod[]
+  timesheetPeriodSlices  TimesheetPeriodSlice[]
+  approvals              Approval[]
+  expenses               Expense[]
+  timeOffPolicies        TimeOffPolicy[]
+  timeOffRequests        TimeOffRequest[]
+  forecasts              Forecast[]
+  alertRules             AlertRule[]
+  notifications          Notification[]
+  riskFlags              RiskFlag[]
+  subscription           Subscription?
+  entitlements           Entitlement[]
+  customFieldDefs        CustomFieldDef[]
+  customFieldValues      CustomFieldValue[]
+  configurableWorkTypes  ConfigurableWorkType[]
+  branding               Branding?
+  apiKeys                ApiKey[]
+  webhooks               Webhook[]
+  contractorProfiles     ContractorProfile[]
+  supplierInvoices       SupplierInvoice[]
+  portalAccess           PortalAccess[]
+  workflowRules          WorkflowRule[]
+  aiInteractions         AiInteraction[]
+
+  @@map("organisations")
+}
+
+/// A person's login. Shared across the suite (staff, contractors, client contacts).
+model User {
+  id String @id @default(uuid())
+  email String @unique
+  name  String?
+  /// Firebase Auth UID — linked on first successful login after email match
+  firebaseUid String? @unique @map("firebase_uid")
+  /// firebase | google | microsoft | local (local = seed/dev only)
+  authProvider String? @map("auth_provider")
+  timezone     String?
+  /// External resource (Phase 6)
+  isContractor Boolean @default(false) @map("is_contractor")
+  /// active | invited | disabled
+  status    String   @default("active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  memberships        Membership[]
+  timeEntries        TimeEntry[]
+  rates              Rate[]
+  workingCalendars   WorkingCalendar[]
+  overrunAttempts    OverrunAttempt[]
+  timesheetPeriods   TimesheetPeriod[]
+  expenses           Expense[]
+  timeOffRequests    TimeOffRequest[]
+  notifications      Notification[]
+  contractorProfiles ContractorProfile[]
+  aiInteractions     AiInteraction[]
+
+  @@map("users")
+}
+
+/// Links a user to an organisation and (for portal users) to a client.
+model Membership {
+  id             String  @id @default(uuid())
+  organisationId String  @map("organisation_id")
+  userId         String  @map("user_id")
+  /// staff | contractor | client_contact
+  memberType     String  @default("staff") @map("member_type")
+  /// Set only when memberType = client_contact (portal user)
+  clientId       String? @map("client_id")
+  department     String?
+  /// Another membership: who this person reports to
+  managerId      String? @map("manager_id")
+  /// active | deactivated
+  status         String  @default("active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+  client       Client?      @relation("MembershipClient", fields: [clientId], references: [id])
+  manager      Membership?  @relation("MembershipManager", fields: [managerId], references: [id])
+  reports      Membership[] @relation("MembershipManager")
+
+  membershipRoles MembershipRole[]
+
+  ownedClients            Client[]        @relation("ClientOwner")
+  ownedProjects           Project[]       @relation("ProjectOwner")
+  assignedTasks           Task[]          @relation("TaskAssignee")
+  auditEvents             AuditEvent[]    @relation("AuditActor")
+  approvedChangeRequests  ChangeRequest[] @relation("CrApprovedBy")
+  approvals               Approval[]      @relation("ApprovalApprover")
+  timeOffApprovals        TimeOffRequest[] @relation("TimeOffApprover")
+  createdApiKeys          ApiKey[]        @relation("ApiKeyCreatedBy")
+  portalAccess            PortalAccess[]
+
+  @@unique([organisationId, userId])
+  @@index([organisationId])
+  @@index([userId])
+  @@map("memberships")
+}
+
+model Role {
+  id             String  @id @default(uuid())
+  organisationId String  @map("organisation_id")
+  /// owner | admin | project_manager | team_manager | member
+  name           String
+  isSystem       Boolean @default(true) @map("is_system")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation     Organisation      @relation(fields: [organisationId], references: [id])
+  membershipRoles  MembershipRole[]
+  permissions      Permission[]
+
+  @@index([organisationId])
+  @@map("roles")
+}
+
+model MembershipRole {
+  id           String @id @default(uuid())
+  membershipId String @map("membership_id")
+  roleId       String @map("role_id")
+
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([membershipId, roleId])
+  @@index([membershipId])
+  @@index([roleId])
+  @@map("membership_roles")
+}
+
+/// Field- and resource-level control. Hides CR financial values from time users.
+model Permission {
+  id       String  @id @default(uuid())
+  roleId   String  @map("role_id")
+  /// e.g. project, task, time_entry, report, membership
+  resource String
+  /// view | edit | approve | set
+  action   String
+  /// Row scope: own | managed | all. Null = action has no row scope (treated as all).
+  scope    String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@index([roleId])
+  @@map("permissions")
+}
+
+// ============================================================
+// PHASE 1 — CLIENTS, PROJECTS, TASKS, TICKETS
+// ============================================================
+
+model Client {
+  id             String  @id @default(uuid())
+  organisationId String  @map("organisation_id")
+  name           String
+  code           String?
+  currency       String?
+  /// Account manager (membership)
+  ownerId        String? @map("owner_id")
+  /// active | inactive | archived
+  status         String  @default("active")
+  /// CRM id — hook for the future CRM product
+  externalRef    String? @map("external_ref")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  owner        Membership?  @relation("ClientOwner", fields: [ownerId], references: [id])
+
+  portalMemberships  Membership[] @relation("MembershipClient")
+  projects           Project[]
+  tickets            Ticket[]
+  timeLines          TimeLine[]
+  rates              Rate[]
+  changeRequests     ChangeRequest[]
+  invoices           Invoice[]
+  expenses           Expense[]
+  portalAccess       PortalAccess[]
+
+  @@index([organisationId])
+  @@index([ownerId])
+  @@map("clients")
+}
+
+model Project {
+  id                String    @id @default(uuid())
+  organisationId    String    @map("organisation_id")
+  clientId          String    @map("client_id")
+  name              String
+  code              String?
+  /// Project manager (membership)
+  ownerId           String?   @map("owner_id")
+  startDate         DateTime? @map("start_date") @db.Date
+  endDate           DateTime? @map("end_date") @db.Date
+  /// planned | active | on_hold | completed | archived
+  status            String    @default("active")
+  budgetHours       Decimal?  @map("budget_hours") @db.Decimal(12, 2)
+  budgetValue       Decimal?  @map("budget_value") @db.Decimal(14, 2)
+  billableByDefault Boolean   @default(true) @map("billable_by_default")
+  color             String?
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  client       Client       @relation(fields: [clientId], references: [id])
+  owner        Membership?  @relation("ProjectOwner", fields: [ownerId], references: [id])
+
+  tasks              Task[]
+  tickets            Ticket[]
+  timeLines          TimeLine[]
+  rates              Rate[]
+  changeRequests     ChangeRequest[]
+  invoices           Invoice[]
+  invoiceAllocations InvoiceAllocation[]
+  expenses           Expense[]
+  forecasts          Forecast[]
+  timesheetPeriodSlices TimesheetPeriodSlice[]
+
+  @@index([organisationId])
+  @@index([clientId])
+  @@index([ownerId])
+  @@map("projects")
+}
+
+model Task {
+  id             String   @id @default(uuid())
+  organisationId String   @map("organisation_id")
+  projectId      String   @map("project_id")
+  name           String
+  /// open | done | archived
+  status         String   @default("open")
+  /// Membership
+  assigneeId     String?  @map("assignee_id")
+  estimatedHours Decimal? @map("estimated_hours") @db.Decimal(12, 2)
+  billable       Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  project      Project      @relation(fields: [projectId], references: [id])
+  assignee     Membership?  @relation("TaskAssignee", fields: [assigneeId], references: [id])
+
+  timeLines TimeLine[]
+  rates     Rate[]
+
+  @@index([organisationId])
+  @@index([projectId])
+  @@index([assigneeId])
+  @@map("tasks")
+}
+
+/// A client-raised work item (incident or service request). Time logs against it.
+model Ticket {
+  id             String    @id @default(uuid())
+  organisationId String    @map("organisation_id")
+  clientId       String    @map("client_id")
+  projectId      String?   @map("project_id")
+  /// Human reference e.g. INC-1042, SR-88
+  reference      String
+  /// incident | service_request
+  ticketType     String    @map("ticket_type")
+  title          String?
+  description    String?   @db.Text
+  /// open | in_progress | resolved | closed
+  status         String    @default("open")
+  /// low | medium | high | critical
+  priority       String?
+  /// Client contact who raised it
+  raisedBy       String?   @map("raised_by")
+  openedAt       DateTime? @map("opened_at") @db.Timestamptz
+  resolvedAt     DateTime? @map("resolved_at") @db.Timestamptz
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  client       Client       @relation(fields: [clientId], references: [id])
+  project      Project?     @relation(fields: [projectId], references: [id])
+
+  timeLines TimeLine[]
+
+  @@unique([organisationId, reference])
+  @@index([organisationId])
+  @@index([clientId])
+  @@index([projectId])
+  @@map("tickets")
+}
+
+// ============================================================
+// PHASE 1 — TIME (two levels: entry -> lines)
+// ============================================================
+
+/// A block of time. Contains one or more time_lines (first line mandatory).
+/// Running timer = endTime is null. Duration is computed, not stored.
+model TimeEntry {
+  id             String    @id @default(uuid())
+  organisationId String    @map("organisation_id")
+  userId         String    @map("user_id")
+  entryDate      DateTime  @map("entry_date") @db.Date
+  /// NULL endTime = timer running
+  startTime      DateTime? @map("start_time") @db.Timestamptz
+  endTime        DateTime? @map("end_time") @db.Timestamptz
+  /// draft | submitted | approved | rejected | locked
+  status         String    @default("draft")
+  /// timer | manual | import | api | ai_assistant
+  source         String    @default("timer")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+
+  timeLines TimeLine[]
+
+  @@index([organisationId, entryDate])
+  @@index([userId, entryDate])
+  @@map("time_entries")
+}
+
+/// One activity within a time entry. The real unit of reporting and billing.
+model TimeLine {
+  id             String  @id @default(uuid())
+  organisationId String  @map("organisation_id")
+  timeEntryId    String  @map("time_entry_id")
+  taskId         String? @map("task_id")
+  /// Denormalized for reporting speed
+  projectId      String? @map("project_id")
+  /// Denormalized for reporting speed
+  clientId       String? @map("client_id")
+  /// Required when ticketType = cr
+  crId           String? @map("cr_id")
+  /// Links work to a client-raised ticket (incident/SR)
+  ticketId       String? @map("ticket_id")
+  /// incident | cr | sr
+  ticketType     String? @map("ticket_type")
+  /// functional | technical | integration | pm
+  area           String?
+  /// Mandatory if ticketType = cr
+  crNumber       String? @map("cr_number")
+  durationMinutes Int    @map("duration_minutes")
+  billable       Boolean @default(false)
+  description    String? @db.Text
+  /// The mandatory line of the entry
+  isFirstLine    Boolean @default(false) @map("is_first_line")
+  /// draft | submitted | approved | rejected
+  status         String  @default("draft")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation Organisation   @relation(fields: [organisationId], references: [id])
+  timeEntry    TimeEntry      @relation(fields: [timeEntryId], references: [id], onDelete: Cascade)
+  task         Task?          @relation(fields: [taskId], references: [id])
+  project      Project?       @relation(fields: [projectId], references: [id])
+  client       Client?        @relation(fields: [clientId], references: [id])
+  changeRequest ChangeRequest? @relation(fields: [crId], references: [id])
+  ticket       Ticket?        @relation(fields: [ticketId], references: [id])
+
+  timeLineTags TimeLineTag[]
+
+  @@index([organisationId, crId])
+  @@index([organisationId, taskId])
+  @@index([timeEntryId])
+  @@index([projectId])
+  @@index([clientId])
+  @@index([ticketId])
+  @@index([status])
+  @@map("time_lines")
+}
+
+model Tag {
+  id             String   @id @default(uuid())
+  organisationId String   @map("organisation_id")
+  name           String
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation Organisation  @relation(fields: [organisationId], references: [id])
+  timeLineTags TimeLineTag[]
+
+  @@index([organisationId])
+  @@map("tags")
+}
+
+model TimeLineTag {
+  id         String @id @default(uuid())
+  timeLineId String @map("time_line_id")
+  tagId      String @map("tag_id")
+
+  timeLine TimeLine @relation(fields: [timeLineId], references: [id], onDelete: Cascade)
+  tag      Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([timeLineId, tagId])
+  @@index([timeLineId])
+  @@index([tagId])
+  @@map("time_line_tags")
+}
+
+// ============================================================
+// PHASE 1 — RATES, CALENDAR, AUDIT
+// ============================================================
+
+/// Most specific scope wins. Cost vs billable. Never overwrite — insert a new row.
+model Rate {
+  id             String    @id @default(uuid())
+  organisationId String    @map("organisation_id")
+  /// cost | billable
+  rateType       String    @map("rate_type")
+  /// organisation | client | project | user | task | project_user
+  scope          String
+  clientId       String?   @map("client_id")
+  projectId      String?   @map("project_id")
+  userId         String?   @map("user_id")
+  taskId         String?   @map("task_id")
+  amount         Decimal   @db.Decimal(14, 2)
+  currency       String?
+  /// Rate history: never overwrite, add a new row
+  effectiveFrom  DateTime  @map("effective_from") @db.Date
+  /// NULL = current
+  effectiveTo    DateTime? @map("effective_to") @db.Date
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  client       Client?      @relation(fields: [clientId], references: [id])
+  project      Project?     @relation(fields: [projectId], references: [id])
+  user         User?        @relation(fields: [userId], references: [id])
+  task         Task?        @relation(fields: [taskId], references: [id])
+
+  @@index([organisationId, rateType, scope])
+  @@index([clientId])
+  @@index([projectId])
+  @@index([userId])
+  @@index([taskId])
+  @@map("rates")
+}
+
+/// Expected hours/workdays. Feeds utilisation and compliance.
+model WorkingCalendar {
+  id             String    @id @default(uuid())
+  organisationId String    @map("organisation_id")
+  /// NULL = organisation default
+  userId         String?   @map("user_id")
+  /// Expected hours/week, for utilisation
+  weeklyHours    Decimal?  @map("weekly_hours") @db.Decimal(6, 2)
+  /// e.g. Mon-Fri
+  workdays       String?
+  effectiveFrom  DateTime? @map("effective_from") @db.Date
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  user         User?        @relation(fields: [userId], references: [id])
+
+  @@index([organisationId])
+  @@index([userId])
+  @@map("working_calendar")
+}
+
+model Holiday {
+  id             String    @id @default(uuid())
+  organisationId String    @map("organisation_id")
+  name           String?
+  holidayDate    DateTime? @map("holiday_date") @db.Date
+  country        String?
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+
+  @@index([organisationId])
+  @@map("holidays")
+}
+
+/// Immutable history. Writes from day one; never update or delete rows.
+model AuditEvent {
+  id             String   @id @default(uuid())
+  organisationId String   @map("organisation_id")
+  /// Membership who did it
+  actorId        String?  @map("actor_id")
+  /// time_entry | cr | invoice | rate ...
+  entityType     String   @map("entity_type")
+  entityId       String   @map("entity_id")
+  /// create | update | delete | submit | approve | unlock ...
+  action         String
+  oldValue       Json?    @map("old_value")
+  newValue       Json?    @map("new_value")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  actor        Membership?  @relation("AuditActor", fields: [actorId], references: [id])
+
+  @@index([organisationId, entityType, entityId])
+  @@index([actorId])
+  @@map("audit_events")
+}
+
+// ============================================================
+// PHASE 2 — CHANGE REQUESTS (commercial core)
+// ============================================================
+
+/// A formal approved unit of billable work. Time is logged against it.
+model ChangeRequest {
+  id             String    @id @default(uuid())
+  organisationId String    @map("organisation_id")
+  clientId       String    @map("client_id")
+  projectId      String    @map("project_id")
+  crNumber       String    @map("cr_number")
+  description    String?   @db.Text
+  /// draft | approved | in_progress | closed
+  status         String    @default("draft")
+  /// Approved monetary value — permission-protected
+  valueAmount    Decimal?  @map("value_amount") @db.Decimal(14, 2)
+  valueCurrency  String?   @map("value_currency")
+  /// Approved hours ceiling
+  budgetHours    Decimal?  @map("budget_hours") @db.Decimal(12, 2)
+  approvedBy     String?   @map("approved_by")
+  approvedAt     DateTime? @map("approved_at") @db.Timestamptz
+  startDate      DateTime? @map("start_date") @db.Date
+  endDate        DateTime? @map("end_date") @db.Date
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  client       Client       @relation(fields: [clientId], references: [id])
+  project      Project      @relation(fields: [projectId], references: [id])
+  approver     Membership?  @relation("CrApprovedBy", fields: [approvedBy], references: [id])
+
+  timeLines          TimeLine[]
+  crConsumptions     CrConsumption[]
+  overrunAttempts    OverrunAttempt[]
+  invoiceAllocations InvoiceAllocation[]
+  expenses           Expense[]
+  forecasts          Forecast[]
+
+  @@unique([organisationId, crNumber])
+  @@index([organisationId])
+  @@index([clientId])
+  @@index([projectId])
+  @@map("change_requests")
+}
+
+/// Rolling total of eligible time against a CR budget. Drives alerts.
+model CrConsumption {
+  id               String    @id @default(uuid())
+  organisationId   String    @map("organisation_id")
+  crId             String    @map("cr_id")
+  consumedHours    Decimal?  @map("consumed_hours") @db.Decimal(12, 2)
+  consumedValue    Decimal?  @map("consumed_value") @db.Decimal(14, 2)
+  lastCalculatedAt DateTime? @map("last_calculated_at") @db.Timestamptz
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation  Organisation  @relation(fields: [organisationId], references: [id])
+  changeRequest ChangeRequest @relation(fields: [crId], references: [id])
+
+  @@index([organisationId])
+  @@index([crId])
+  @@map("cr_consumption")
+}
+
+/// Blocked attempt to log to an exhausted CR. Kept as commercial-demand evidence.
+model OverrunAttempt {
+  id               String    @id @default(uuid())
+  organisationId   String    @map("organisation_id")
+  crId             String    @map("cr_id")
+  userId           String    @map("user_id")
+  attemptedDate    DateTime? @map("attempted_date") @db.Date
+  attemptedMinutes Int?      @map("attempted_minutes")
+  reason           String?   @db.Text
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  organisation  Organisation  @relation(fields: [organisationId], references: [id])
+  changeRequest ChangeRequest @relation(fields: [crId], references: [id])
+  user          User          @relation(fields: [userId], references: [id])
+
+  @@index([organisationId])
+  @@index([crId])
+  @@index([userId])
+  @@map("overrun_attempts")
+}
+
+// ============================================================
+// PHASE 2 — INVOICING
+// ============================================================
+
+/// Its own entity. Never store invoice number/amount on time lines.
+model Invoice {
+  id             String    @id @default(uuid())
+  organisationId String    @map("organisation_id")
+  clientId       String    @map("client_id")
+  projectId      String?   @map("project_id")
+  invoiceNumber  String?   @map("invoice_number")
+  issueDate      DateTime? @map("issue_date") @db.Date
+  dueDate        DateTime? @map("due_date") @db.Date
+  totalAmount    Decimal?  @map("total_amount") @db.Decimal(14, 2)
+  currency       String?
+  /// not_invoiced | ready | raised | partially_invoiced | fully_invoiced | paid | overdue
+  status         String    @default("not_invoiced")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  client       Client       @relation(fields: [clientId], references: [id])
+  project      Project?     @relation(fields: [projectId], references: [id])
+
+  allocations InvoiceAllocation[]
+
+  @@index([organisationId])
+  @@index([clientId])
+  @@index([projectId])
+  @@map("invoices")
+}
+
+/// Links billable work/value to an invoice. One CR can span many invoices.
+model InvoiceAllocation {
+  id             String   @id @default(uuid())
+  organisationId String   @map("organisation_id")
+  invoiceId      String   @map("invoice_id")
+  crId           String?  @map("cr_id")
+  projectId      String?  @map("project_id")
+  amount         Decimal? @db.Decimal(14, 2)
+  hours          Decimal? @db.Decimal(12, 2)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organisation  Organisation   @relation(fields: [organisationId], references: [id])
+  invoice       Invoice        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  changeRequest ChangeRequest? @relation(fields: [crId], references: [id])
+  project       Project?       @relation(fields: [projectId], references: [id])
+
+  @@index([organisationId])
+  @@index([invoiceId])
+  @@index([crId])
+  @@index([projectId])
+  @@map("invoice_allocations")
+}
+
+// ============================================================
+// PHASE 3 — APPROVALS, TIMESHEETS, LEAVE, FORECASTS
+// ============================================================
+
+/// A submittable/approvable week or month of time.
+model TimesheetPeriod {
+  id             String    @id @default(uuid())
+  organisationId String    @map("organisation_id")
+  userId         String    @map("user_id")
+  periodStart    DateTime? @map("period_start") @db.Date
+  periodEnd      DateTime? @map("period_end") @db.Date
+  /// draft | submitted | approved | rejected | locked
+  status         String    @default("draft")
+  submittedAt    DateTime? @map("submitted_at") @db.Timestamptz
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+
+  approvals Approval[]
+  slices    TimesheetPeriodSlice[]
+
+  @@index([organisationId])
+  @@index([userId])
+  @@map("timesheet_periods")
+}
+
+/// Phase2 FIX4 — per-project approval unit under one submitted period.
+/// Project manager (project.ownerId) approves their slice; null project → line manager.
+model TimesheetPeriodSlice {
+  id                String    @id @default(uuid())
+  organisationId    String    @map("organisation_id")
+  timesheetPeriodId String    @map("timesheet_period_id")
+  /// Null = time with no project (line-manager bucket)
+  projectId         String?   @map("project_id")
+  /// submitted | approved | rejected
+  status            String    @default("submitted")
+  decidedAt         DateTime? @map("decided_at") @db.Timestamptz
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation     Organisation    @relation(fields: [organisationId], references: [id])
+  timesheetPeriod  TimesheetPeriod @relation(fields: [timesheetPeriodId], references: [id], onDelete: Cascade)
+  project          Project?        @relation(fields: [projectId], references: [id])
+
+  @@index([organisationId])
+  @@index([timesheetPeriodId])
+  @@index([projectId])
+  @@index([status])
+  @@map("timesheet_period_slices")
+}
+
+model Approval {
+  id                String    @id @default(uuid())
+  organisationId    String    @map("organisation_id")
+  timesheetPeriodId String?   @map("timesheet_period_id")
+  /// Phase2 FIX4 — optional slice this decision applied to
+  timesheetPeriodSliceId String? @map("timesheet_period_slice_id")
+  approverId        String?   @map("approver_id")
+  /// approved | rejected | unlocked
+  decision          String?
+  /// Required on rejection or unlock
+  reason            String?   @db.Text
+  decidedAt         DateTime? @map("decided_at") @db.Timestamptz
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  organisation     Organisation     @relation(fields: [organisationId], references: [id])
+  timesheetPeriod  TimesheetPeriod? @relation(fields: [timesheetPeriodId], references: [id])
+  approver         Membership?      @relation("ApprovalApprover", fields: [approverId], references: [id])
+
+  @@index([organisationId])
+  @@index([timesheetPeriodId])
+  @@index([approverId])
+  @@map("approvals")
+}
+
+model Expense {
+  id             String    @id @default(uuid())
+  organisationId String    @map("organisation_id")
+  userId         String    @map("user_id")
+  projectId      String?   @map("project_id")
+  clientId       String?   @map("client_id")
+  crId           String?   @map("cr_id")
+  category       String?
+  amount         Decimal?  @db.Decimal(14, 2)
+  currency       String?
+  /// For unit-based expenses
+  quantity       Decimal?  @db.Decimal(12, 2)
+  billable       Boolean   @default(false)
+  description    String?   @db.Text
+  /// File in object storage
+  receiptUrl     String?   @map("receipt_url")
+  /// draft | submitted | approved | rejected
+  status         String    @default("draft")
+  expenseDate    DateTime? @map("expense_date") @db.Date
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation  Organisation   @relation(fields: [organisationId], references: [id])
+  user          User           @relation(fields: [userId], references: [id])
+  project       Project?       @relation(fields: [projectId], references: [id])
+  client        Client?        @relation(fields: [clientId], references: [id])
+  changeRequest ChangeRequest? @relation(fields: [crId], references: [id])
+
+  @@index([organisationId])
+  @@index([userId])
+  @@index([projectId])
+  @@index([clientId])
+  @@index([crId])
+  @@map("expenses")
+}
+
+model TimeOffPolicy {
+  id             String   @id @default(uuid())
+  organisationId String   @map("organisation_id")
+  name           String?
+  /// days | hours
+  unit           String?
+  accrualRule    String?  @map("accrual_rule")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation Organisation     @relation(fields: [organisationId], references: [id])
+  requests     TimeOffRequest[]
+
+  @@index([organisationId])
+  @@map("time_off_policies")
+}
+
+model TimeOffRequest {
+  id             String    @id @default(uuid())
+  organisationId String    @map("organisation_id")
+  userId         String    @map("user_id")
+  policyId       String?   @map("policy_id")
+  startDate      DateTime? @map("start_date") @db.Date
+  endDate        DateTime? @map("end_date") @db.Date
+  hours          Decimal?  @db.Decimal(8, 2)
+  /// requested | approved | rejected
+  status         String    @default("requested")
+  approverId     String?   @map("approver_id")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation Organisation   @relation(fields: [organisationId], references: [id])
+  user         User           @relation(fields: [userId], references: [id])
+  policy       TimeOffPolicy? @relation(fields: [policyId], references: [id])
+  approver     Membership?    @relation("TimeOffApprover", fields: [approverId], references: [id])
+
+  @@index([organisationId])
+  @@index([userId])
+  @@index([policyId])
+  @@index([approverId])
+  @@map("time_off_requests")
+}
+
+/// Stored forecast snapshots for burn-down and exhaustion prediction.
+model Forecast {
+  id             String    @id @default(uuid())
+  organisationId String    @map("organisation_id")
+  crId           String?   @map("cr_id")
+  projectId      String?   @map("project_id")
+  /// burn | budget_exhaustion | capacity
+  forecastType   String?   @map("forecast_type")
+  /// e.g. predicted CR exhaustion date
+  projectedDate  DateTime? @map("projected_date") @db.Date
+  projectedValue Decimal?  @map("projected_value") @db.Decimal(14, 2)
+  calculatedAt   DateTime? @map("calculated_at") @db.Timestamptz
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  organisation  Organisation   @relation(fields: [organisationId], references: [id])
+  changeRequest ChangeRequest? @relation(fields: [crId], references: [id])
+  project       Project?       @relation(fields: [projectId], references: [id])
+
+  @@index([organisationId])
+  @@index([crId])
+  @@index([projectId])
+  @@map("forecasts")
+}
+
+// ============================================================
+// PHASE 4 — ALERTS, NOTIFICATIONS, RISK
+// ============================================================
+
+/// Configurable trigger definitions for the automation engine.
+model AlertRule {
+  id             String   @id @default(uuid())
+  organisationId String   @map("organisation_id")
+  /// cr_threshold | missing_time | uninvoiced | budget | risk
+  ruleType       String?  @map("rule_type")
+  /// e.g. 80,90,100
+  threshold      String?
+  targetRole     String?  @map("target_role")
+  /// in_app | email | both
+  channel        String?
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation  Organisation   @relation(fields: [organisationId], references: [id])
+  notifications Notification[]
+
+  @@index([organisationId])
+  @@map("alert_rules")
+}
+
+/// A delivered alert to a specific user.
+model Notification {
+  id             String   @id @default(uuid())
+  organisationId String   @map("organisation_id")
+  userId         String   @map("user_id")
+  alertRuleId    String?  @map("alert_rule_id")
+  title          String?
+  body           String?  @db.Text
+  /// cr | timesheet | invoice ...
+  entityType     String?  @map("entity_type")
+  entityId       String?  @map("entity_id")
+  isRead         Boolean  @default(false) @map("read")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+  alertRule    AlertRule?   @relation(fields: [alertRuleId], references: [id])
+
+  @@index([organisationId])
+  @@index([userId])
+  @@index([alertRuleId])
+  @@map("notifications")
+}
+
+/// Detected unusual burn/margin/delivery patterns (rules now, AI later).
+model RiskFlag {
+  id             String    @id @default(uuid())
+  organisationId String    @map("organisation_id")
+  /// cr | project
+  entityType     String?   @map("entity_type")
+  entityId       String?   @map("entity_id")
+  /// burn | margin | delivery
+  riskType       String?   @map("risk_type")
+  /// low | medium | high
+  severity       String?
+  detail         String?   @db.Text
+  detectedAt     DateTime? @map("detected_at") @db.Timestamptz
+  resolved       Boolean   @default(false)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+
+  @@index([organisationId])
+  @@index([organisationId, entityType, entityId])
+  @@map("risk_flags")
+}
+
+// ============================================================
+// PHASE 5 — SaaS: SUBSCRIPTIONS, ENTITLEMENTS, CUSTOM FIELDS,
+//            BRANDING, API/WEBHOOKS
+// ============================================================
+
+/// One per organisation. Mirrors the payment provider.
+model Subscription {
+  id                String    @id @default(uuid())
+  organisationId    String    @unique @map("organisation_id")
+  /// free | standard | pro | enterprise
+  plan              String
+  seats             Int?
+  /// trialing | active | past_due | canceled
+  status            String?
+  trialEndsAt       DateTime? @map("trial_ends_at") @db.Timestamptz
+  stripeCustomerId  String?   @map("stripe_customer_id")
+  currentPeriodEnd  DateTime? @map("current_period_end") @db.Timestamptz
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+
+  @@map("subscriptions")
+}
+
+/// Central feature flags. Never hard-code plan names in the app.
+model Entitlement {
+  id             String   @id @default(uuid())
+  organisationId String   @map("organisation_id")
+  /// can_invoice, max_members, cr_module, api_access ...
+  featureKey     String   @map("feature_key")
+  /// true/false or a numeric limit
+  value          String?
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+
+  @@unique([organisationId, featureKey])
+  @@index([organisationId])
+  @@map("entitlements")
+}
+
+/// Metadata-driven custom fields. Solves the Clockify customisation limit.
+model CustomFieldDef {
+  id             String   @id @default(uuid())
+  organisationId String   @map("organisation_id")
+  /// time_line | user | project | ticket ...
+  entityType     String?  @map("entity_type")
+  fieldKey       String?  @map("field_key")
+  fieldLabel     String?  @map("field_label")
+  /// text | number | date | select
+  fieldType      String?  @map("field_type")
+  /// For select fields
+  options        Json?
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation Organisation       @relation(fields: [organisationId], references: [id])
+  values       CustomFieldValue[]
+
+  @@index([organisationId])
+  @@map("custom_field_defs")
+}
+
+/// The actual value of a custom field on a specific record.
+model CustomFieldValue {
+  id             String  @id @default(uuid())
+  organisationId String  @map("organisation_id")
+  fieldDefId     String  @map("field_def_id")
+  entityType     String? @map("entity_type")
+  entityId       String  @map("entity_id")
+  value          String? @db.Text
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation Organisation   @relation(fields: [organisationId], references: [id])
+  fieldDef     CustomFieldDef @relation(fields: [fieldDefId], references: [id], onDelete: Cascade)
+
+  @@index([organisationId, entityType, entityId])
+  @@index([fieldDefId])
+  @@map("custom_field_values")
+}
+
+/// Replaces hard-coded dropdowns (ticket types, areas) with tenant config.
+model ConfigurableWorkType {
+  id             String   @id @default(uuid())
+  organisationId String   @map("organisation_id")
+  /// ticket_type | area | status
+  kind           String?
+  value          String?
+  label          String?
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+
+  @@index([organisationId])
+  @@map("configurable_work_types")
+}
+
+/// White-labelling / branding per tenant.
+model Branding {
+  id            String   @id @default(uuid())
+  organisationId String  @unique @map("organisation_id")
+  logoUrl       String?  @map("logo_url")
+  primaryColor  String?  @map("primary_color")
+  emailFromName String?  @map("email_from_name")
+  customDomain  String?  @map("custom_domain")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+
+  @@map("branding")
+}
+
+model ApiKey {
+  id             String    @id @default(uuid())
+  organisationId String    @map("organisation_id")
+  name           String?
+  /// Store a hash, never the raw key
+  keyHash        String?   @map("key_hash")
+  /// Comma-separated permissions
+  scopes         String?
+  createdBy      String?   @map("created_by")
+  lastUsedAt     DateTime? @map("last_used_at") @db.Timestamptz
+  revoked        Boolean   @default(false)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  creator      Membership?  @relation("ApiKeyCreatedBy", fields: [createdBy], references: [id])
+
+  @@index([organisationId])
+  @@index([createdBy])
+  @@map("api_keys")
+}
+
+model Webhook {
+  id             String   @id @default(uuid())
+  organisationId String   @map("organisation_id")
+  targetUrl      String?  @map("target_url")
+  /// e.g. cr.threshold, invoice.paid
+  eventTypes     String?  @map("event_types")
+  secret         String?
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+
+  @@index([organisationId])
+  @@map("webhooks")
+}
+
+// ============================================================
+// PHASE 6 — EXPANSION: CONTRACTORS, PORTAL, WORKFLOW, AI
+// ============================================================
+
+/// External resource details. Time -> approval -> supplier invoice.
+model ContractorProfile {
+  id             String    @id @default(uuid())
+  organisationId String    @map("organisation_id")
+  userId         String    @map("user_id")
+  supplierName   String?   @map("supplier_name")
+  contractRate   Decimal?  @map("contract_rate") @db.Decimal(14, 2)
+  currency       String?
+  startDate      DateTime? @map("start_date") @db.Date
+  endDate        DateTime? @map("end_date") @db.Date
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation     Organisation      @relation(fields: [organisationId], references: [id])
+  user             User              @relation(fields: [userId], references: [id])
+  supplierInvoices SupplierInvoice[]
+
+  @@index([organisationId])
+  @@index([userId])
+  @@map("contractor_profiles")
+}
+
+model SupplierInvoice {
+  id                  String    @id @default(uuid())
+  organisationId      String    @map("organisation_id")
+  contractorProfileId String    @map("contractor_profile_id")
+  amount              Decimal?  @db.Decimal(14, 2)
+  currency            String?
+  periodStart         DateTime? @map("period_start") @db.Date
+  periodEnd           DateTime? @map("period_end") @db.Date
+  /// draft | submitted | approved | paid
+  status              String    @default("draft")
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation      Organisation      @relation(fields: [organisationId], references: [id])
+  contractorProfile ContractorProfile @relation(fields: [contractorProfileId], references: [id])
+
+  @@index([organisationId])
+  @@index([contractorProfileId])
+  @@map("supplier_invoices")
+}
+
+/// Controls what a client portal user can see. Built on memberships/roles.
+model PortalAccess {
+  id              String   @id @default(uuid())
+  organisationId  String   @map("organisation_id")
+  /// The client_contact membership
+  membershipId    String   @map("membership_id")
+  clientId        String   @map("client_id")
+  canViewInvoices Boolean  @default(true) @map("can_view_invoices")
+  canViewCrs      Boolean  @default(true) @map("can_view_crs")
+  canViewTickets  Boolean  @default(true) @map("can_view_tickets")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  membership   Membership   @relation(fields: [membershipId], references: [id])
+  client       Client       @relation(fields: [clientId], references: [id])
+
+  @@index([organisationId])
+  @@index([membershipId])
+  @@index([clientId])
+  @@map("portal_access")
+}
+
+/// Admin-configurable automation for customer-specific processes.
+model WorkflowRule {
+  id             String   @id @default(uuid())
+  organisationId String   @map("organisation_id")
+  name           String?
+  /// e.g. cr.approved, timesheet.submitted
+  triggerEvent   String?  @map("trigger_event")
+  condition      Json?
+  /// trigger -> condition -> action framework
+  action         Json?
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+
+  @@index([organisationId])
+  @@map("workflow_rules")
+}
+
+/// Log of AI assistant usage for audit and improvement.
+model AiInteraction {
+  id             String   @id @default(uuid())
+  organisationId String   @map("organisation_id")
+  userId         String?  @map("user_id")
+  /// time_entry_assistant | description_rewrite | copilot
+  feature        String?
+  input          String?  @db.Text
+  output         String?  @db.Text
+  accepted       Boolean?
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  user         User?        @relation(fields: [userId], references: [id])
+
+  @@index([organisationId])
+  @@index([userId])
+  @@map("ai_interactions")
+}

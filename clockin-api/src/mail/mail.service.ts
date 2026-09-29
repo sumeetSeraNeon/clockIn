@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { promises as dns } from 'node:dns';
 import * as nodemailer from 'nodemailer';
 
 @Injectable()
@@ -29,20 +30,41 @@ export class MailService {
 
     const appName = process.env.APP_NAME?.trim() || 'ClockIn';
     const from = process.env.EMAIL_FROM!;
-    const host = process.env.SMTP_HOST!;
+    const smtpHost = process.env.SMTP_HOST!;
     const port = Number(process.env.SMTP_PORT || 587);
     const user = process.env.SMTP_USER || undefined;
     const pass = process.env.SMTP_PASS || undefined;
 
+    let connectHost = smtpHost;
+    let tlsServername: string | undefined;
+    try {
+      // Render free outbound often has no working IPv6 (ENETUNREACH to Gmail).
+      // Nodemailer may still pick AAAA even with family:4, so pin to resolve4 IP.
+      const ipv4 = await dns.resolve4(smtpHost);
+      if (ipv4[0]) {
+        connectHost = ipv4[0];
+        tlsServername = smtpHost;
+        this.logger.log(
+          `SMTP connecting via IPv4 ${connectHost} (TLS SNI ${tlsServername})`,
+        );
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `Could not resolve IPv4 for ${smtpHost}, using hostname: ${message}`,
+      );
+    }
+
     const transporter = nodemailer.createTransport({
-      host,
+      host: connectHost,
       port,
       secure: port === 465,
       auth: user && pass ? { user, pass } : undefined,
-      // Render free/outbound often cannot reach Gmail over IPv6 (ENETUNREACH).
-      // Nodemailer types omit `family`; it is passed through to Node's net.connect.
-      family: 4,
-    } as nodemailer.TransportOptions);
+      tls: tlsServername ? { servername: tlsServername } : undefined,
+      connectionTimeout: 20_000,
+      greetingTimeout: 20_000,
+      socketTimeout: 20_000,
+    });
 
     const greeting = opts.inviteeName?.trim()
       ? `Hi ${opts.inviteeName.trim()},`

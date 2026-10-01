@@ -304,7 +304,7 @@ export function RateForm({
             required
           />
         </FormField>
-        <FormField label="Currency" htmlFor="rate-currency" hint="ISO 4217">
+        <FormField label="Currency" htmlFor="rate-currency">
           <CurrencySelect
             id="rate-currency"
             value={form.currency}

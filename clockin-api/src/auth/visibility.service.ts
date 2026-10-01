@@ -29,6 +29,43 @@ export class VisibilityService {
     return rows.map((r) => r.projectId);
   }
 
+  /**
+   * STEP 1 — projects where this membership is an active project_members row
+   * (independent of task assignment).
+   */
+  async memberProjectIds(
+    organisationId: string,
+    membershipId: string,
+  ): Promise<string[]> {
+    const rows = await this.prisma.projectMember.findMany({
+      where: {
+        organisationId,
+        membershipId,
+        status: 'active',
+      },
+      select: { projectId: true },
+    });
+    return rows.map((r) => r.projectId);
+  }
+
+  /** True when membership is an active member of the project. */
+  async isProjectMember(
+    organisationId: string,
+    projectId: string,
+    membershipId: string,
+  ): Promise<boolean> {
+    const row = await this.prisma.projectMember.findFirst({
+      where: {
+        organisationId,
+        projectId,
+        membershipId,
+        status: 'active',
+      },
+      select: { id: true },
+    });
+    return Boolean(row);
+  }
+
   /** Projects where this membership is projects.owner_id (PM). */
   async managedProjectIds(
     organisationId: string,
@@ -75,23 +112,24 @@ export class VisibilityService {
     if (!scope) return this.emptyIdFilter();
     if (scope === 'all') return {};
 
-    const assigned = await this.assignedProjectIds(
+    // STEP 1 — "own" = active project membership (not only tasks)
+    const memberOf = await this.memberProjectIds(
       organisationId,
       membership.id,
     );
 
     if (scope === 'own') {
-      return assigned.length
-        ? { id: { in: assigned } }
+      return memberOf.length
+        ? { id: { in: memberOf } }
         : this.emptyIdFilter();
     }
 
-    // managed (+ own)
+    // managed (+ own): projects I own ∪ projects I am a member of
     const managed = await this.managedProjectIds(
       organisationId,
       membership.id,
     );
-    const ids = [...new Set([...assigned, ...managed])];
+    const ids = [...new Set([...memberOf, ...managed])];
     return ids.length ? { id: { in: ids } } : this.emptyIdFilter();
   }
 
@@ -103,6 +141,7 @@ export class VisibilityService {
     if (!scope) return this.emptyIdFilter();
     if (scope === 'all') return {};
 
+    // Members still only see tasks assigned to them (even on member projects)
     if (scope === 'own') {
       return { assigneeId: membership.id };
     }
@@ -124,14 +163,15 @@ export class VisibilityService {
     if (!scope) return this.emptyIdFilter();
     if (scope === 'all') return {};
 
-    const assigned = await this.assignedProjectIds(
+    // Tickets on projects the person is a member of (STEP 1)
+    const memberOf = await this.memberProjectIds(
       organisationId,
       membership.id,
     );
 
     if (scope === 'own') {
-      return assigned.length
-        ? { projectId: { in: assigned } }
+      return memberOf.length
+        ? { projectId: { in: memberOf } }
         : this.emptyIdFilter();
     }
 
@@ -139,7 +179,7 @@ export class VisibilityService {
       organisationId,
       membership.id,
     );
-    const ids = [...new Set([...assigned, ...managed])];
+    const ids = [...new Set([...memberOf, ...managed])];
     if (!ids.length) {
       return { project: { ownerId: membership.id } };
     }
@@ -245,7 +285,7 @@ export class VisibilityService {
     );
     const userIds = await this.userIdsForMemberships(membershipIds);
     const projectIds = [
-      ...(await this.assignedProjectIds(organisationId, membership.id)),
+      ...(await this.memberProjectIds(organisationId, membership.id)),
       ...(await this.managedProjectIds(organisationId, membership.id)),
     ];
     const uniqueProjects = [...new Set(projectIds)];

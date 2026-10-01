@@ -17,6 +17,7 @@ import {
 import { mapPrismaError } from '../common/prisma-errors';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProjectDto } from './dto/create-project.dto';
+import { AddProjectMemberDto } from './dto/add-project-member.dto';
 import { ListProjectsQueryDto } from './dto/list-projects-query.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import {
@@ -25,6 +26,37 @@ import {
 } from './project-include';
 
 const ENTITY_TYPE = 'project';
+const PROJECT_MEMBER_ENTITY = 'project_member';
+
+const projectMemberInclude = {
+  membership: {
+    select: {
+      id: true,
+      status: true,
+      user: {
+        select: {
+          id: true,
+          email: true,
+          name: true,
+        },
+      },
+    },
+  },
+} as const;
+
+export type ProjectMemberResponse = {
+  id: string;
+  projectId: string;
+  membershipId: string;
+  roleOnProject: string;
+  status: string;
+  addedAt: Date;
+  membership: {
+    id: string;
+    status: string;
+    user: { id: string; email: string; name: string | null };
+  };
+};
 
 @Injectable()
 export class ProjectsService {
@@ -84,6 +116,14 @@ export class ProjectsService {
         },
         include: PROJECT_DETAIL_INCLUDE,
       });
+
+      // STEP 1 — project owner is always on the project team as lead
+      await this.ensureProjectMember(
+        organisationId,
+        project.id,
+        ownerId,
+        'lead',
+      );
 
       await this.audit.writeAudit({
         organisationId,
@@ -238,6 +278,16 @@ export class ProjectsService {
 
       const project = await this.findOwnedOrThrow(organisationId, id);
 
+      // Keep owner on the project team as lead when owner changes
+      if (dto.ownerId) {
+        await this.ensureProjectMember(
+          organisationId,
+          project.id,
+          dto.ownerId,
+          'lead',
+        );
+      }
+
       await this.audit.writeAudit({
         organisationId,
         actorMembershipId: membership.id,
@@ -309,6 +359,252 @@ export class ProjectsService {
       }
       mapPrismaError(error);
     }
+  }
+
+  /**
+   * STEP 1 — list active project team members (visibility: can view the project).
+   */
+  async listMembers(
+    organisationId: string,
+    membership: AuthMembership,
+    projectId: string,
+  ): Promise<ProjectMemberResponse[]> {
+    await this.findOne(organisationId, membership, projectId);
+
+    const rows = await this.prisma.projectMember.findMany({
+      where: {
+        organisationId,
+        projectId,
+        status: 'active',
+      },
+      include: projectMemberInclude,
+      orderBy: [{ roleOnProject: 'desc' }, { addedAt: 'asc' }],
+    });
+
+    return rows.map((row) => this.toMemberResponse(row));
+  }
+
+  async addMember(
+    organisationId: string,
+    actor: AuthMembership,
+    projectId: string,
+    dto: AddProjectMemberDto,
+  ): Promise<ProjectMemberResponse> {
+    await this.findOwnedOrThrow(organisationId, projectId);
+    await this.visibility.assertCanEditProject(
+      organisationId,
+      actor,
+      projectId,
+    );
+    await this.assertOwnerInOrg(organisationId, dto.membershipId);
+
+    const roleOnProject = dto.roleOnProject ?? 'contributor';
+
+    try {
+      const row = await this.ensureProjectMember(
+        organisationId,
+        projectId,
+        dto.membershipId,
+        roleOnProject,
+      );
+
+      await this.audit.writeAudit({
+        organisationId,
+        actorMembershipId: actor.id,
+        entityType: PROJECT_MEMBER_ENTITY,
+        entityId: row.id,
+        action: 'create',
+        oldValue: null,
+        newValue: {
+          projectId,
+          membershipId: dto.membershipId,
+          roleOnProject,
+          status: 'active',
+        },
+      });
+
+      const full = await this.prisma.projectMember.findFirstOrThrow({
+        where: { id: row.id },
+        include: projectMemberInclude,
+      });
+      return this.toMemberResponse(full);
+    } catch (error) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof ForbiddenException ||
+        error instanceof NotFoundException
+      ) {
+        throw error;
+      }
+      mapPrismaError(error);
+    }
+  }
+
+  async removeMember(
+    organisationId: string,
+    actor: AuthMembership,
+    projectId: string,
+    membershipId: string,
+  ): Promise<{ projectId: string; membershipId: string; status: 'removed' }> {
+    await this.findOwnedOrThrow(organisationId, projectId);
+    await this.visibility.assertCanEditProject(
+      organisationId,
+      actor,
+      projectId,
+    );
+
+    const existing = await this.prisma.projectMember.findFirst({
+      where: {
+        organisationId,
+        projectId,
+        membershipId,
+        status: 'active',
+      },
+    });
+    if (!existing) {
+      throw new NotFoundException('Project member not found');
+    }
+
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, organisationId },
+      select: { ownerId: true },
+    });
+    if (project?.ownerId === membershipId) {
+      throw new BadRequestException(
+        'Cannot remove the project manager from the team — change the project owner first',
+      );
+    }
+
+    const openOrDoneTasks = await this.prisma.task.count({
+      where: {
+        organisationId,
+        projectId,
+        assigneeId: membershipId,
+        status: { in: ['open', 'done'] },
+      },
+    });
+    if (openOrDoneTasks > 0) {
+      throw new BadRequestException(
+        'Cannot remove this person while they have open or done tasks on the project — reassign or archive those tasks first',
+      );
+    }
+
+    const membership = await this.prisma.membership.findFirst({
+      where: { id: membershipId, organisationId },
+      select: { userId: true },
+    });
+    if (membership) {
+      const timeOnProject = await this.prisma.timeLine.count({
+        where: {
+          organisationId,
+          projectId,
+          timeEntry: { userId: membership.userId },
+        },
+      });
+      if (timeOnProject > 0) {
+        throw new BadRequestException(
+          'Cannot remove this person while they have logged time on the project',
+        );
+      }
+    }
+
+    try {
+      await this.prisma.projectMember.update({
+        where: { id: existing.id },
+        data: { status: 'removed' },
+      });
+
+      await this.audit.writeAudit({
+        organisationId,
+        actorMembershipId: actor.id,
+        entityType: PROJECT_MEMBER_ENTITY,
+        entityId: existing.id,
+        action: 'delete',
+        oldValue: {
+          projectId,
+          membershipId,
+          roleOnProject: existing.roleOnProject,
+          status: 'active',
+        },
+        newValue: { status: 'removed' },
+      });
+
+      return { projectId, membershipId, status: 'removed' };
+    } catch (error) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof ForbiddenException ||
+        error instanceof NotFoundException
+      ) {
+        throw error;
+      }
+      mapPrismaError(error);
+    }
+  }
+
+  /** Upsert active project member (reactivates if previously removed). */
+  private async ensureProjectMember(
+    organisationId: string,
+    projectId: string,
+    membershipId: string,
+    roleOnProject: 'contributor' | 'lead',
+  ): Promise<{ id: string }> {
+    const existing = await this.prisma.projectMember.findUnique({
+      where: {
+        projectId_membershipId: { projectId, membershipId },
+      },
+    });
+
+    if (existing) {
+      const updated = await this.prisma.projectMember.update({
+        where: { id: existing.id },
+        data: {
+          status: 'active',
+          roleOnProject:
+            roleOnProject === 'lead' || existing.roleOnProject === 'lead'
+              ? 'lead'
+              : roleOnProject,
+          organisationId,
+        },
+        select: { id: true },
+      });
+      return updated;
+    }
+
+    return this.prisma.projectMember.create({
+      data: {
+        organisationId,
+        projectId,
+        membershipId,
+        roleOnProject,
+        status: 'active',
+      },
+      select: { id: true },
+    });
+  }
+
+  private toMemberResponse(row: {
+    id: string;
+    projectId: string;
+    membershipId: string;
+    roleOnProject: string;
+    status: string;
+    addedAt: Date;
+    membership: {
+      id: string;
+      status: string;
+      user: { id: string; email: string; name: string | null };
+    };
+  }): ProjectMemberResponse {
+    return {
+      id: row.id,
+      projectId: row.projectId,
+      membershipId: row.membershipId,
+      roleOnProject: row.roleOnProject,
+      status: row.status,
+      addedAt: row.addedAt,
+      membership: row.membership,
+    };
   }
 
   private async findOwnedOrThrow(

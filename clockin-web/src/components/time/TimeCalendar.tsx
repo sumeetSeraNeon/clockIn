@@ -29,8 +29,8 @@ type TimeCalendarProps = {
   projectsById: Map<string, Project>;
   tasksById: Map<string, Task>;
   canEdit: boolean;
+  /** Used only on first mount — FullCalendar owns date after that. */
   initialView?: CalendarView;
-  initialDate?: string;
   onDatesSet: (range: { from: string; to: string; view: CalendarView }) => void;
   onSelectCreate: (range: CalendarCreateRange) => void;
   onEventClick: (entry: TimeEntry) => void;
@@ -119,9 +119,9 @@ function entryToEvent(
 }
 
 /**
- * FINAL FIX 5 — secondary calendar view (month / week / day).
- * Own entries only; drag-to-create; locked weeks grey + read-only.
- * Visually separate from timer / day list (section chrome on the page).
+ * FIX 3 — date state lives inside FullCalendar after mount.
+ * initialDate is always today; parent must not feed datesSet back as initialDate
+ * (that remounted on a stale month and broke Today).
  */
 export function TimeCalendar({
   entries,
@@ -129,13 +129,15 @@ export function TimeCalendar({
   tasksById,
   canEdit,
   initialView = 'dayGridMonth',
-  initialDate,
   onDatesSet,
   onSelectCreate,
   onEventClick,
   onEventMove,
 }: TimeCalendarProps) {
   const calendarRef = useRef<FullCalendar | null>(null);
+  // Capture once — never re-apply from parent re-renders.
+  const initialViewRef = useRef(initialView);
+  const initialDateRef = useRef(new Date());
 
   const events = useMemo(
     () => entries.map((e) => entryToEvent(e, projectsById, tasksById)),
@@ -147,8 +149,8 @@ export function TimeCalendar({
       <FullCalendar
         ref={calendarRef}
         plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
-        initialView={initialView}
-        initialDate={initialDate}
+        initialView={initialViewRef.current}
+        initialDate={initialDateRef.current}
         headerToolbar={{
           left: 'prev,next today',
           center: 'title',

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ApprovalsReportPanel } from '@/components/reports/ApprovalsReportPanel';
 import { BudgetReportPanel } from '@/components/reports/BudgetReportPanel';
 import { ReportDetailedTable } from '@/components/reports/ReportDetailedTable';
@@ -23,6 +23,7 @@ import {
   useReportBudget,
   useReportDetailed,
   useReportSummary,
+  useReportUtilisation,
   type ReportFiltersState,
 } from '@/lib/use-reports';
 import { usePermissions } from '@/lib/use-permissions';
@@ -61,6 +62,7 @@ export default function ReportsPage() {
   const { can } = usePermissions();
   const canView = can('report', 'view');
   const canViewMembers = can('member', 'view');
+  const canViewRates = can('rate', 'view');
 
   const [tab, setTab] = useState<Tab>('summary');
   const [filters, setFilters] = useState<ReportFiltersState>(defaultFilters);
@@ -73,7 +75,7 @@ export default function ReportsPage() {
 
   const summary = useReportSummary(
     filters,
-    canView && (tab === 'summary' || tab === 'utilisation'),
+    canView && tab === 'summary',
   );
   const detailed = useReportDetailed(
     filters,
@@ -86,14 +88,8 @@ export default function ReportsPage() {
     filters,
     canView && tab === 'approvals',
   );
-
-  // Utilisation needs groupBy=user summary
-  const utilisationFilters = useMemo(
-    () => ({ ...filters, groupBy: 'user' as ReportGroupBy }),
-    [filters],
-  );
-  const utilisation = useReportSummary(
-    utilisationFilters,
+  const utilisation = useReportUtilisation(
+    filters,
     canView && tab === 'utilisation',
   );
 
@@ -202,10 +198,13 @@ export default function ReportsPage() {
           project: row.projectName,
           code: row.projectCode,
           budgetHours: row.budgetHours,
-          estimatedHours: row.estimatedHours,
           actualHours: row.actualHours,
           remainingBudgetHours: row.remainingBudgetHours,
-          overBudgetEstimate: row.overBudgetEstimate,
+          budgetBurnPct: row.budgetBurnPct,
+          timelineElapsedPct: row.timelineElapsedPct,
+          burnSignal: row.burnSignal,
+          startDate: row.startDate,
+          endDate: row.endDate,
           overBudgetActual: row.overBudgetActual,
           entryStatus: budget.data!.entryStatus,
         })),
@@ -214,21 +213,45 @@ export default function ReportsPage() {
       return;
     }
 
-    const report =
-      tab === 'utilisation' ? utilisation.data : summary.data;
-    if (!report || report.groups.length === 0) {
+    if (tab === 'utilisation') {
+      if (!utilisation.data || utilisation.data.people.length === 0) {
+        toast.error('Nothing to export');
+        return;
+      }
+      downloadCsv(
+        `clockin-utilisation-${filters.dateFrom}-${filters.dateTo}.csv`,
+        utilisation.data.people.map((row) => ({
+          person: row.userName || row.userEmail,
+          email: row.userEmail,
+          trackedHours: row.trackedHours,
+          billableHours: row.billableHours,
+          availableHours: row.availableHours,
+          billableUtilisationPct: row.billableUtilisationPct,
+          trackedUtilisationPct: row.trackedUtilisationPct,
+          calendarSource: row.calendarSource,
+        })),
+      );
+      toast.success('CSV downloaded');
+      return;
+    }
+
+    if (!summary.data || summary.data.groups.length === 0) {
       toast.error('Nothing to export');
       return;
     }
+    const commercial = summary.data.commercial === true;
     downloadCsv(
       `clockin-summary-${filters.dateFrom}-${filters.dateTo}.csv`,
-      report.groups.map((g) => ({
+      summary.data.groups.map((g) => ({
         label: g.label,
         durationMinutes: g.durationMinutes,
         billableMinutes: g.billableMinutes,
         nonBillableMinutes: g.nonBillableMinutes,
-        revenue: g.revenue,
-        currency: g.currency ?? 'GBP',
+        revenue: commercial ? g.revenue : undefined,
+        cost: commercial ? g.cost : undefined,
+        margin: commercial ? g.margin : undefined,
+        marginPercent: commercial ? g.marginPercent : undefined,
+        currency: commercial ? (g.currency ?? 'GBP') : undefined,
       })),
     );
     toast.success('CSV downloaded');
@@ -274,7 +297,7 @@ export default function ReportsPage() {
     <div className="mx-auto max-w-6xl space-y-6">
       <PageHeader
         title="Reports"
-        description="Summary, detail, utilisation, budget variance, and approval pipeline. Revenue uses approved time only."
+        description="Profitability (approved revenue − cost), budget burn vs timeline, and billable utilisation. Money needs rate:view."
         actions={
           <Button type="button" variant="secondary" onClick={handleExportCsv}>
             Export CSV
@@ -511,11 +534,7 @@ export default function ReportsPage() {
       ) : tab === 'summary' && summary.data ? (
         <ReportSummaryPanel report={summary.data} />
       ) : tab === 'utilisation' && utilisation.data ? (
-        <UtilisationPanel
-          groups={utilisation.data.groups}
-          dateFrom={filters.dateFrom}
-          dateTo={filters.dateTo}
-        />
+        <UtilisationPanel report={utilisation.data} />
       ) : tab === 'budget' && budget.data ? (
         <BudgetReportPanel report={budget.data} />
       ) : tab === 'approvals' && approvals.data ? (
@@ -532,7 +551,10 @@ export default function ReportsPage() {
               Showing <span className="font-medium text-ink">approved time only</span>
               . Revenue on each line uses the rate effective on the entry date.
             </p>
-            <ReportDetailedTable rows={detailed.data} />
+            <ReportDetailedTable
+              rows={detailed.data}
+              commercial={canViewRates}
+            />
             <Pagination
               page={page}
               totalPages={detailed.totalPages}

@@ -19,6 +19,21 @@ export function weekRange(ref = new Date()): { from: Date; to: Date } {
   return { from, to };
 }
 
+/** First → last day of the calendar month containing `ref`. */
+export function monthRange(ref = new Date()): { from: Date; to: Date } {
+  const from = new Date(ref.getFullYear(), ref.getMonth(), 1);
+  from.setHours(0, 0, 0, 0);
+  const to = new Date(ref.getFullYear(), ref.getMonth() + 1, 0);
+  to.setHours(23, 59, 59, 999);
+  return { from, to };
+}
+
+/** Parse YYYY-MM-DD as a local calendar date (noon to avoid DST edges). */
+export function parseDateParam(value: string): Date {
+  const [y, m, d] = value.split('-').map(Number);
+  return new Date(y, (m || 1) - 1, d || 1, 12, 0, 0, 0);
+}
+
 /** Seven local dates Mon→Sun for the week containing `ref`. */
 export function weekDayParams(ref = new Date()): string[] {
   const { from } = weekRange(ref);

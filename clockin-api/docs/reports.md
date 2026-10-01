@@ -1,39 +1,36 @@
-# Reporting module (read-only)
+# Reports module
 
-Aggregates **time lines** (not entries) for the caller's organisation.
-Revenue = billable hours × looked-up **billable** rate (`RatesService.lookup`).
+Approved-time rollups for hours and (with `rate:view`) money.
 
 ## Endpoints
 
-| Method | Path | Notes |
-|---|---|---|
-| GET | `/api/reports/summary` | totals + groups |
-| GET | `/api/reports/detailed` | paginated line-level rows |
+| Method | Path | Permission | Notes |
+|---|---|---|---|
+| GET | `/api/reports/summary` | `report:view` | Hours + revenue/cost/margin when `rate:view` |
+| GET | `/api/reports/detailed` | `report:view` | Line-level; bill rate/revenue only if commercial |
+| GET | `/api/reports/budget` | `report:view` | Budget burn + timeline % + on_track/watch/overrunning |
+| GET | `/api/reports/utilisation` | `report:view` | Billable ÷ available (calendar or weekday×8) |
+| GET | `/api/reports/approvals` | `report:view` | Timesheet slice pipeline |
 
-### Summary query
+## STEP 3 money rules
 
-- **Required:** `dateFrom`, `dateTo` (YYYY-MM-DD)
-- `groupBy`: `project` (default) | `client` | `user`
-- Optional filters: `clientId`, `projectId`, `userId`
+- **Revenue** = approved **billable** hours × billable rate (lookup priority unchanged).
+- **Cost** = approved hours (billable + non-billable) × cost rate.
+- **Margin** = revenue − cost; **margin %** = margin ÷ revenue × 100.
+- Commercial fields only when the caller has `rate:view` (admin/owner). Managers see hours + utilisation + budget burn, never revenue/cost/margin.
 
-Returns `totals` (minutes, hours, billable/non-billable, revenue) and `groups[]`.
+## Budget burn signals
 
-### Detailed query
+Compare `budgetBurnPct` (actual ÷ budget) to `timelineElapsedPct` (start→end as of `dateTo`):
 
-- **Required:** `dateFrom`, `dateTo`
-- Pagination: `page`, `pageSize`
-- Filters: `clientId`, `projectId`, `userId`, `taskId`, `billable`
+| Signal | Rule |
+|---|---|
+| `on_track` | burn ≤ timeline + 10pp |
+| `watch` | burn leads timeline by 10–25pp |
+| `overrunning` | burn leads by >25pp **or** actual > budget |
+| `unknown` | missing budget and/or project dates |
 
-Each row includes task/project/client/user labels, hours, billable rate, and revenue.
+## Utilisation
 
-## Not in this pass (P2)
-
-- CSV export
-- Utilisation (working_calendar)
-
-## Smoke test
-
-```powershell
-npm.cmd run start:dev
-node scripts/test-reports.mjs owner@clockin.local sera123
-```
+Primary metric: `billableUtilisationPct` = billable minutes ÷ available minutes.
+Available hours from `working_calendar` (user then org default); else Mon–Fri × 8h.

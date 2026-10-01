@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   TimeCalendar,
   type CalendarCreateRange,
-  type CalendarView,
 } from '@/components/time/TimeCalendar';
 import {
   AddTimeForm,
@@ -40,6 +39,7 @@ type ModalKind =
 
 /**
  * Calendar — month/week/day overview of logged time. Submit lives on Timesheet.
+ * FIX 3 — do not feed datesSet back into FullCalendar initialDate (remount loop).
  */
 export default function CalendarPage() {
   const toast = useToast();
@@ -48,8 +48,7 @@ export default function CalendarPage() {
   const canEdit = can('time_entry', 'edit');
   const myMembershipId = me?.membership?.id ?? null;
 
-  const today = toDateParam(new Date());
-  const [focusDate, setFocusDate] = useState(() => today);
+  // Fetch window only — never used as FullCalendar initialDate.
   const [rangeFrom, setRangeFrom] = useState(() => {
     const d = new Date();
     d.setDate(1);
@@ -61,13 +60,15 @@ export default function CalendarPage() {
     d.setDate(0);
     return toDateParam(d);
   });
-  const [calendarView, setCalendarView] =
-    useState<CalendarView>('dayGridMonth');
 
   const [modal, setModal] = useState<ModalKind>(null);
   const [submitting, setSubmitting] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+
+  // Once shown, keep FullCalendar mounted across refetches (avoids flicker
+  // and re-applying a stale initialDate when entries briefly empty).
+  const [calendarReady, setCalendarReady] = useState(false);
 
   const canMutateTime = canEdit;
 
@@ -81,6 +82,10 @@ export default function CalendarPage() {
     dateTo: rangeTo,
     pageSize: 100,
   });
+
+  useEffect(() => {
+    if (!loading) setCalendarReady(true);
+  }, [loading]);
 
   useEffect(() => {
     let cancelled = false;
@@ -244,9 +249,7 @@ export default function CalendarPage() {
         description="Overview of logged and locked time. Drag a range to add an entry (not future dates). Submit from Timesheet."
       />
 
-      {loading && entries.length === 0 ? (
-        <ListSkeleton rows={6} />
-      ) : error ? (
+      {error && !calendarReady ? (
         <div className="rounded-lg border border-border/80 bg-card px-5 py-6">
           <p className="text-sm font-medium text-danger">{error}</p>
           <Button
@@ -258,24 +261,22 @@ export default function CalendarPage() {
             Try again
           </Button>
         </div>
+      ) : !calendarReady ? (
+        <ListSkeleton rows={6} />
       ) : (
         <TimeCalendar
           entries={entries}
           projectsById={projectsById}
           tasksById={tasksById}
           canEdit={canMutateTime}
-          initialView={calendarView}
-          initialDate={focusDate}
-          onDatesSet={({ from, to, view }) => {
+          onDatesSet={({ from, to }) => {
+            // Fetch window only — do not push `from` back as calendar date.
             setRangeFrom(from);
             setRangeTo(to);
-            setCalendarView(view);
-            // Keep focus on the visible range midpoint-ish start without
-            // feeding Timesheet — calendar owns this state alone.
-            setFocusDate(from);
           }}
           onSelectCreate={(range) => {
             if (!canMutateTime) return;
+            const today = toDateParam(new Date());
             if (range.entryDate > today) {
               toast.error('Cannot log time for a future date');
               return;
@@ -296,6 +297,7 @@ export default function CalendarPage() {
         {modal?.type === 'create' ? (
           <AddTimeForm
             tasks={tasks}
+            projects={projects}
             defaultDate={modal.range.entryDate}
             defaultRange={{
               startTime: modal.range.startTime,
@@ -318,6 +320,7 @@ export default function CalendarPage() {
         {modal?.type === 'edit-entry' ? (
           <AddTimeForm
             tasks={tasks}
+            projects={projects}
             initialEntry={modal.entry}
             submitting={submitting}
             submitLabel="Save entry"

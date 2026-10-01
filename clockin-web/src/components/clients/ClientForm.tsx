@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useState } from 'react';
+import { CurrencySelect } from '@/components/common/CurrencySelect';
 import { FormField } from '@/components/common/FormField';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -115,12 +116,10 @@ export function ClientForm({
           />
         </FormField>
         <FormField label="Currency" htmlFor="client-currency">
-          <Input
+          <CurrencySelect
             id="client-currency"
             value={form.currency}
-            onChange={(e) => setField('currency', e.target.value.toUpperCase())}
-            placeholder="GBP"
-            maxLength={3}
+            onChange={(code) => setField('currency', code)}
           />
         </FormField>
       </div>

@@ -15,6 +15,8 @@ import { RequirePermission } from '../auth/decorators/require-permission.decorat
 import { FirebaseAuthGuard } from '../auth/firebase-auth.guard';
 import { PermissionsGuard } from '../auth/permissions.guard';
 import { CreateRateDto } from './dto/create-rate.dto';
+import { CreateRatePairDto } from './dto/create-rate-pair.dto';
+import { ListProjectUserRatesQueryDto } from './dto/list-project-user-rates-query.dto';
 import { ListRatesQueryDto } from './dto/list-rates-query.dto';
 import { LookupRateDto } from './dto/lookup-rate.dto';
 import { RatesService } from './rates.service';
@@ -34,6 +36,17 @@ export class RatesController {
     return this.ratesService.create(organisationId, membership.id, dto);
   }
 
+  /** STEP 2 — set cost + billable for project + person in one call. */
+  @Post('pair')
+  @RequirePermission('rate', 'edit')
+  createPair(
+    @CurrentOrg() organisationId: string,
+    @CurrentMembership() membership: AuthMembership,
+    @Body() dto: CreateRatePairDto,
+  ) {
+    return this.ratesService.createPair(organisationId, membership.id, dto);
+  }
+
   @Get()
   @RequirePermission('rate', 'view')
   findAll(
@@ -41,6 +54,16 @@ export class RatesController {
     @Query() query: ListRatesQueryDto,
   ) {
     return this.ratesService.findAll(organisationId, query);
+  }
+
+  /** STEP 2 — current cost + bill + margin per person on a project. */
+  @Get('project-user')
+  @RequirePermission('rate', 'view')
+  listProjectUserPairs(
+    @CurrentOrg() organisationId: string,
+    @Query() query: ListProjectUserRatesQueryDto,
+  ) {
+    return this.ratesService.listProjectUserPairs(organisationId, query);
   }
 
   @Post('lookup')

@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { RateForm } from '@/components/rates/RateForm';
+import { RatePairForm } from '@/components/rates/RatePairForm';
+import { ProjectPersonRatesTable } from '@/components/rates/ProjectPersonRatesTable';
 import { RatesTable } from '@/components/rates/RatesTable';
 import { EmptyState } from '@/components/common/EmptyState';
 import { Modal } from '@/components/common/Modal';
@@ -14,11 +16,17 @@ import { Select } from '@/components/ui/Select';
 import { useAuth } from '@/lib/auth-context';
 import { api } from '@/lib/api-client';
 import { getErrorMessage } from '@/lib/get-error-message';
+import {
+  fallbackScopeRates,
+  pairProjectUserRates,
+} from '@/lib/rate-pairs';
 import { useRates } from '@/lib/use-rates';
 import { usePermissions } from '@/lib/use-permissions';
 import type {
   Client,
   CreateRateInput,
+  CreateRatePairInput,
+  CreateRatePairResult,
   Member,
   Paginated,
   Project,
@@ -29,9 +37,10 @@ import type {
 } from '@/types/api';
 
 type RatesTab = 'current' | 'history';
+type AddModalMode = 'pair' | 'advanced' | null;
 
 /**
- * Rates — Current vs History tabs, entity filters, enriched applies-to.
+ * Rates — project-person pairs first; fallback scopes secondary (FIX 1).
  */
 export default function RatesPage() {
   const toast = useToast();
@@ -51,7 +60,7 @@ export default function RatesPage() {
   const [clientId, setClientId] = useState<string>('all');
   const [projectId, setProjectId] = useState<string>('all');
   const [userId, setUserId] = useState<string>('all');
-  const [modalOpen, setModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<AddModalMode>(null);
   const [lookupOpen, setLookupOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -63,7 +72,7 @@ export default function RatesPage() {
   const { data, total, totalPages, pageSize, loading, error, reload } =
     useRates({
       page,
-      pageSize: 50,
+      pageSize: 100,
       rateType,
       scope,
       clientId,
@@ -71,6 +80,28 @@ export default function RatesPage() {
       userId,
       current: tab === 'current',
     });
+
+  const pairRows = useMemo(
+    () => pairProjectUserRates(data),
+    [data],
+  );
+  const fallbackRows = useMemo(
+    () => fallbackScopeRates(data),
+    [data],
+  );
+
+  const showPairSection = scope === 'all' || scope === 'project_user';
+  const showFallbacks =
+    scope === 'all' ||
+    scope === 'organisation' ||
+    scope === 'client' ||
+    scope === 'project' ||
+    scope === 'user' ||
+    scope === 'task';
+
+  const isEmpty =
+    (showPairSection ? pairRows.length === 0 : true) &&
+    (showFallbacks ? fallbackRows.length === 0 : true);
 
   useEffect(() => {
     if (!canView) return;
@@ -117,12 +148,33 @@ export default function RatesPage() {
     return projects.filter((p) => p.clientId === clientId);
   }, [projects, clientId]);
 
+  async function handleCreatePair(values: CreateRatePairInput) {
+    setSubmitting(true);
+    try {
+      const res = await api<CreateRatePairResult>('/rates/pair', {
+        method: 'POST',
+        body: values,
+      });
+      const marginLabel =
+        res.marginPercent != null
+          ? `${res.marginAmount} ${res.currency}/h (${Number(res.marginPercent).toFixed(0)}%)`
+          : `${res.marginAmount} ${res.currency}/h`;
+      toast.success(`Rates saved · margin ${marginLabel}`);
+      setModalMode(null);
+      reload();
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Could not save rate pair'));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   async function handleCreate(values: CreateRateInput) {
     setSubmitting(true);
     try {
       await api<Rate>('/rates', { method: 'POST', body: values });
       toast.success('Rate added (previous open rate closed if same identity)');
-      setModalOpen(false);
+      setModalMode(null);
       reload();
     } catch (err) {
       toast.error(getErrorMessage(err, 'Could not add rate'));
@@ -150,20 +202,29 @@ export default function RatesPage() {
     <div className="mx-auto max-w-6xl">
       <PageHeader
         title="Rates"
-        description={`${orgName} · ${orgCurrency}. Billable = what you charge; cost = what it costs you. New rows never overwrite history.`}
+        description={`${orgName} · ${orgCurrency}`}
         actions={
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               type="button"
               variant="secondary"
               onClick={() => setLookupOpen(true)}
             >
-              Check effective rate
+              Check rate
             </Button>
             {canEdit ? (
-              <Button type="button" onClick={() => setModalOpen(true)}>
-                Add rate
-              </Button>
+              <>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setModalMode('advanced')}
+                >
+                  Advanced
+                </Button>
+                <Button type="button" onClick={() => setModalMode('pair')}>
+                  Set project rates
+                </Button>
+              </>
             ) : null}
           </div>
         }
@@ -222,12 +283,14 @@ export default function RatesPage() {
             }}
           >
             <option value="all">All scopes</option>
-            <option value="organisation">Organisation</option>
-            <option value="client">Client</option>
-            <option value="project">Project</option>
-            <option value="user">Person</option>
-            <option value="task">Task</option>
             <option value="project_user">Project + person</option>
+            <optgroup label="Fallbacks">
+              <option value="organisation">Organisation</option>
+              <option value="client">Client</option>
+              <option value="project">Project</option>
+              <option value="user">Person</option>
+              <option value="task">Task</option>
+            </optgroup>
           </Select>
         </label>
 
@@ -306,26 +369,58 @@ export default function RatesPage() {
             Try again
           </Button>
         </div>
-      ) : data.length === 0 ? (
+      ) : isEmpty ? (
         <EmptyState
           title={
             tab === 'current' ? 'No current rates' : 'No historical rates'
           }
           description={
             canEdit && tab === 'current'
-              ? 'Add an organisation billable or cost rate to get started. History is kept when you add a new effective date.'
+              ? 'Set cost and bill for a person on a project to get started.'
               : 'Nothing matches these filters.'
           }
-          actionLabel={canEdit && tab === 'current' ? 'Add rate' : undefined}
+          actionLabel={
+            canEdit && tab === 'current' ? 'Set project rates' : undefined
+          }
           onAction={
             canEdit && tab === 'current'
-              ? () => setModalOpen(true)
+              ? () => setModalMode('pair')
               : undefined
           }
         />
       ) : (
-        <>
-          <RatesTable rates={data} />
+        <div className="space-y-8">
+          {showPairSection ? (
+            <section className="space-y-3">
+              <h2 className="text-base font-semibold tracking-tight text-navy">
+                Project + person
+              </h2>
+              {pairRows.length === 0 ? (
+                <p className="text-sm text-slate">
+                  No pairs yet.
+                  {canEdit && tab === 'current'
+                    ? ' Use Set project rates.'
+                    : ''}
+                </p>
+              ) : (
+                <ProjectPersonRatesTable rows={pairRows} />
+              )}
+            </section>
+          ) : null}
+
+          {showFallbacks ? (
+            <section className="space-y-3 border-t border-navy/10 pt-6">
+              <h2 className="text-base font-semibold tracking-tight text-navy">
+                Fallbacks
+              </h2>
+              {fallbackRows.length === 0 ? (
+                <p className="text-sm text-slate">No fallback rates.</p>
+              ) : (
+                <RatesTable rates={fallbackRows} />
+              )}
+            </section>
+          ) : null}
+
           <Pagination
             page={page}
             totalPages={totalPages}
@@ -333,23 +428,40 @@ export default function RatesPage() {
             pageSize={pageSize}
             onPageChange={setPage}
           />
-        </>
+        </div>
       )}
 
       <Modal
-        open={modalOpen}
-        title="Add rate"
-        description="Creates a new effective-dated row. Matching open rates are closed automatically."
-        onClose={() => !submitting && setModalOpen(false)}
+        open={modalMode === 'pair'}
+        title="Set project rates"
+        description="Cost and bill per hour for one person on one project."
+        onClose={() => !submitting && setModalMode(null)}
+      >
+        <RatePairForm
+          projects={projects}
+          members={members}
+          defaultCurrency={orgCurrency}
+          submitting={submitting}
+          onSubmit={handleCreatePair}
+          onCancel={() => setModalMode(null)}
+        />
+      </Modal>
+
+      <Modal
+        open={modalMode === 'advanced'}
+        title="Advanced rate"
+        description="Single cost or billable row for org, client, project, person, or task."
+        onClose={() => !submitting && setModalMode(null)}
       >
         <RateForm
           clients={clients}
           projects={projects}
           tasks={tasks}
           members={members}
+          defaultCurrency={orgCurrency}
           submitting={submitting}
           onSubmit={handleCreate}
-          onCancel={() => setModalOpen(false)}
+          onCancel={() => setModalMode(null)}
         />
       </Modal>
 

@@ -9,8 +9,10 @@ open-ended rate for the same identity closes the previous open row’s
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/rates` | `?rateType&scope&clientId&projectId&userId&taskId&page&pageSize` |
+| GET | `/api/rates` | `?rateType&scope&clientId&projectId&userId&taskId&current&page&pageSize` |
 | POST | `/api/rates` | create only (Decimal `amount`) |
+| POST | `/api/rates/pair` | STEP 2 — cost + billable for `project_user` in one call |
+| GET | `/api/rates/project-user` | STEP 2 — `?projectId` (& optional `userId`) current cost/bill/margin |
 | POST | `/api/rates/lookup` | most-specific rate for a date + context |
 
 ### Scopes & required ids
@@ -29,6 +31,25 @@ open-ended rate for the same identity closes the previous open row’s
 `task` → `project_user` → `project` → `client` → `user` → `organisation`
 
 Date must satisfy: `effectiveFrom <= date` and (`effectiveTo` is null or `>= date`).
+
+### STEP 2 pair body
+
+```json
+{
+  "projectId": "…",
+  "userId": "…",
+  "costAmount": 75,
+  "billableAmount": 125,
+  "currency": "GBP",
+  "effectiveFrom": "2026-01-01"
+}
+```
+
+Returns both rate rows plus `marginAmount` / `marginPercent`
+(margin % = (bill − cost) / bill × 100).
+
+Cost rates stay behind `rate:view` / `rate:edit` (admin/owner). Members and PMs
+without those grants never see cost.
 
 ## Smoke test
 

@@ -634,6 +634,7 @@ function TimePageInner() {
         {modal?.type === 'add-time' ? (
           <AddTimeForm
             tasks={tasks}
+            projects={projects}
             defaultTaskId={modal.taskId}
             defaultDate={modal.entryDate ?? today}
             submitting={submitting}
@@ -653,6 +654,7 @@ function TimePageInner() {
         {modal?.type === 'edit-entry' ? (
           <AddTimeForm
             tasks={tasks}
+            projects={projects}
             initialEntry={modal.entry}
             submitting={submitting}
             submitLabel="Save entry"

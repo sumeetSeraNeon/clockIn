@@ -362,6 +362,9 @@ async function main() {
       status: 'active',
       billableByDefault: true,
       clientId: client.id,
+      budgetHours: 200,
+      startDate: new Date('2026-01-01'),
+      endDate: new Date('2026-12-31'),
     },
     create: {
       id: '00000000-0000-4000-8000-000000000061',
@@ -372,6 +375,9 @@ async function main() {
       ownerId: adminMembership.id,
       status: 'active',
       billableByDefault: true,
+      budgetHours: 200,
+      startDate: new Date('2026-01-01'),
+      endDate: new Date('2026-12-31'),
     },
   });
 
@@ -451,6 +457,49 @@ async function main() {
       },
     ],
   });
+
+  // STEP 1 — project team (owner as lead; assignees as contributors)
+  const projectMemberRows = [
+    {
+      id: '00000000-0000-4000-8000-0000000000a1',
+      organisationId: org.id,
+      projectId: memberProject.id,
+      membershipId: adminMembership.id,
+      roleOnProject: 'lead',
+      status: 'active',
+    },
+    {
+      id: '00000000-0000-4000-8000-0000000000a2',
+      organisationId: org.id,
+      projectId: memberProject.id,
+      membershipId: memberMembership.id,
+      roleOnProject: 'contributor',
+      status: 'active',
+    },
+    {
+      id: '00000000-0000-4000-8000-0000000000a3',
+      organisationId: org.id,
+      projectId: '00000000-0000-4000-8000-000000000062',
+      membershipId: ownerMembership.id,
+      roleOnProject: 'lead',
+      status: 'active',
+    },
+  ];
+  for (const row of projectMemberRows) {
+    await prisma.projectMember.upsert({
+      where: {
+        projectId_membershipId: {
+          projectId: row.projectId,
+          membershipId: row.membershipId,
+        },
+      },
+      update: {
+        roleOnProject: row.roleOnProject,
+        status: 'active',
+      },
+      create: row,
+    });
+  }
 
   const ticket = await prisma.ticket.upsert({
     where: { id: '00000000-0000-4000-8000-000000000081' },
@@ -569,10 +618,52 @@ async function main() {
     },
   });
 
+  // STEP 2 — project_user pair on Acme for the member (cost 75 / bill 125 → margin 50, 40%)
+  await prisma.rate.upsert({
+    where: { id: '00000000-0000-4000-8000-000000000097' },
+    update: {
+      amount: 75,
+      currency: 'GBP',
+      projectId: memberProject.id,
+      userId: memberUser.id,
+    },
+    create: {
+      id: '00000000-0000-4000-8000-000000000097',
+      organisationId: org.id,
+      rateType: 'cost',
+      scope: 'project_user',
+      projectId: memberProject.id,
+      userId: memberUser.id,
+      amount: 75,
+      currency: 'GBP',
+      effectiveFrom: rateEffectiveFrom,
+    },
+  });
+  await prisma.rate.upsert({
+    where: { id: '00000000-0000-4000-8000-000000000098' },
+    update: {
+      amount: 125,
+      currency: 'GBP',
+      projectId: memberProject.id,
+      userId: memberUser.id,
+    },
+    create: {
+      id: '00000000-0000-4000-8000-000000000098',
+      organisationId: org.id,
+      rateType: 'billable',
+      scope: 'project_user',
+      projectId: memberProject.id,
+      userId: memberUser.id,
+      amount: 125,
+      currency: 'GBP',
+      effectiveFrom: rateEffectiveFrom,
+    },
+  });
+
   const entryDate = new Date('2026-09-15');
   const timeEntry = await prisma.timeEntry.upsert({
     where: { id: '00000000-0000-4000-8000-0000000000a1' },
-    update: { userId: memberUser.id },
+    update: { userId: memberUser.id, status: 'approved' },
     create: {
       id: '00000000-0000-4000-8000-0000000000a1',
       organisationId: org.id,
@@ -580,7 +671,7 @@ async function main() {
       entryDate,
       startTime: new Date('2026-09-15T09:00:00.000Z'),
       endTime: new Date('2026-09-15T11:00:00.000Z'),
-      status: 'draft',
+      status: 'approved',
       source: 'manual',
     },
   });

@@ -9,6 +9,7 @@ import type {
   ReportDetailedLine,
   ReportGroupBy,
   ReportSummaryResponse,
+  UtilisationReportResponse,
 } from '@/types/api';
 
 export type ReportFiltersState = {
@@ -290,6 +291,63 @@ export function useReportApprovals(
     filters.projectId,
     filters.userId,
     filters.approvalStatus,
+    reloadKey,
+  ]);
+
+  return { data, loading, error, reload };
+}
+
+/** STEP 3 — billable utilisation from GET /reports/utilisation */
+export function useReportUtilisation(
+  filters: ReportFiltersState,
+  enabled: boolean,
+) {
+  const [data, setData] = useState<UtilisationReportResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const reload = useCallback(() => setReloadKey((k) => k + 1), []);
+
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const params = new URLSearchParams();
+        appendCommon(params, filters);
+        const result = await api<UtilisationReportResponse>(
+          `/reports/utilisation?${params.toString()}`,
+        );
+        if (!cancelled) setData(result);
+      } catch (err) {
+        if (!cancelled) {
+          setData(null);
+          setError(
+            err instanceof Error
+              ? err.message
+              : 'Could not load utilisation report.',
+          );
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    enabled,
+    filters.dateFrom,
+    filters.dateTo,
+    filters.clientId,
+    filters.projectId,
+    filters.userId,
     reloadKey,
   ]);
 

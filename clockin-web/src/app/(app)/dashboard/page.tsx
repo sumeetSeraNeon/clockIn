@@ -1,17 +1,26 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { EmployeeOverview } from '@/app/(app)/dashboard/EmployeeOverview';
 import { ManagerOverview } from '@/app/(app)/dashboard/ManagerOverview';
-import { formatWeekLabel, toDateParam, weekRange } from '@/lib/date-range';
+import { Input } from '@/components/ui/Input';
+import {
+  formatWeekLabel,
+  monthRange,
+  parseDateParam,
+  toDateParam,
+  weekRange,
+} from '@/lib/date-range';
 import { useAuth } from '@/lib/auth-context';
 import { isMemberOnlyRole } from '@/lib/app-nav';
 import { usePermissions } from '@/lib/use-permissions';
 
+type PeriodPreset = 'week' | 'month' | 'custom';
+
 /**
  * Role-aware landing after login.
- * FINAL FIX 4 — members always get personal hours + their tasks (never org/revenue).
- * Managers/admins with report:view (managed/all) get the org summary.
+ * FIX 2 — adjustable period; owner/manager overview leads with money when commercial.
+ * Members always get personal hours + their tasks (never org/revenue).
  */
 export default function DashboardPage() {
   const { me } = useAuth();
@@ -21,10 +30,30 @@ export default function DashboardPage() {
     !isMemberOnlyRole(highestRole) &&
     (reportScope === 'all' || reportScope === 'managed');
 
-  const range = useMemo(() => weekRange(), []);
+  const [preset, setPreset] = useState<PeriodPreset>('week');
+  const [customFrom, setCustomFrom] = useState(() =>
+    toDateParam(weekRange().from),
+  );
+  const [customTo, setCustomTo] = useState(() => toDateParam(weekRange().to));
+
+  const range = useMemo(() => {
+    if (preset === 'week') return weekRange();
+    if (preset === 'month') return monthRange();
+    let from = parseDateParam(customFrom);
+    let to = parseDateParam(customTo);
+    if (from.getTime() > to.getTime()) {
+      const swap = from;
+      from = to;
+      to = swap;
+    }
+    from.setHours(0, 0, 0, 0);
+    to.setHours(23, 59, 59, 999);
+    return { from, to };
+  }, [preset, customFrom, customTo]);
+
   const dateFrom = toDateParam(range.from);
   const dateTo = toDateParam(range.to);
-  const weekLabel = formatWeekLabel(range.from, range.to);
+  const periodLabel = formatWeekLabel(range.from, range.to);
   const todayParam = toDateParam(new Date());
 
   const daysElapsed = useMemo(() => {
@@ -47,16 +76,64 @@ export default function DashboardPage() {
     <div className="mx-auto max-w-6xl">
       <header className="border-b border-navy/10 pb-5">
         <p className="text-sm text-slate">
-          {weekLabel} · {orgName} · {roleLabel}
+          {periodLabel} · {orgName} · {roleLabel}
         </p>
         <h1 className="mt-1 text-3xl font-semibold tracking-tight text-navy">
           Hi, {firstName}
         </h1>
+
+        <div className="mt-5 flex flex-wrap items-end gap-3">
+          <div className="flex gap-1 border-b border-navy/10">
+            {(
+              [
+                ['week', 'This week'],
+                ['month', 'This month'],
+                ['custom', 'Custom range'],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setPreset(key)}
+                className={
+                  preset === key
+                    ? 'border-b-2 border-coral px-3 py-2 text-sm font-medium text-coral'
+                    : 'px-3 py-2 text-sm text-slate hover:text-navy'
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {preset === 'custom' ? (
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="flex flex-col gap-1 text-xs text-slate">
+                From
+                <Input
+                  type="date"
+                  value={customFrom}
+                  onChange={(e) => setCustomFrom(e.target.value)}
+                  className="w-auto"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-slate">
+                To
+                <Input
+                  type="date"
+                  value={customTo}
+                  onChange={(e) => setCustomTo(e.target.value)}
+                  className="w-auto"
+                />
+              </label>
+            </div>
+          ) : null}
+        </div>
       </header>
 
       {showManagerOverview ? (
         <ManagerOverview
-          weekLabel={weekLabel}
+          periodLabel={periodLabel}
           orgName={orgName}
           dateFrom={dateFrom}
           dateTo={dateTo}
@@ -65,7 +142,7 @@ export default function DashboardPage() {
         />
       ) : (
         <EmployeeOverview
-          weekLabel={weekLabel}
+          periodLabel={periodLabel}
           dateFrom={dateFrom}
           dateTo={dateTo}
           todayParam={todayParam}

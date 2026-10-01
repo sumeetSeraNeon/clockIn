@@ -38,12 +38,15 @@ function formatRevenue(amount: string | null, currency: string | null) {
 
 export function ReportSummaryPanel({ report }: ReportSummaryPanelProps) {
   const { totals, groups, groupBy, reconcile } = report;
-  const commercial = report.commercial !== false && totals.revenue != null;
+  const commercial = report.commercial === true;
+  const showProfitability =
+    commercial && (groupBy === 'project' || groupBy === 'client');
   const billableShare =
     totals.durationMinutes > 0
       ? Math.round((totals.billableMinutes / totals.durationMinutes) * 100)
       : 0;
   const unratedMinutes = commercial ? (totals.unratedBillableMinutes ?? 0) : 0;
+  const uncostedMinutes = commercial ? (totals.uncostedMinutes ?? 0) : 0;
   const pendingMinutes = totals.pendingDurationMinutes ?? 0;
 
   const mixData = useMemo(() => {
@@ -83,15 +86,16 @@ export function ReportSummaryPanel({ report }: ReportSummaryPanelProps) {
           <>
             Showing{' '}
             <span className="font-medium text-ink">approved time only</span>.
-            Draft, submitted, and rejected hours are excluded from revenue until
-            approved.
+            Revenue = approved billable × bill rate; cost = approved hours ×
+            cost rate; margin = revenue − cost. Draft/submitted/rejected are
+            excluded until approved.
           </>
         ) : (
           <>
             Team performance uses{' '}
             <span className="font-medium text-ink">approved hours</span> only.
-            Revenue is hidden for managers — ask an admin for commercial
-            reports.
+            Revenue, cost, and margin are hidden — ask an admin/owner for
+            commercial reports.
           </>
         )}
       </p>
@@ -120,10 +124,35 @@ export function ReportSummaryPanel({ report }: ReportSummaryPanelProps) {
           <Stat
             label="Revenue"
             value={formatRevenue(totals.revenue, totals.currency)}
-            hint="Approved billable × rate"
+            hint="Approved billable × bill rate"
           />
         ) : null}
       </div>
+
+      {commercial ? (
+        <div className="grid gap-6 rounded-lg border border-border/80 bg-card px-5 py-5 sm:grid-cols-3 sm:px-7 sm:py-7">
+          <Stat
+            label="Cost"
+            value={formatRevenue(totals.cost ?? null, totals.currency)}
+            hint="Approved hours × cost rate"
+          />
+          <Stat
+            label="Margin"
+            value={formatRevenue(totals.margin ?? null, totals.currency)}
+            hint="Revenue − cost"
+            accent
+          />
+          <Stat
+            label="Margin %"
+            value={
+              totals.marginPercent != null
+                ? `${Number(totals.marginPercent).toFixed(0)}%`
+                : '—'
+            }
+            hint="(Revenue − cost) ÷ revenue"
+          />
+        </div>
+      ) : null}
 
       {pendingMinutes > 0 ? (
         <p className="rounded-lg border border-border/80 bg-paper px-4 py-3 text-sm text-ink">
@@ -143,6 +172,13 @@ export function ReportSummaryPanel({ report }: ReportSummaryPanelProps) {
           {formatHoursMinutes(unratedMinutes)} of approved billable time has no
           matching billable rate on the entry date — revenue for those lines is
           0 until a rate is added.
+        </p>
+      ) : null}
+
+      {uncostedMinutes > 0 ? (
+        <p className="rounded-lg border border-border/80 bg-paper px-4 py-3 text-sm text-ink">
+          {formatHoursMinutes(uncostedMinutes)} of approved time has no matching
+          cost rate — cost for those lines is 0 until a cost rate is added.
         </p>
       ) : null}
 
@@ -230,7 +266,7 @@ export function ReportSummaryPanel({ report }: ReportSummaryPanelProps) {
       {groups.length > 0 ? (
         <section className="rounded-lg border border-border/80 bg-card px-5 py-5 sm:px-6 sm:py-6">
           <h2 className="text-base font-semibold tracking-tight text-ink">
-            Breakdown
+            {showProfitability ? 'Profitability' : 'Breakdown'}
           </h2>
           <ul className="mt-4 divide-y divide-navy/10">
             {groups.map((group, index) => {
@@ -260,9 +296,22 @@ export function ReportSummaryPanel({ report }: ReportSummaryPanelProps) {
                     <span className="text-xs text-slate">
                       {formatHoursMinutes(group.billableMinutes)} billable
                     </span>
-                    {commercial && group.revenue ? (
+                    {commercial && group.revenue != null ? (
                       <span className="text-xs text-slate">
-                        {formatRevenue(group.revenue, group.currency)}
+                        Rev {formatRevenue(group.revenue, group.currency)}
+                      </span>
+                    ) : null}
+                    {commercial && group.cost != null ? (
+                      <span className="text-xs text-slate">
+                        Cost {formatRevenue(group.cost, group.currency)}
+                      </span>
+                    ) : null}
+                    {commercial && group.margin != null ? (
+                      <span className="text-xs font-medium text-navy">
+                        Margin {formatRevenue(group.margin, group.currency)}
+                        {group.marginPercent != null
+                          ? ` (${Number(group.marginPercent).toFixed(0)}%)`
+                          : ''}
                       </span>
                     ) : null}
                     <span className="text-xs text-slate">{share}%</span>

@@ -47,6 +47,11 @@ export class TasksService {
 
     if (dto.assigneeId) {
       await this.assertMembershipInOrg(organisationId, dto.assigneeId);
+      await this.assertAssigneeIsProjectMember(
+        organisationId,
+        dto.projectId,
+        dto.assigneeId,
+      );
     }
 
     // FIX 5 — inherit from project unless billable:set allows override
@@ -196,6 +201,11 @@ export class TasksService {
     }
     if (dto.assigneeId) {
       await this.assertMembershipInOrg(organisationId, dto.assigneeId);
+      await this.assertAssigneeIsProjectMember(
+        organisationId,
+        dto.projectId ?? existing.projectId,
+        dto.assigneeId,
+      );
     }
     if (dto.billable !== undefined) {
       await this.visibility.assertCanSetBillable(
@@ -221,6 +231,17 @@ export class TasksService {
       nextStatus,
       existing.id,
     );
+
+    // If moving to another project with an existing assignee, validate against new project
+    const nextAssigneeId =
+      dto.assigneeId !== undefined ? dto.assigneeId : existing.assigneeId;
+    if (dto.projectId && nextAssigneeId) {
+      await this.assertAssigneeIsProjectMember(
+        organisationId,
+        dto.projectId,
+        nextAssigneeId,
+      );
+    }
 
     try {
       const result = await this.prisma.task.updateMany({
@@ -418,6 +439,24 @@ export class TasksService {
     if (!membership) {
       throw new BadRequestException(
         'assigneeId must be an active membership in your organisation',
+      );
+    }
+  }
+
+  /** STEP 1 — task assignee must already be on the project team. */
+  private async assertAssigneeIsProjectMember(
+    organisationId: string,
+    projectId: string,
+    membershipId: string,
+  ): Promise<void> {
+    const ok = await this.visibility.isProjectMember(
+      organisationId,
+      projectId,
+      membershipId,
+    );
+    if (!ok) {
+      throw new BadRequestException(
+        'Assignee must be a member of this project — add them on the project Team first',
       );
     }
   }

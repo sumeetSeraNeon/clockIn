@@ -1,12 +1,17 @@
 'use client';
 
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { FormField } from '@/components/common/FormField';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { toDateParam } from '@/lib/date-range';
-import type { Task, TimeEntry } from '@/types/api';
+import {
+  projectIdForTask,
+  projectsFromTasks,
+  tasksForProject,
+} from '@/lib/task-project-picker';
+import type { Project, Task, TimeEntry } from '@/types/api';
 
 export type AddTimeValues = {
   taskId: string;
@@ -22,6 +27,8 @@ export type AddTimeValues = {
 
 type AddTimeFormProps = {
   tasks: Task[];
+  /** Optional lookup for project names when tasks omit nested project */
+  projects?: Project[];
   submitting: boolean;
   /** Prefill task (e.g. from Tasks → Track). */
   defaultTaskId?: string;
@@ -58,10 +65,11 @@ function clockFromIso(iso: string | null | undefined): string {
 }
 
 /**
- * FINAL FIX 2 — Level 1 manual time: one entry = one block (task, date, duration or range, note).
+ * Level 1 manual time. Project then Task pickers (STEP 1 UX).
  */
 export function AddTimeForm({
   tasks,
+  projects = [],
   submitting,
   defaultTaskId = '',
   defaultDate,
@@ -71,9 +79,9 @@ export function AddTimeForm({
   onSubmit,
   onCancel,
 }: AddTimeFormProps) {
-  const isEdit = Boolean(initialEntry);
   const firstLine = initialEntry?.timeLines?.[0];
 
+  const [projectId, setProjectId] = useState('');
   const [taskId, setTaskId] = useState(defaultTaskId);
   const [entryDate, setEntryDate] = useState(
     defaultDate ?? toDateParam(new Date()),
@@ -86,11 +94,22 @@ export function AddTimeForm({
   const [endTime, setEndTime] = useState('10:00');
   const [error, setError] = useState<string | null>(null);
 
+  const projectOptions = useMemo(
+    () => projectsFromTasks(tasks, projects),
+    [tasks, projects],
+  );
+  const taskOptions = useMemo(
+    () => tasksForProject(tasks, projectId),
+    [tasks, projectId],
+  );
+
   useEffect(() => {
     if (initialEntry && firstLine) {
       const parts = partsFromMinutes(firstLine.durationMinutes ?? 0);
       const hasRange = Boolean(initialEntry.startTime && initialEntry.endTime);
-      setTaskId(firstLine.taskId ?? '');
+      const tid = firstLine.taskId ?? '';
+      setTaskId(tid);
+      setProjectId(projectIdForTask(tasks, tid));
       setEntryDate(
         initialEntry.entryDate
           ? initialEntry.entryDate.slice(0, 10)
@@ -103,7 +122,9 @@ export function AddTimeForm({
       setStartTime(clockFromIso(initialEntry.startTime) || '09:00');
       setEndTime(clockFromIso(initialEntry.endTime) || '10:00');
     } else {
-      setTaskId(defaultTaskId);
+      const tid = defaultTaskId;
+      setTaskId(tid);
+      setProjectId(projectIdForTask(tasks, tid));
       setEntryDate(defaultDate ?? toDateParam(new Date()));
       setDescription('');
       if (defaultRange?.startTime && defaultRange?.endTime) {
@@ -127,10 +148,14 @@ export function AddTimeForm({
         setEndTime('10:00');
       }
     }
-  }, [initialEntry, firstLine, defaultTaskId, defaultDate, defaultRange]);
+  }, [initialEntry, firstLine, defaultTaskId, defaultDate, defaultRange, tasks]);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
+    if (!projectId) {
+      setError('Pick a project.');
+      return;
+    }
     if (!taskId) {
       setError('Pick an assigned task.');
       return;
@@ -173,17 +198,38 @@ export function AddTimeForm({
 
   return (
     <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
+      <FormField label="Project" htmlFor="add-time-project">
+        <Select
+          id="add-time-project"
+          value={projectId}
+          onChange={(e) => {
+            setProjectId(e.target.value);
+            setTaskId('');
+          }}
+          disabled={submitting}
+        >
+          <option value="">Select project…</option>
+          {projectOptions.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </Select>
+      </FormField>
+
       <FormField label="Task" htmlFor="add-time-task">
         <Select
           id="add-time-task"
           value={taskId}
           onChange={(e) => setTaskId(e.target.value)}
-          disabled={submitting || (isEdit && false)}
+          disabled={submitting || !projectId}
         >
-          <option value="">Select task…</option>
-          {tasks.map((t) => (
+          <option value="">
+            {!projectId ? 'Select a project first' : 'Select task…'}
+          </option>
+          {taskOptions.map((t) => (
             <option key={t.id} value={t.id}>
-              {t.project?.name ? `${t.name} · ${t.project.name}` : t.name}
+              {t.name}
             </option>
           ))}
         </Select>
@@ -302,7 +348,6 @@ export function AddTimeForm({
   );
 }
 
-/** Build create/update payloads from AddTimeValues (shared by Time + Tasks Track). */
 export function durationMinutesFromAddValues(values: AddTimeValues): number {
   if (values.mode === 'duration') {
     return minutesFromParts(values.durationHours, values.durationMinutes);
@@ -324,7 +369,6 @@ export function isoRangeFromAddValues(values: AddTimeValues): {
       endTime: new Date(`${values.entryDate}T${values.endTime}:00`).toISOString(),
     };
   }
-  // Duration mode: closed range (never endTime null — that means a running timer)
   const mins = durationMinutesFromAddValues(values);
   const start = new Date(`${values.entryDate}T09:00:00`);
   const end = new Date(start.getTime() + mins * 60_000);

@@ -13,6 +13,8 @@ import {
 import { mapPrismaError } from '../common/prisma-errors';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateRateDto } from './dto/create-rate.dto';
+import { CreateRatePairDto } from './dto/create-rate-pair.dto';
+import { ListProjectUserRatesQueryDto } from './dto/list-project-user-rates-query.dto';
 import { ListRatesQueryDto } from './dto/list-rates-query.dto';
 import { LookupRateDto } from './dto/lookup-rate.dto';
 
@@ -60,6 +62,32 @@ export type RateLookupResult = {
   matchedScope: string | null;
   amount: string | null;
   currency: string | null;
+};
+
+/** STEP 2 — paired project_user cost + bill with derived margin. */
+export type ProjectUserRatePair = {
+  projectId: string;
+  userId: string;
+  userName: string | null;
+  userEmail: string | null;
+  costAmount: string | null;
+  billableAmount: string | null;
+  currency: string | null;
+  /** bill − cost (null if either side missing) */
+  marginAmount: string | null;
+  /** (bill − cost) / bill × 100 (null if bill missing or zero) */
+  marginPercent: string | null;
+  costRateId: string | null;
+  billableRateId: string | null;
+  effectiveFrom: Date | null;
+};
+
+export type CreateRatePairResult = {
+  cost: Rate;
+  billable: Rate;
+  marginAmount: string;
+  marginPercent: string | null;
+  currency: string;
 };
 
 @Injectable()
@@ -150,6 +178,181 @@ export class RatesService {
       if (error instanceof BadRequestException) throw error;
       mapPrismaError(error);
     }
+  }
+
+  /**
+   * STEP 2 — create cost + billable project_user rates in one call (two history rows).
+   */
+  async createPair(
+    organisationId: string,
+    actorMembershipId: string,
+    dto: CreateRatePairDto,
+  ): Promise<CreateRatePairResult> {
+    const currencyHint = dto.currency;
+    const shared = {
+      scope: 'project_user' as const,
+      projectId: dto.projectId,
+      userId: dto.userId,
+      currency: currencyHint,
+      effectiveFrom: dto.effectiveFrom,
+      effectiveTo: null as string | null,
+    };
+
+    const cost = await this.create(organisationId, actorMembershipId, {
+      ...shared,
+      rateType: 'cost',
+      amount: dto.costAmount,
+    });
+
+    const billable = await this.create(organisationId, actorMembershipId, {
+      ...shared,
+      rateType: 'billable',
+      amount: dto.billableAmount,
+    });
+
+    const costNum = Number(cost.amount.toString());
+    const billNum = Number(billable.amount.toString());
+    const margin = billNum - costNum;
+    const marginPercent =
+      billNum > 0 ? ((margin / billNum) * 100).toFixed(2) : null;
+
+    return {
+      cost,
+      billable,
+      marginAmount: margin.toFixed(2),
+      marginPercent,
+      currency: billable.currency ?? cost.currency ?? 'GBP',
+    };
+  }
+
+  /**
+   * STEP 2 — current project_user cost + bill + margin for Team / Rates UI.
+   */
+  async listProjectUserPairs(
+    organisationId: string,
+    query: ListProjectUserRatesQueryDto,
+  ): Promise<ProjectUserRatePair[]> {
+    const today = this.todayUtcDate();
+    const project = await this.prisma.project.findFirst({
+      where: { id: query.projectId, organisationId },
+      select: { id: true },
+    });
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+
+    const rates = await this.prisma.rate.findMany({
+      where: {
+        organisationId,
+        scope: 'project_user',
+        projectId: query.projectId,
+        ...(query.userId ? { userId: query.userId } : {}),
+        effectiveFrom: { lte: today },
+        OR: [{ effectiveTo: null }, { effectiveTo: { gte: today } }],
+      },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+      },
+      orderBy: [{ effectiveFrom: 'desc' }, { createdAt: 'desc' }],
+    });
+
+    const byUser = new Map<
+      string,
+      {
+        userName: string | null;
+        userEmail: string | null;
+        cost?: (typeof rates)[number];
+        billable?: (typeof rates)[number];
+      }
+    >();
+
+    for (const rate of rates) {
+      if (!rate.userId) continue;
+      let bucket = byUser.get(rate.userId);
+      if (!bucket) {
+        bucket = {
+          userName: rate.user?.name ?? null,
+          userEmail: rate.user?.email ?? null,
+        };
+        byUser.set(rate.userId, bucket);
+      }
+      if (rate.rateType === 'cost' && !bucket.cost) {
+        bucket.cost = rate;
+      } else if (rate.rateType === 'billable' && !bucket.billable) {
+        bucket.billable = rate;
+      }
+    }
+
+    // Include project team members with no rates yet when listing the whole project
+    if (!query.userId) {
+      const team = await this.prisma.projectMember.findMany({
+        where: {
+          organisationId,
+          projectId: query.projectId,
+          status: 'active',
+        },
+        include: {
+          membership: {
+            select: {
+              user: { select: { id: true, name: true, email: true } },
+            },
+          },
+        },
+      });
+      for (const row of team) {
+        const uid = row.membership.user.id;
+        if (!byUser.has(uid)) {
+          byUser.set(uid, {
+            userName: row.membership.user.name,
+            userEmail: row.membership.user.email,
+          });
+        }
+      }
+    }
+
+    const pairs: ProjectUserRatePair[] = [];
+    for (const [userId, bucket] of byUser) {
+      const costAmount = bucket.cost?.amount.toString() ?? null;
+      const billableAmount = bucket.billable?.amount.toString() ?? null;
+      const currency =
+        bucket.billable?.currency ?? bucket.cost?.currency ?? null;
+      let marginAmount: string | null = null;
+      let marginPercent: string | null = null;
+      if (costAmount != null && billableAmount != null) {
+        const costNum = Number(costAmount);
+        const billNum = Number(billableAmount);
+        const margin = billNum - costNum;
+        marginAmount = margin.toFixed(2);
+        marginPercent =
+          billNum > 0 ? ((margin / billNum) * 100).toFixed(2) : null;
+      }
+      const fromCandidates = [bucket.cost, bucket.billable]
+        .filter(Boolean)
+        .map((r) => r!.effectiveFrom.getTime());
+      pairs.push({
+        projectId: query.projectId,
+        userId,
+        userName: bucket.userName,
+        userEmail: bucket.userEmail,
+        costAmount,
+        billableAmount,
+        currency,
+        marginAmount,
+        marginPercent,
+        costRateId: bucket.cost?.id ?? null,
+        billableRateId: bucket.billable?.id ?? null,
+        effectiveFrom:
+          fromCandidates.length > 0
+            ? new Date(Math.max(...fromCandidates))
+            : null,
+      });
+    }
+
+    return pairs.sort((a, b) =>
+      (a.userName || a.userEmail || '').localeCompare(
+        b.userName || b.userEmail || '',
+      ),
+    );
   }
 
   async findAll(

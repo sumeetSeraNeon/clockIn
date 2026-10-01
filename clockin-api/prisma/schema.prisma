@@ -39,6 +39,7 @@ model Organisation {
   roles                  Role[]
   clients                Client[]
   projects               Project[]
+  projectMembers         ProjectMember[]
   tasks                  Task[]
   tickets                Ticket[]
   timeEntries            TimeEntry[]
@@ -140,6 +141,7 @@ model Membership {
   ownedClients            Client[]        @relation("ClientOwner")
   ownedProjects           Project[]       @relation("ProjectOwner")
   assignedTasks           Task[]          @relation("TaskAssignee")
+  projectMemberships      ProjectMember[]
   auditEvents             AuditEvent[]    @relation("AuditActor")
   approvedChangeRequests  ChangeRequest[] @relation("CrApprovedBy")
   approvals               Approval[]      @relation("ApprovalApprover")
@@ -262,6 +264,7 @@ model Project {
   client       Client       @relation(fields: [clientId], references: [id])
   owner        Membership?  @relation("ProjectOwner", fields: [ownerId], references: [id])
 
+  members            ProjectMember[]
   tasks              Task[]
   tickets            Ticket[]
   timeLines          TimeLine[]
@@ -277,6 +280,33 @@ model Project {
   @@index([clientId])
   @@index([ownerId])
   @@map("projects")
+}
+
+/// Who is ON a project team (independent of task assignment).
+/// Many people ↔ many projects. Task assignee must be an active project member.
+model ProjectMember {
+  id             String   @id @default(uuid())
+  organisationId String   @map("organisation_id")
+  projectId      String   @map("project_id")
+  membershipId   String   @map("membership_id")
+  /// contributor | lead
+  roleOnProject  String   @default("contributor") @map("role_on_project")
+  /// active | removed (soft-remove when they leave the team)
+  status         String   @default("active")
+  addedAt        DateTime @default(now()) @map("added_at") @db.Timestamptz
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  project      Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  membership   Membership  @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, membershipId])
+  @@index([organisationId])
+  @@index([projectId])
+  @@index([membershipId])
+  @@index([status])
+  @@map("project_members")
 }
 
 model Task {

@@ -6,6 +6,11 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { cn } from '@/lib/cn';
+import {
+  projectIdForTask,
+  projectsFromTasks,
+  tasksForProject,
+} from '@/lib/task-project-picker';
 import type {
   Client,
   Project,
@@ -514,10 +519,21 @@ export function TimerBarFields({
   storedBillable?: boolean | null;
   showBillable?: boolean;
 }) {
+  const projectOptions = projectsFromTasks(tasks, projects);
+  const selectedProjectId = projectIdForTask(tasks, taskId);
+  const [projectId, setProjectId] = useState(selectedProjectId);
+  const taskOptions = tasksForProject(tasks, projectId);
+
+  useEffect(() => {
+    if (taskId) {
+      setProjectId(projectIdForTask(tasks, taskId));
+    }
+  }, [taskId, tasks]);
+
   const billable =
     storedBillable !== undefined && storedBillable !== null
       ? storedBillable
-      : previewInheritedBillable(taskId, '', tasks, projects);
+      : previewInheritedBillable(taskId, projectId, tasks, projects);
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-center">
@@ -529,15 +545,33 @@ export function TimerBarFields({
         className="min-w-0 flex-1"
       />
       <Select
+        value={projectId}
+        onChange={(e) => {
+          setProjectId(e.target.value);
+          onTaskChange('');
+        }}
+        disabled={disabled}
+        className="w-full sm:w-44"
+        aria-label="Project"
+      >
+        <option value="">Project…</option>
+        {projectOptions.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}
+          </option>
+        ))}
+      </Select>
+      <Select
         value={taskId}
         onChange={(e) => onTaskChange(e.target.value)}
-        disabled={disabled}
-        className="w-full sm:w-52"
+        disabled={disabled || !projectId}
+        className="w-full sm:w-44"
+        aria-label="Task"
       >
-        <option value="">No task</option>
-        {tasks.map((t) => (
+        <option value="">{!projectId ? 'Pick project' : 'Task…'}</option>
+        {taskOptions.map((t) => (
           <option key={t.id} value={t.id}>
-            {t.project?.name ? `${t.name} · ${t.project.name}` : t.name}
+            {t.name}
           </option>
         ))}
       </Select>

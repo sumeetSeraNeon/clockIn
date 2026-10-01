@@ -16,6 +16,7 @@ import {
   ReportBudgetQueryDto,
   ReportDetailedQueryDto,
   ReportSummaryQueryDto,
+  ReportUtilisationQueryDto,
 } from './dto/report-query.dto';
 
 type LineForReport = {
@@ -134,6 +135,7 @@ export class ReportsService {
       billableMinutes: number;
       nonBillableMinutes: number;
       revenue: Prisma.Decimal;
+      cost: Prisma.Decimal;
       currency: string | null;
     };
 
@@ -142,7 +144,9 @@ export class ReportsService {
     let totalBillable = 0;
     let totalNonBillable = 0;
     let unratedBillableMinutes = 0;
+    let uncostedMinutes = 0;
     let totalRevenue = new Prisma.Decimal(0);
+    let totalCost = new Prisma.Decimal(0);
     let currency: string | null = null;
 
     for (const raw of lines) {
@@ -170,6 +174,7 @@ export class ReportsService {
           billableMinutes: 0,
           nonBillableMinutes: 0,
           revenue: new Prisma.Decimal(0),
+          cost: new Prisma.Decimal(0),
           currency: null,
         };
         groups.set(key, acc);
@@ -192,26 +197,63 @@ export class ReportsService {
       } else {
         acc.nonBillableMinutes += line.durationMinutes;
       }
+
+      // STEP 3 — cost on all approved hours (billable + non-billable)
+      if (commercial) {
+        const lineCost = await this.lineCost(organisationId, line);
+        if (lineCost) {
+          acc.cost = acc.cost.add(lineCost.amount);
+          acc.currency = acc.currency ?? lineCost.currency;
+          totalCost = totalCost.add(lineCost.amount);
+          currency = currency ?? lineCost.currency;
+        } else {
+          uncostedMinutes += line.durationMinutes;
+        }
+      }
     }
+
+    const marginMoney = (revenue: Prisma.Decimal, cost: Prisma.Decimal) => {
+      const margin = revenue.sub(cost);
+      const marginPercent =
+        revenue.gt(0)
+          ? margin.mul(100).div(revenue).toFixed(2)
+          : null;
+      return {
+        cost: cost.toFixed(2),
+        margin: margin.toFixed(2),
+        marginPercent,
+      };
+    };
 
     const mappedGroups = [...groups.values()]
       .sort((a, b) => b.durationMinutes - a.durationMinutes)
-      .map((g) => ({
-        key: g.key,
-        label: g.label,
-        clientId: g.clientId,
-        projectId: g.projectId,
-        taskId: g.taskId,
-        userId: g.userId,
-        durationMinutes: g.durationMinutes,
-        billableMinutes: g.billableMinutes,
-        nonBillableMinutes: g.nonBillableMinutes,
-        billableHours: this.minutesToHours(g.billableMinutes),
-        nonBillableHours: this.minutesToHours(g.nonBillableMinutes),
-        ...(commercial
-          ? { revenue: g.revenue.toFixed(2), currency: g.currency }
-          : { revenue: null as string | null, currency: null as string | null }),
-      }));
+      .map((g) => {
+        const money = commercial
+          ? marginMoney(g.revenue, g.cost)
+          : {
+              cost: null as string | null,
+              margin: null as string | null,
+              marginPercent: null as string | null,
+            };
+        return {
+          key: g.key,
+          label: g.label,
+          clientId: g.clientId,
+          projectId: g.projectId,
+          taskId: g.taskId,
+          userId: g.userId,
+          durationMinutes: g.durationMinutes,
+          billableMinutes: g.billableMinutes,
+          nonBillableMinutes: g.nonBillableMinutes,
+          billableHours: this.minutesToHours(g.billableMinutes),
+          nonBillableHours: this.minutesToHours(g.nonBillableMinutes),
+          revenue: commercial ? g.revenue.toFixed(2) : null,
+          cost: money.cost,
+          margin: money.margin,
+          marginPercent: money.marginPercent,
+          currency: commercial ? g.currency : null,
+        };
+      });
 
     // Groups sum must equal totals (same loop) — exposed for UI reconcile checks
     const groupsRevenue = commercial
@@ -220,6 +262,20 @@ export class ReportsService {
           new Prisma.Decimal(0),
         )
       : new Prisma.Decimal(0);
+    const groupsCost = commercial
+      ? mappedGroups.reduce(
+          (sum, g) => sum.add(new Prisma.Decimal(g.cost ?? '0')),
+          new Prisma.Decimal(0),
+        )
+      : new Prisma.Decimal(0);
+
+    const totalsMoney = commercial
+      ? marginMoney(totalRevenue, totalCost)
+      : {
+          cost: null as string | null,
+          margin: null as string | null,
+          marginPercent: null as string | null,
+        };
 
     return {
       dateFrom: query.dateFrom,
@@ -233,10 +289,17 @@ export class ReportsService {
         billableHours: this.minutesToHours(totalBillable),
         nonBillableHours: this.minutesToHours(totalNonBillable),
         revenue: commercial ? totalRevenue.toFixed(2) : null,
+        cost: totalsMoney.cost,
+        margin: totalsMoney.margin,
+        marginPercent: totalsMoney.marginPercent,
         currency: commercial ? currency : null,
         unratedBillableMinutes: commercial ? unratedBillableMinutes : 0,
         unratedBillableHours: commercial
           ? this.minutesToHours(unratedBillableMinutes)
+          : 0,
+        uncostedMinutes: commercial ? uncostedMinutes : 0,
+        uncostedHours: commercial
+          ? this.minutesToHours(uncostedMinutes)
           : 0,
         pendingDurationMinutes: pending.durationMinutes,
         pendingBillableMinutes: pending.billableMinutes,
@@ -247,11 +310,15 @@ export class ReportsService {
       reconcile: commercial
         ? {
             groupsRevenue: groupsRevenue.toFixed(2),
-            matchesTotals: groupsRevenue.equals(totalRevenue),
+            groupsCost: groupsCost.toFixed(2),
+            matchesTotals:
+              groupsRevenue.equals(totalRevenue) &&
+              groupsCost.equals(totalCost),
             lineCount: lines.length,
           }
         : {
             groupsRevenue: '0.00',
+            groupsCost: '0.00',
             matchesTotals: true,
             lineCount: lines.length,
           },
@@ -362,6 +429,8 @@ export class ReportsService {
         code: true,
         budgetHours: true,
         status: true,
+        startDate: true,
+        endDate: true,
         tasks: {
           where: { status: { in: ['open', 'done'] } },
           select: {
@@ -481,6 +550,19 @@ export class ReportsService {
             : null,
         overBudgetEstimate,
         overBudgetActual,
+        startDate: project.startDate
+          ? project.startDate.toISOString().slice(0, 10)
+          : null,
+        endDate: project.endDate
+          ? project.endDate.toISOString().slice(0, 10)
+          : null,
+        ...this.budgetBurnSignal({
+          budgetHours,
+          actualHours,
+          startDate: project.startDate,
+          endDate: project.endDate,
+          asOf: new Date(query.dateTo),
+        }),
         tasks,
       };
     });
@@ -490,6 +572,123 @@ export class ReportsService {
       dateTo: query.dateTo,
       entryStatus,
       projects: projectRows,
+    };
+  }
+
+  /**
+   * STEP 3 Rank 3 — billable utilisation: billable ÷ available hours per person.
+   * Available from working_calendar when set, else weekday × 8.
+   */
+  async utilisation(
+    organisationId: string,
+    membership: AuthMembership,
+    userId: string,
+    query: ReportUtilisationQueryDto,
+  ) {
+    this.assertDateRange(query.dateFrom, query.dateTo);
+
+    const lines = await this.fetchLines(organisationId, membership, userId, {
+      dateFrom: query.dateFrom,
+      dateTo: query.dateTo,
+      clientId: query.clientId,
+      projectId: query.projectId,
+      userId: query.userId,
+      entryStatus: 'approved',
+    });
+
+    type PersonAcc = {
+      userId: string;
+      userName: string | null;
+      userEmail: string;
+      trackedMinutes: number;
+      billableMinutes: number;
+    };
+    const byUser = new Map<string, PersonAcc>();
+
+    for (const raw of lines) {
+      const line = this.normalizeLine(raw);
+      const uid = line.timeEntry.userId;
+      let acc = byUser.get(uid);
+      if (!acc) {
+        acc = {
+          userId: uid,
+          userName: line.timeEntry.user.name,
+          userEmail: line.timeEntry.user.email,
+          trackedMinutes: 0,
+          billableMinutes: 0,
+        };
+        byUser.set(uid, acc);
+      }
+      acc.trackedMinutes += line.durationMinutes;
+      if (line.billable) {
+        acc.billableMinutes += line.durationMinutes;
+      }
+    }
+
+    const calendars = await this.prisma.workingCalendar.findMany({
+      where: { organisationId },
+      orderBy: { effectiveFrom: 'desc' },
+    });
+    const orgDefault = calendars.find((c) => c.userId == null) ?? null;
+    const byUserCal = new Map(
+      calendars
+        .filter((c) => c.userId != null)
+        .map((c) => [c.userId as string, c]),
+    );
+
+    const people = [...byUser.values()]
+      .map((p) => {
+        const cal = byUserCal.get(p.userId) ?? orgDefault;
+        const availableMinutes = this.availableMinutesInRange(
+          query.dateFrom,
+          query.dateTo,
+          cal,
+        );
+        const trackedUtilisationPct =
+          availableMinutes > 0
+            ? Number(
+                ((p.trackedMinutes / availableMinutes) * 100).toFixed(1),
+              )
+            : null;
+        const billableUtilisationPct =
+          availableMinutes > 0
+            ? Number(
+                ((p.billableMinutes / availableMinutes) * 100).toFixed(1),
+              )
+            : null;
+        return {
+          userId: p.userId,
+          userName: p.userName,
+          userEmail: p.userEmail,
+          trackedMinutes: p.trackedMinutes,
+          billableMinutes: p.billableMinutes,
+          nonBillableMinutes: p.trackedMinutes - p.billableMinutes,
+          trackedHours: this.minutesToHours(p.trackedMinutes),
+          billableHours: this.minutesToHours(p.billableMinutes),
+          availableMinutes,
+          availableHours: this.minutesToHours(availableMinutes),
+          trackedUtilisationPct,
+          /** Primary STEP 3 metric */
+          billableUtilisationPct,
+          calendarSource: cal
+            ? cal.userId
+              ? ('user' as const)
+              : ('organisation' as const)
+            : ('weekday_fallback' as const),
+        };
+      })
+      .sort(
+        (a, b) =>
+          (b.billableUtilisationPct ?? 0) - (a.billableUtilisationPct ?? 0),
+      );
+
+    return {
+      dateFrom: query.dateFrom,
+      dateTo: query.dateTo,
+      policy: 'approved_only' as const,
+      availableHoursPolicy:
+        'working_calendar_or_weekday_x8' as const,
+      people,
     };
   }
 
@@ -917,6 +1116,181 @@ export class ReportsService {
       scope: lookup.matchedScope,
       currency: lookup.currency,
     };
+  }
+
+  /**
+   * STEP 3 — cost = hours × most-specific cost rate (all approved hours).
+   */
+  private async lineCost(
+    organisationId: string,
+    line: NormalizedLine,
+  ): Promise<{
+    amount: Prisma.Decimal;
+    rate: string;
+    scope: string | null;
+    currency: string | null;
+  } | null> {
+    const lookup = await this.rates.lookup(organisationId, {
+      rateType: 'cost',
+      date: line.timeEntry.entryDate.toISOString(),
+      clientId: line.resolvedClientId ?? undefined,
+      projectId: line.resolvedProjectId ?? undefined,
+      userId: line.timeEntry.userId,
+      taskId: line.resolvedTaskId ?? undefined,
+    });
+
+    if (!lookup.amount) {
+      return null;
+    }
+
+    const hourly = new Prisma.Decimal(lookup.amount);
+    const hours = new Prisma.Decimal(line.durationMinutes).div(60);
+    return {
+      amount: hourly.mul(hours),
+      rate: lookup.amount,
+      scope: lookup.matchedScope,
+      currency: lookup.currency,
+    };
+  }
+
+  /**
+   * STEP 3 Rank 2 — compare budget burn % vs timeline elapsed %.
+   * watch when burn exceeds timeline by >10pp; overrunning by >25pp or over budget.
+   */
+  private budgetBurnSignal(input: {
+    budgetHours: number | null;
+    actualHours: number;
+    startDate: Date | null;
+    endDate: Date | null;
+    asOf: Date;
+  }): {
+    budgetBurnPct: number | null;
+    timelineElapsedPct: number | null;
+    burnSignal: 'on_track' | 'watch' | 'overrunning' | 'unknown';
+  } {
+    const budgetBurnPct =
+      input.budgetHours != null && input.budgetHours > 0
+        ? Number(
+            ((input.actualHours / input.budgetHours) * 100).toFixed(1),
+          )
+        : null;
+
+    let timelineElapsedPct: number | null = null;
+    if (input.startDate && input.endDate) {
+      const start = input.startDate.getTime();
+      const end = input.endDate.getTime();
+      const asOf = input.asOf.getTime();
+      const span = end - start;
+      if (span > 0) {
+        timelineElapsedPct = Number(
+          (Math.min(Math.max((asOf - start) / span, 0), 1.5) * 100).toFixed(
+            1,
+          ),
+        );
+      }
+    }
+
+    let burnSignal: 'on_track' | 'watch' | 'overrunning' | 'unknown' =
+      'unknown';
+    if (budgetBurnPct != null && timelineElapsedPct != null) {
+      const delta = budgetBurnPct - timelineElapsedPct;
+      if (input.budgetHours != null && input.actualHours > input.budgetHours) {
+        burnSignal = 'overrunning';
+      } else if (delta > 25) {
+        burnSignal = 'overrunning';
+      } else if (delta > 10) {
+        burnSignal = 'watch';
+      } else {
+        burnSignal = 'on_track';
+      }
+    } else if (
+      input.budgetHours != null &&
+      input.actualHours > input.budgetHours
+    ) {
+      burnSignal = 'overrunning';
+    }
+
+    return { budgetBurnPct, timelineElapsedPct, burnSignal };
+  }
+
+  /**
+   * Available minutes in range from working calendar, else Mon–Fri × 8h.
+   */
+  private availableMinutesInRange(
+    dateFrom: string,
+    dateTo: string,
+    calendar: {
+      weeklyHours: Prisma.Decimal | null;
+      workdays: string | null;
+    } | null,
+  ): number {
+    const workdaySet = this.parseWorkdays(calendar?.workdays);
+    const dayCount = this.countWorkdays(dateFrom, dateTo, workdaySet);
+    if (dayCount <= 0) return 0;
+
+    if (calendar?.weeklyHours != null) {
+      const weekly = Number(calendar.weeklyHours);
+      if (Number.isFinite(weekly) && weekly > 0) {
+        const hoursPerDay = weekly / workdaySet.size;
+        return Math.round(dayCount * hoursPerDay * 60);
+      }
+    }
+
+    return dayCount * 8 * 60;
+  }
+
+  private parseWorkdays(raw: string | null | undefined): Set<number> {
+    // JS getDay(): 0=Sun … 6=Sat
+    const defaultSet = new Set([1, 2, 3, 4, 5]);
+    if (!raw || !raw.trim()) return defaultSet;
+    const map: Record<string, number> = {
+      sun: 0,
+      mon: 1,
+      tue: 2,
+      wed: 3,
+      thu: 4,
+      fri: 5,
+      sat: 6,
+    };
+    const normalised = raw.toLowerCase().replace(/\s+/g, '');
+    if (normalised.includes('-')) {
+      const [a, b] = normalised.split('-');
+      const start = map[a.slice(0, 3)];
+      const end = map[b.slice(0, 3)];
+      if (start == null || end == null) return defaultSet;
+      const set = new Set<number>();
+      let d = start;
+      for (let i = 0; i < 7; i += 1) {
+        set.add(d);
+        if (d === end) break;
+        d = (d + 1) % 7;
+      }
+      return set.size ? set : defaultSet;
+    }
+    const parts = normalised.split(/[,;/|]+/).filter(Boolean);
+    const set = new Set<number>();
+    for (const p of parts) {
+      const d = map[p.slice(0, 3)];
+      if (d != null) set.add(d);
+    }
+    return set.size ? set : defaultSet;
+  }
+
+  private countWorkdays(
+    dateFrom: string,
+    dateTo: string,
+    workdays: Set<number>,
+  ): number {
+    const start = new Date(`${dateFrom}T12:00:00Z`);
+    const end = new Date(`${dateTo}T12:00:00Z`);
+    if (end < start) return 0;
+    let count = 0;
+    const cur = new Date(start);
+    while (cur <= end) {
+      if (workdays.has(cur.getUTCDay())) count += 1;
+      cur.setUTCDate(cur.getUTCDate() + 1);
+    }
+    return count;
   }
 
   private minutesToHours(minutes: number): string {

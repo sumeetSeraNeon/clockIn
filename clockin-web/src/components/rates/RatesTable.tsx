@@ -23,7 +23,10 @@ function formatDate(value: string | null) {
 function formatAmount(amount: string | number, currency: string | null) {
   const n = typeof amount === 'number' ? amount : Number(amount);
   const formatted = Number.isFinite(n) ? n.toFixed(2) : String(amount);
-  return currency ? `${formatted} ${currency}` : formatted;
+  const code = currency || 'GBP';
+  const symbol =
+    code === 'GBP' ? '£' : code === 'EUR' ? '€' : code === 'USD' ? '$' : '';
+  return symbol ? `${symbol}${formatted}` : `${formatted} ${code}`;
 }
 
 export function RatesTable({ rates }: RatesTableProps) {
@@ -32,7 +35,7 @@ export function RatesTable({ rates }: RatesTableProps) {
       id: 'type',
       header: 'Type',
       cell: (row) => (
-        <span className="text-sm capitalize text-navy">{row.rateType}</span>
+        <span className="capitalize text-navy">{row.rateType}</span>
       ),
     },
     {
@@ -59,6 +62,7 @@ export function RatesTable({ rates }: RatesTableProps) {
       cell: (row) => (
         <span className="font-medium tabular-nums text-ink">
           {formatAmount(row.amount, row.currency)}
+          <span className="font-normal text-slate">/h</span>
         </span>
       ),
     },

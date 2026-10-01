@@ -122,3 +122,24 @@ export class ReportApprovalsQueryDto {
   @IsUUID()
   userId?: string;
 }
+
+/** STEP 3 — billable utilisation per person */
+export class ReportUtilisationQueryDto {
+  @IsDateString()
+  dateFrom!: string;
+
+  @IsDateString()
+  dateTo!: string;
+
+  @IsOptional()
+  @IsUUID()
+  clientId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  projectId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  userId?: string;
+}

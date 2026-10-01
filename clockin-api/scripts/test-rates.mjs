@@ -149,6 +149,54 @@ async function main() {
     `expected 150, got ${res.json.amount}`,
   );
 
+  // STEP 2 — pair cost + billable for project_user
+  res = await api(token, 'POST', '/rates/pair', {
+    projectId,
+    userId,
+    costAmount: 75,
+    billableAmount: 125,
+    currency: 'GBP',
+    effectiveFrom: today(),
+  });
+  console.log('\nPOST /rates/pair →', res.status);
+  console.log(JSON.stringify(res.json, null, 2));
+  assert(res.status === 200 || res.status === 201, 'pair failed');
+  assert(
+    String(res.json.marginAmount) === '50' ||
+      String(res.json.marginAmount) === '50.00',
+    `expected margin 50, got ${res.json.marginAmount}`,
+  );
+  assert(
+    String(res.json.marginPercent) === '40' ||
+      String(res.json.marginPercent) === '40.00',
+    `expected margin % 40, got ${res.json.marginPercent}`,
+  );
+
+  res = await api(
+    token,
+    'GET',
+    `/rates/project-user?projectId=${projectId}&userId=${userId}`,
+  );
+  console.log('\nGET /rates/project-user →', res.status);
+  assert(res.status === 200, 'project-user list failed');
+  assert(Array.isArray(res.json) && res.json.length >= 1, 'expected pair row');
+  assert(
+    String(res.json[0].costAmount) === '75' ||
+      String(res.json[0].costAmount) === '75.00',
+    'expected cost 75',
+  );
+
+  // Lookup now prefers project_user over project
+  res = await api(token, 'POST', '/rates/lookup', {
+    rateType: 'billable',
+    date: today(),
+    clientId,
+    projectId,
+    userId,
+  });
+  console.log('\nPOST /rates/lookup (after pair) →', res.status);
+  assert(res.json.matchedScope === 'project_user', 'expected project_user to win');
+
   // New org rate supersedes previous open org rate (history, not overwrite)
   res = await api(token, 'POST', '/rates', {
     rateType: 'billable',

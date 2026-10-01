@@ -12,6 +12,7 @@ import {
   ReportBudgetQueryDto,
   ReportDetailedQueryDto,
   ReportSummaryQueryDto,
+  ReportUtilisationQueryDto,
 } from './dto/report-query.dto';
 import { ReportsService } from './reports.service';
 
@@ -77,6 +78,23 @@ export class ReportsController {
     @Query() query: ReportApprovalsQueryDto,
   ) {
     return this.reportsService.approvalsReport(
+      organisationId,
+      membership,
+      user.id,
+      query,
+    );
+  }
+
+  /** STEP 3 — billable utilisation per person */
+  @Get('utilisation')
+  @RequirePermission('report', 'view')
+  utilisation(
+    @CurrentOrg() organisationId: string,
+    @CurrentMembership() membership: AuthMembership,
+    @CurrentUser() user: User,
+    @Query() query: ReportUtilisationQueryDto,
+  ) {
+    return this.reportsService.utilisation(
       organisationId,
       membership,
       user.id,

@@ -19,105 +19,93 @@ import type {
   ReportSummaryResponse,
 } from '@/types/api';
 
-const COLORS = [
-  '#ff494a',
-  '#14142b',
-  '#1d9e75',
-  '#ba7517',
-  '#5f5e5a',
-  '#c0392b',
-];
+type DashboardData = {
+  byProject: ReportSummaryResponse;
+  byClient: ReportSummaryResponse;
+  byUser: ReportSummaryResponse;
+  today: ReportSummaryResponse;
+};
 
-function BreakdownList({
+type ManagerOverviewProps = {
+  periodLabel: string;
+  orgName: string;
+  dateFrom: string;
+  dateTo: string;
+  todayParam: string;
+  daysElapsed: number;
+};
+
+function formatMoney(amount: string | null | undefined, currency: string | null) {
+  if (amount == null || amount === '') return '—';
+  const code = currency || 'GBP';
+  const symbol =
+    code === 'GBP' ? '£' : code === 'EUR' ? '€' : code === 'USD' ? '$' : '';
+  return symbol ? `${symbol}${amount}` : `${amount} ${code}`;
+}
+
+function ProfitabilityList({
   title,
-  subtitle,
   groups,
-  totalMinutes,
   emptyLabel,
   href,
   linkLabel,
 }: {
   title: string;
-  subtitle: string;
   groups: ReportSummaryGroup[];
-  totalMinutes: number;
   emptyLabel: string;
-  href?: string;
-  linkLabel?: string;
+  href: string;
+  linkLabel: string;
 }) {
-  const maxMinutes = Math.max(...groups.map((g) => g.durationMinutes), 1);
+  const rows = [...groups]
+    .sort((a, b) => Number(b.margin ?? 0) - Number(a.margin ?? 0))
+    .slice(0, 8);
 
   return (
     <section className="rounded-lg border border-border/80 bg-card px-5 py-5 sm:px-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold tracking-tight text-navy">
-            {title}
-          </h2>
-          <p className="mt-1 text-sm text-slate">{subtitle}</p>
-        </div>
-        {href && linkLabel ? (
-          <Link
-            href={href}
-            className="text-sm font-medium text-slate transition hover:text-coral"
-          >
-            {linkLabel}
-          </Link>
-        ) : null}
+        <h2 className="text-base font-semibold tracking-tight text-navy">
+          {title}
+        </h2>
+        <Link
+          href={href}
+          className="text-sm font-medium text-slate transition hover:text-coral"
+        >
+          {linkLabel}
+        </Link>
       </div>
 
-      {groups.length === 0 ? (
+      {rows.length === 0 ? (
         <p className="mt-8 text-sm text-slate">{emptyLabel}</p>
       ) : (
-        <ul className="mt-6 space-y-4">
-          {groups.slice(0, 8).map((group, index) => {
-            const width = Math.max(
-              6,
-              Math.round((group.durationMinutes / maxMinutes) * 100),
-            );
-            const color = COLORS[index % COLORS.length];
-            const share =
-              totalMinutes > 0
-                ? Math.round((group.durationMinutes / totalMinutes) * 100)
-                : 0;
+        <ul className="mt-5 divide-y divide-navy/10">
+          {rows.map((group) => {
+            const pct =
+              group.marginPercent != null
+                ? Number(group.marginPercent)
+                : null;
             return (
-              <li key={group.key}>
-                <div className="mb-2 flex items-center justify-between gap-4 text-sm">
-                  <div className="flex min-w-0 items-center gap-2.5">
-                    <span
-                      className="h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: color }}
-                    />
-                    <span className="truncate font-medium text-ink">
-                      {group.label || 'Unassigned'}
-                    </span>
-                  </div>
-                  <div className="flex shrink-0 items-baseline gap-3 tabular-nums">
-                    <span className="text-xs text-slate">{share}%</span>
-                    <span className="font-medium text-ink">
-                      {formatHoursMinutes(group.durationMinutes)}
-                    </span>
-                  </div>
-                </div>
-                <div className="h-1.5 overflow-hidden rounded-full bg-paper">
-                  <div
-                    className="h-full rounded-full"
-                    style={{ width: `${width}%`, backgroundColor: color }}
-                  />
-                </div>
-                <div className="mt-1.5 flex gap-3 text-[11px] text-slate">
-                  <span>
-                    Billable {formatHoursMinutes(group.billableMinutes)}
+              <li
+                key={group.key}
+                className="flex flex-wrap items-baseline justify-between gap-3 py-3 text-sm"
+              >
+                <span className="min-w-0 truncate font-medium text-ink">
+                  {group.label || 'Unassigned'}
+                </span>
+                <div className="flex shrink-0 flex-wrap items-baseline gap-3 tabular-nums">
+                  <span className="text-slate">
+                    {formatMoney(group.revenue, group.currency)}
                   </span>
-                  <span>
-                    Non-billable {formatHoursMinutes(group.nonBillableMinutes)}
+                  <span className="text-slate">
+                    − {formatMoney(group.cost ?? null, group.currency)}
                   </span>
-                  {group.revenue && group.revenue !== '0.00' ? (
-                    <span>
-                      {group.currency ? `${group.currency} ` : ''}
-                      {group.revenue}
-                    </span>
-                  ) : null}
+                  <span className="font-medium text-navy">
+                    {formatMoney(group.margin ?? null, group.currency)}
+                    {pct != null ? (
+                      <span className="ml-1 font-normal text-slate">
+                        ({pct.toFixed(0)}%)
+                      </span>
+                    ) : null}
+                  </span>
                 </div>
               </li>
             );
@@ -128,25 +116,9 @@ function BreakdownList({
   );
 }
 
-type DashboardData = {
-  byProject: ReportSummaryResponse;
-  byClient: ReportSummaryResponse;
-  byUser: ReportSummaryResponse;
-  today: ReportSummaryResponse;
-};
-
-type ManagerOverviewProps = {
-  weekLabel: string;
-  orgName: string;
-  dateFrom: string;
-  dateTo: string;
-  todayParam: string;
-  daysElapsed: number;
-};
-
-/** Org-wide week analysis for roles with report:view. */
+/** Org summary for roles with report:view. FIX 2 — money first when commercial. */
 export function ManagerOverview({
-  weekLabel,
+  periodLabel,
   orgName,
   dateFrom,
   dateTo,
@@ -165,23 +137,23 @@ export function ManagerOverview({
       setLoading(true);
       setError(null);
       try {
-        const weekBase = { dateFrom, dateTo };
+        const periodBase = { dateFrom, dateTo };
         const [byProject, byClient, byUser, today] = await Promise.all([
           api<ReportSummaryResponse>(
             `/reports/summary?${new URLSearchParams({
-              ...weekBase,
+              ...periodBase,
               groupBy: 'project',
             })}`,
           ),
           api<ReportSummaryResponse>(
             `/reports/summary?${new URLSearchParams({
-              ...weekBase,
+              ...periodBase,
               groupBy: 'client',
             })}`,
           ),
           api<ReportSummaryResponse>(
             `/reports/summary?${new URLSearchParams({
-              ...weekBase,
+              ...periodBase,
               groupBy: 'user',
             })}`,
           ),
@@ -199,7 +171,7 @@ export function ManagerOverview({
           setError(
             err instanceof ApiError
               ? err.message
-              : 'Could not load this week’s summary.',
+              : 'Could not load this period’s summary.',
           );
         }
       } finally {
@@ -215,6 +187,7 @@ export function ManagerOverview({
 
   const totals = data?.byProject.totals;
   const todayTotals = data?.today.totals;
+  const commercial = data?.byProject.commercial === true;
   const hasTime = (totals?.durationMinutes ?? 0) > 0;
   const billableShare =
     totals && totals.durationMinutes > 0
@@ -224,13 +197,8 @@ export function ManagerOverview({
   const avgPerDayMinutes = totals
     ? Math.round(totals.durationMinutes / daysElapsed)
     : 0;
-
-  const amountLabel =
-    totals?.currency && totals.revenue
-      ? `${totals.currency} ${totals.revenue}`
-      : totals?.revenue && totals.revenue !== '0.00'
-        ? totals.revenue
-        : '—';
+  const marginPct =
+    totals?.marginPercent != null ? Number(totals.marginPercent) : null;
 
   if (loading) {
     return (
@@ -257,47 +225,88 @@ export function ManagerOverview({
 
   return (
     <div className="mt-10 space-y-5">
+      {/* 1. Hero — money leads when commercial */}
       <section className="rounded-lg border border-border/80 bg-card px-5 py-5 sm:px-7">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-navy">
-              Management
+              {orgName}
             </p>
             <h2 className="mt-1 text-base font-semibold tracking-tight text-navy">
-              Organisation week
+              {periodLabel}
             </h2>
           </div>
-          <p className="text-sm text-slate">{orgName}</p>
+          <p className="text-sm text-slate">Approved time</p>
         </div>
 
-        <div className="mt-7 grid gap-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        {commercial ? (
+          <div className="mt-7 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
+            <Stat
+              label="Revenue"
+              value={formatMoney(totals?.revenue ?? null, totals?.currency ?? null)}
+            />
+            <Stat
+              label="Cost"
+              value={formatMoney(totals?.cost ?? null, totals?.currency ?? null)}
+            />
+            <Stat
+              label="Margin"
+              value={formatMoney(totals?.margin ?? null, totals?.currency ?? null)}
+              accent
+            />
+            <Stat
+              label="Margin %"
+              value={marginPct != null ? `${marginPct.toFixed(0)}%` : '—'}
+            />
+          </div>
+        ) : (
+          <div className="mt-7 grid gap-8 sm:grid-cols-3">
+            <Stat
+              label="Hours"
+              value={formatHoursMinutes(totals?.durationMinutes ?? 0)}
+              accent
+            />
+            <Stat
+              label="Billable"
+              value={formatHoursMinutes(totals?.billableMinutes ?? 0)}
+              hint={hasTime ? `${billableShare}%` : undefined}
+            />
+            <Stat
+              label="Today"
+              value={formatHoursMinutes(todayTotals?.durationMinutes ?? 0)}
+            />
+          </div>
+        )}
+
+        {commercial ? (
+          <p className="mt-5 text-sm text-slate">
+            {formatHoursMinutes(totals?.durationMinutes ?? 0)} approved ·{' '}
+            {formatHoursMinutes(todayTotals?.durationMinutes ?? 0)} today · avg{' '}
+            {formatHoursMinutes(avgPerDayMinutes)}/day
+          </p>
+        ) : null}
+      </section>
+
+      {/* 2. Hours + billable mix */}
+      <section className="rounded-lg border border-border/80 bg-card px-5 py-5 sm:px-7">
+        <h2 className="text-base font-semibold tracking-tight text-navy">
+          Hours this period
+        </h2>
+        <div className="mt-6 grid gap-8 sm:grid-cols-3">
           <Stat
-            label="This week"
+            label="Total"
             value={formatHoursMinutes(totals?.durationMinutes ?? 0)}
-            accent
-          />
-          <Stat
-            label="Today"
-            value={formatHoursMinutes(todayTotals?.durationMinutes ?? 0)}
           />
           <Stat
             label="Billable"
             value={formatHoursMinutes(totals?.billableMinutes ?? 0)}
-            hint={hasTime ? `${billableShare}% of week` : undefined}
+            hint={hasTime ? `${billableShare}%` : undefined}
           />
           <Stat
             label="Non-billable"
             value={formatHoursMinutes(totals?.nonBillableMinutes ?? 0)}
+            hint={hasTime ? `${nonBillableShare}%` : undefined}
           />
-          <Stat
-            label="Daily average"
-            value={formatHoursMinutes(avgPerDayMinutes)}
-            hint={`${daysElapsed} day${daysElapsed === 1 ? '' : 's'} so far`}
-          />
-          {data?.byProject.commercial !== false &&
-          data?.byProject.totals?.revenue != null ? (
-            <Stat label="Amount" value={amountLabel} />
-          ) : null}
         </div>
 
         {hasTime ? (
@@ -325,10 +334,11 @@ export function ManagerOverview({
               <IconTime className="h-5 w-5" />
             </div>
             <p className="mt-4 text-base font-semibold tracking-tight text-navy">
-              Nothing tracked this week
+              Nothing tracked this period
             </p>
             <p className="mt-2 max-w-md text-sm leading-relaxed text-slate">
-              Breakdowns appear once the team logs time for {weekLabel}.
+              Breakdowns appear once the team logs approved time for{' '}
+              {periodLabel}.
             </p>
             <Link
               href="/time"
@@ -340,60 +350,70 @@ export function ManagerOverview({
         )}
       </section>
 
-      {hasTime ? (
-        <>
-          <div className="grid gap-6 border border-border/80 bg-card px-5 py-4 sm:grid-cols-3 sm:px-6">
-            <div>
-              <p className="text-[13px] text-slate">Active projects</p>
-              <p className="mt-1 text-2xl font-semibold tabular-nums text-navy">
-                {data?.byProject.groups.length ?? 0}
-              </p>
-            </div>
-            <div>
-              <p className="text-[13px] text-slate">Active clients</p>
-              <p className="mt-1 text-2xl font-semibold tabular-nums text-navy">
-                {data?.byClient.groups.length ?? 0}
-              </p>
-            </div>
-            <div>
-              <p className="text-[13px] text-slate">People tracking</p>
-              <p className="mt-1 text-2xl font-semibold tabular-nums text-navy">
-                {data?.byUser.groups.length ?? 0}
-              </p>
-            </div>
-          </div>
-
-          <div className="grid gap-5 lg:grid-cols-2">
-            <BreakdownList
-              title="Projects"
-              subtitle="Hours by project this week"
-              groups={data?.byProject.groups ?? []}
-              totalMinutes={totals?.durationMinutes ?? 0}
-              emptyLabel="No project time this week."
-              href="/projects"
-              linkLabel="Projects →"
-            />
-            <BreakdownList
-              title="Clients"
-              subtitle="Hours by client this week"
-              groups={data?.byClient.groups ?? []}
-              totalMinutes={totals?.durationMinutes ?? 0}
-              emptyLabel="No client time this week."
-              href="/clients"
-              linkLabel="Clients →"
-            />
-          </div>
-
-          <BreakdownList
-            title="Team"
-            subtitle="Who tracked time this week"
-            groups={data?.byUser.groups ?? []}
-            totalMinutes={totals?.durationMinutes ?? 0}
-            emptyLabel="No team time this week."
-            href="/team"
-            linkLabel="Team →"
+      {/* 3. Profitability by project / client (commercial only) */}
+      {commercial && hasTime ? (
+        <div className="grid gap-5 lg:grid-cols-2">
+          <ProfitabilityList
+            title="Profitability by project"
+            groups={data?.byProject.groups ?? []}
+            emptyLabel="No project profitability this period."
+            href="/reports"
+            linkLabel="Reports →"
           />
-        </>
+          <ProfitabilityList
+            title="Profitability by client"
+            groups={data?.byClient.groups ?? []}
+            emptyLabel="No client profitability this period."
+            href="/reports"
+            linkLabel="Reports →"
+          />
+        </div>
+      ) : null}
+
+      {/* Non-commercial: hours by project/client (no money) */}
+      {!commercial && hasTime ? (
+        <div className="grid gap-5 lg:grid-cols-2">
+          <HoursBreakdown
+            title="By project"
+            groups={data?.byProject.groups ?? []}
+            totalMinutes={totals?.durationMinutes ?? 0}
+            emptyLabel="No project time this period."
+            href="/projects"
+            linkLabel="Projects →"
+          />
+          <HoursBreakdown
+            title="By client"
+            groups={data?.byClient.groups ?? []}
+            totalMinutes={totals?.durationMinutes ?? 0}
+            emptyLabel="No client time this period."
+            href="/clients"
+            linkLabel="Clients →"
+          />
+        </div>
+      ) : null}
+
+      {/* 4. Supporting stats */}
+      {hasTime ? (
+        <div className="grid gap-6 rounded-lg border border-border/80 bg-card px-5 py-4 sm:grid-cols-3 sm:px-6">
+          <div>
+            <p className="text-[13px] text-slate">Active projects</p>
+            <p className="mt-1 text-2xl font-semibold tabular-nums text-navy">
+              {data?.byProject.groups.length ?? 0}
+            </p>
+          </div>
+          <div>
+            <p className="text-[13px] text-slate">Active clients</p>
+            <p className="mt-1 text-2xl font-semibold tabular-nums text-navy">
+              {data?.byClient.groups.length ?? 0}
+            </p>
+          </div>
+          <div>
+            <p className="text-[13px] text-slate">People tracking</p>
+            <p className="mt-1 text-2xl font-semibold tabular-nums text-navy">
+              {data?.byUser.groups.length ?? 0}
+            </p>
+          </div>
+        </div>
       ) : null}
 
       <section className="rounded-lg border border-border/80 bg-card px-5 py-4 sm:px-6">
@@ -441,5 +461,65 @@ export function ManagerOverview({
         </div>
       </section>
     </div>
+  );
+}
+
+function HoursBreakdown({
+  title,
+  groups,
+  totalMinutes,
+  emptyLabel,
+  href,
+  linkLabel,
+}: {
+  title: string;
+  groups: ReportSummaryGroup[];
+  totalMinutes: number;
+  emptyLabel: string;
+  href: string;
+  linkLabel: string;
+}) {
+  return (
+    <section className="rounded-lg border border-border/80 bg-card px-5 py-5 sm:px-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <h2 className="text-base font-semibold tracking-tight text-navy">
+          {title}
+        </h2>
+        <Link
+          href={href}
+          className="text-sm font-medium text-slate transition hover:text-coral"
+        >
+          {linkLabel}
+        </Link>
+      </div>
+      {groups.length === 0 ? (
+        <p className="mt-8 text-sm text-slate">{emptyLabel}</p>
+      ) : (
+        <ul className="mt-5 divide-y divide-navy/10">
+          {groups.slice(0, 8).map((group) => {
+            const share =
+              totalMinutes > 0
+                ? Math.round((group.durationMinutes / totalMinutes) * 100)
+                : 0;
+            return (
+              <li
+                key={group.key}
+                className="flex items-center justify-between gap-4 py-3 text-sm"
+              >
+                <span className="truncate font-medium text-ink">
+                  {group.label || 'Unassigned'}
+                </span>
+                <div className="flex shrink-0 items-baseline gap-3 tabular-nums">
+                  <span className="text-xs text-slate">{share}%</span>
+                  <span className="font-medium text-ink">
+                    {formatHoursMinutes(group.durationMinutes)}
+                  </span>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }

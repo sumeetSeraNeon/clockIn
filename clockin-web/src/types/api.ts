@@ -70,6 +70,10 @@ export type ReportSummaryGroup = {
   billableHours: number | string;
   nonBillableHours: number | string;
   revenue: string | null;
+  /** STEP 3 — cost / margin only when commercial (rate:view) */
+  cost?: string | null;
+  margin?: string | null;
+  marginPercent?: string | null;
   currency: string | null;
 };
 
@@ -86,9 +90,14 @@ export type ReportSummaryResponse = {
     billableHours: number | string;
     nonBillableHours: number | string;
     revenue: string | null;
+    cost?: string | null;
+    margin?: string | null;
+    marginPercent?: string | null;
     currency: string | null;
     unratedBillableMinutes?: number;
     unratedBillableHours?: number | string;
+    uncostedMinutes?: number;
+    uncostedHours?: number | string;
     /** FINAL FIX 7 — unapproved hours excluded from revenue */
     pendingDurationMinutes?: number;
     pendingBillableMinutes?: number;
@@ -98,6 +107,7 @@ export type ReportSummaryResponse = {
   groups: ReportSummaryGroup[];
   reconcile?: {
     groupsRevenue: string;
+    groupsCost?: string;
     matchesTotals: boolean;
     lineCount: number;
   };
@@ -157,6 +167,12 @@ export type BudgetReportProjectRow = {
   remainingBudgetHours: number | null;
   overBudgetEstimate: boolean;
   overBudgetActual: boolean;
+  /** STEP 3 — delivery health */
+  startDate?: string | null;
+  endDate?: string | null;
+  budgetBurnPct?: number | null;
+  timelineElapsedPct?: number | null;
+  burnSignal?: 'on_track' | 'watch' | 'overrunning' | 'unknown';
   tasks: BudgetReportTaskRow[];
 };
 
@@ -165,6 +181,31 @@ export type BudgetReportResponse = {
   dateTo: string;
   entryStatus: string;
   projects: BudgetReportProjectRow[];
+};
+
+/** GET /reports/utilisation — STEP 3 billable utilisation */
+export type UtilisationPersonRow = {
+  userId: string;
+  userName: string | null;
+  userEmail: string;
+  trackedMinutes: number;
+  billableMinutes: number;
+  nonBillableMinutes: number;
+  trackedHours: string;
+  billableHours: string;
+  availableMinutes: number;
+  availableHours: string;
+  trackedUtilisationPct: number | null;
+  billableUtilisationPct: number | null;
+  calendarSource: 'user' | 'organisation' | 'weekday_fallback';
+};
+
+export type UtilisationReportResponse = {
+  dateFrom: string;
+  dateTo: string;
+  policy: 'approved_only';
+  availableHoursPolicy: string;
+  people: UtilisationPersonRow[];
 };
 
 export type ApprovalsReportSliceRow = {
@@ -639,6 +680,22 @@ export type Project = {
   owner?: TaskPerson | null;
 };
 
+/** STEP 1 — person on a project team (GET /projects/:id/members) */
+export type ProjectMember = {
+  id: string;
+  projectId: string;
+  membershipId: string;
+  roleOnProject: string;
+  status: string;
+  addedAt: string;
+  membership: MemberSummary;
+};
+
+export type AddProjectMemberInput = {
+  membershipId: string;
+  roleOnProject?: 'contributor' | 'lead';
+};
+
 export type CreateProjectInput = {
   clientId: string;
   name: string;
@@ -711,4 +768,37 @@ export type CreateRateInput = {
   currency?: string;
   effectiveFrom: string;
   effectiveTo?: string | null;
+};
+
+/** STEP 2 — paired cost + billable at project_user scope */
+export type CreateRatePairInput = {
+  projectId: string;
+  userId: string;
+  costAmount: number;
+  billableAmount: number;
+  currency?: string;
+  effectiveFrom: string;
+};
+
+export type ProjectUserRatePair = {
+  projectId: string;
+  userId: string;
+  userName: string | null;
+  userEmail: string | null;
+  costAmount: string | null;
+  billableAmount: string | null;
+  currency: string | null;
+  marginAmount: string | null;
+  marginPercent: string | null;
+  costRateId: string | null;
+  billableRateId: string | null;
+  effectiveFrom: string | null;
+};
+
+export type CreateRatePairResult = {
+  cost: Rate;
+  billable: Rate;
+  marginAmount: string;
+  marginPercent: string | null;
+  currency: string;
 };

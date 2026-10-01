@@ -9,6 +9,8 @@ import type { ReportDetailedLine } from '@/types/api';
 
 type ReportDetailedTableProps = {
   rows: ReportDetailedLine[];
+  /** When false, hide revenue/rate columns (PM / no rate:view). */
+  commercial?: boolean;
 };
 
 function formatMoney(amount: string | null, currency: string | null) {
@@ -20,7 +22,10 @@ function formatDate(value: string) {
   return value.slice(0, 10);
 }
 
-export function ReportDetailedTable({ rows }: ReportDetailedTableProps) {
+export function ReportDetailedTable({
+  rows,
+  commercial = true,
+}: ReportDetailedTableProps) {
   const columns: DataTableColumn<ReportDetailedLine>[] = [
     {
       id: 'date',
@@ -80,31 +85,36 @@ export function ReportDetailedTable({ rows }: ReportDetailedTableProps) {
           <span className="text-sm text-slate">No</span>
         ),
     },
-    {
-      id: 'revenue',
-      header: 'Revenue',
-      cell: (row) => (
-        <span className="tabular-nums text-slate">
-          {row.unrated ? (
-            <span title="No billable rate on this date">Unrated</span>
-          ) : (
-            formatMoney(row.revenue, row.currency)
-          )}
-        </span>
-      ),
-    },
-    {
-      id: 'rate',
-      header: 'Rate',
-      cell: (row) => (
-        <span className="tabular-nums text-xs text-slate">
-          {row.billableRate
-            ? `${row.billableRate}${row.rateScope ? ` (${row.rateScope})` : ''}`
-            : '—'}
-        </span>
-      ),
-    },
   ];
+
+  if (commercial) {
+    columns.push(
+      {
+        id: 'revenue',
+        header: 'Revenue',
+        cell: (row) => (
+          <span className="tabular-nums text-slate">
+            {row.unrated ? (
+              <span title="No billable rate on this date">Unrated</span>
+            ) : (
+              formatMoney(row.revenue, row.currency)
+            )}
+          </span>
+        ),
+      },
+      {
+        id: 'rate',
+        header: 'Rate',
+        cell: (row) => (
+          <span className="tabular-nums text-xs text-slate">
+            {row.billableRate
+              ? `${row.billableRate}${row.rateScope ? ` (${row.rateScope})` : ''}`
+              : '—'}
+          </span>
+        ),
+      },
+    );
+  }
 
   return (
     <DataTable columns={columns} rows={rows} rowKey={(row) => row.id} />

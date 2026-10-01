@@ -11,7 +11,7 @@ import { useAuth } from '@/lib/auth-context';
 import type { Paginated, Task, TimeEntry } from '@/types/api';
 
 type EmployeeOverviewProps = {
-  weekLabel: string;
+  periodLabel: string;
   dateFrom: string;
   dateTo: string;
   todayParam: string;
@@ -29,12 +29,12 @@ function sumDurationMinutes(entries: TimeEntry[]) {
 }
 
 /**
- * FINAL FIX 4 — personal member dashboard only:
- * week tracked hours (total, today, daily average) + open assigned tasks.
+ * Personal member dashboard only:
+ * period tracked hours (total, today, daily average) + open assigned tasks.
  * No billable, revenue, rates, or org breakdown.
  */
 export function EmployeeOverview({
-  weekLabel,
+  periodLabel,
   dateFrom,
   dateTo,
   todayParam,
@@ -43,7 +43,7 @@ export function EmployeeOverview({
   const { me } = useAuth();
   const membershipId = me?.membership?.id;
 
-  const [weekEntries, setWeekEntries] = useState<TimeEntry[]>([]);
+  const [periodEntries, setPeriodEntries] = useState<TimeEntry[]>([]);
   const [todayEntries, setTodayEntries] = useState<TimeEntry[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,7 +56,7 @@ export function EmployeeOverview({
       setLoading(true);
       setError(null);
       try {
-        const weekParams = new URLSearchParams({
+        const periodParams = new URLSearchParams({
           dateFrom,
           dateTo,
           pageSize: '100',
@@ -67,8 +67,8 @@ export function EmployeeOverview({
           pageSize: '100',
         });
 
-        const [weekRes, todayRes] = await Promise.all([
-          api<Paginated<TimeEntry>>(`/time-entries?${weekParams}`),
+        const [periodRes, todayRes] = await Promise.all([
+          api<Paginated<TimeEntry>>(`/time-entries?${periodParams}`),
           api<Paginated<TimeEntry>>(`/time-entries?${todayParams}`),
         ]);
 
@@ -91,7 +91,7 @@ export function EmployeeOverview({
         }
 
         if (!cancelled) {
-          setWeekEntries(weekRes.data ?? []);
+          setPeriodEntries(periodRes.data ?? []);
           setTodayEntries(todayRes.data ?? []);
           setTasks(openTasks);
         }
@@ -100,7 +100,7 @@ export function EmployeeOverview({
           setError(
             err instanceof ApiError
               ? err.message
-              : 'Could not load your week overview.',
+              : 'Could not load your overview.',
           );
         }
       } finally {
@@ -114,10 +114,10 @@ export function EmployeeOverview({
     };
   }, [dateFrom, dateTo, todayParam, membershipId]);
 
-  const weekMinutes = sumDurationMinutes(weekEntries);
+  const periodMinutes = sumDurationMinutes(periodEntries);
   const todayMinutes = sumDurationMinutes(todayEntries);
-  const hasTime = weekMinutes > 0;
-  const avgPerDay = Math.round(weekMinutes / daysElapsed);
+  const hasTime = periodMinutes > 0;
+  const avgPerDay = Math.round(periodMinutes / daysElapsed);
 
   if (loading) {
     return (
@@ -148,16 +148,16 @@ export function EmployeeOverview({
               My time
             </p>
             <h2 className="mt-1 text-base font-semibold tracking-tight text-navy">
-              Your week
+              Your hours
             </h2>
           </div>
-          <p className="text-sm text-slate">{weekLabel}</p>
+          <p className="text-sm text-slate">{periodLabel}</p>
         </div>
 
         <div className="mt-7 grid gap-8 sm:grid-cols-3">
           <Stat
-            label="Tracked this week"
-            value={formatHoursMinutes(weekMinutes)}
+            label="Tracked this period"
+            value={formatHoursMinutes(periodMinutes)}
             accent
           />
           <Stat label="Today" value={formatHoursMinutes(todayMinutes)} />
@@ -177,7 +177,7 @@ export function EmployeeOverview({
               No time logged yet
             </p>
             <p className="mt-2 max-w-md text-sm leading-relaxed text-slate">
-              Start tracking from the time tracker. Your hours for {weekLabel}{' '}
+              Start tracking from the time tracker. Your hours for {periodLabel}{' '}
               will show up here.
             </p>
             <Link

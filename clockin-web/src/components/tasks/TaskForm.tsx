@@ -5,10 +5,12 @@ import { FormField } from '@/components/common/FormField';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { api } from '@/lib/api-client';
 import type {
   CreateTaskInput,
   MemberSummary,
   Project,
+  ProjectMember,
   Task,
   TaskStatus,
   UpdateTaskInput,
@@ -18,12 +20,15 @@ type TaskFormProps = {
   mode: 'create' | 'edit';
   initial?: Task | null;
   projects: Project[];
+  /** Fallback org members when project team cannot be loaded */
   members: MemberSummary[];
   submitting: boolean;
   /** FIX 5 — only billable:set may change task.billable */
   canSetBillable?: boolean;
   /** FINAL FIX 3 — members never see billable (remove, don't grey out) */
   showBillable?: boolean;
+  /** FIX 4 — lock to this project (hide project picker; create stays open) */
+  fixedProjectId?: string;
   onSubmit: (values: CreateTaskInput | UpdateTaskInput) => Promise<void>;
   onCancel: () => void;
 };
@@ -61,6 +66,7 @@ export function TaskForm({
   submitting,
   canSetBillable = false,
   showBillable = false,
+  fixedProjectId,
   onSubmit,
   onCancel,
 }: TaskFormProps) {
@@ -68,6 +74,13 @@ export function TaskForm({
   const [errors, setErrors] = useState<{ name?: string; projectId?: string }>(
     {},
   );
+  const [assigneeOptions, setAssigneeOptions] = useState<MemberSummary[]>(
+    members,
+  );
+  const [assigneesLoading, setAssigneesLoading] = useState(false);
+
+  const lockProject = Boolean(fixedProjectId);
+  const compactCreate = mode === 'create' && lockProject;
 
   const selectedProject = projects.find((p) => p.id === form.projectId);
   const budgetHours =
@@ -96,7 +109,7 @@ export function TaskForm({
         billable: initial.billable ?? true,
       });
     } else {
-      const projectId = projects[0]?.id ?? '';
+      const projectId = fixedProjectId || projects[0]?.id || '';
       const project = projects.find((p) => p.id === projectId);
       setForm({
         ...EMPTY,
@@ -105,14 +118,52 @@ export function TaskForm({
       });
     }
     setErrors({});
-  }, [mode, initial, projects]);
+  }, [mode, initial, projects, fixedProjectId]);
+
+  // STEP 1 — assignee dropdown = that project's team only
+  useEffect(() => {
+    if (!form.projectId) {
+      setAssigneeOptions([]);
+      return;
+    }
+    let cancelled = false;
+    setAssigneesLoading(true);
+    void (async () => {
+      try {
+        const team = await api<ProjectMember[]>(
+          `/projects/${form.projectId}/members`,
+        );
+        if (cancelled) return;
+        setAssigneeOptions(
+          (team ?? []).map((row) => ({
+            id: row.membershipId,
+            status: row.membership.status,
+            user: row.membership.user,
+          })),
+        );
+      } catch {
+        if (!cancelled) {
+          // Fall back to org members so the form still works if team load fails
+          setAssigneeOptions(members);
+        }
+      } finally {
+        if (!cancelled) setAssigneesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [form.projectId, members]);
 
   function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => {
       const next = { ...prev, [key]: value };
-      if (key === 'projectId' && value && !canSetBillable) {
-        const project = projects.find((p) => p.id === value);
-        if (project) next.billable = project.billableByDefault;
+      if (key === 'projectId') {
+        next.assigneeId = '';
+        if (value && !canSetBillable) {
+          const project = projects.find((p) => p.id === value);
+          if (project) next.billable = project.billableByDefault;
+        }
       }
       return next;
     });
@@ -155,28 +206,30 @@ export function TaskForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <FormField
-        label="Project"
-        htmlFor="task-project"
-        error={errors.projectId}
-      >
-        <Select
-          id="task-project"
-          value={form.projectId}
-          onChange={(e) => setField('projectId', e.target.value)}
-          invalid={Boolean(errors.projectId)}
-          required
+      {!lockProject ? (
+        <FormField
+          label="Project"
+          htmlFor="task-project"
+          error={errors.projectId}
         >
-          <option value="" disabled>
-            Select a project
-          </option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
+          <Select
+            id="task-project"
+            value={form.projectId}
+            onChange={(e) => setField('projectId', e.target.value)}
+            invalid={Boolean(errors.projectId)}
+            required
+          >
+            <option value="" disabled>
+              Select a project
             </option>
-          ))}
-        </Select>
-      </FormField>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </Select>
+        </FormField>
+      ) : null}
 
       <FormField label="Name" htmlFor="task-name" error={errors.name}>
         <Input
@@ -189,18 +242,7 @@ export function TaskForm({
         />
       </FormField>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <FormField label="Status" htmlFor="task-status">
-          <Select
-            id="task-status"
-            value={form.status}
-            onChange={(e) => setField('status', e.target.value as TaskStatus)}
-          >
-            <option value="open">Open</option>
-            <option value="done">Done</option>
-            <option value="archived">Archived</option>
-          </Select>
-        </FormField>
+      {compactCreate ? (
         <FormField
           label="Estimated hours"
           htmlFor="task-estimate"
@@ -216,20 +258,56 @@ export function TaskForm({
             placeholder="8"
           />
         </FormField>
-      </div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <FormField label="Status" htmlFor="task-status">
+            <Select
+              id="task-status"
+              value={form.status}
+              onChange={(e) => setField('status', e.target.value as TaskStatus)}
+            >
+              <option value="open">Open</option>
+              <option value="done">Done</option>
+              <option value="archived">Archived</option>
+            </Select>
+          </FormField>
+          <FormField
+            label="Estimated hours"
+            htmlFor="task-estimate"
+            hint={budgetHint}
+          >
+            <Input
+              id="task-estimate"
+              type="number"
+              min={0}
+              step="0.25"
+              value={form.estimatedHours}
+              onChange={(e) => setField('estimatedHours', e.target.value)}
+              placeholder="8"
+            />
+          </FormField>
+        </div>
+      )}
 
       <FormField
         label="Assignee"
         htmlFor="task-assignee"
-        hint="Optional — membership in your org"
+        hint="Only people on this project’s Team"
       >
         <Select
           id="task-assignee"
           value={form.assigneeId}
           onChange={(e) => setField('assigneeId', e.target.value)}
+          disabled={!form.projectId || assigneesLoading}
         >
-          <option value="">Unassigned</option>
-          {members.map((m) => (
+          <option value="">
+            {!form.projectId
+              ? 'Select a project first'
+              : assigneesLoading
+                ? 'Loading team…'
+                : 'Unassigned'}
+          </option>
+          {assigneeOptions.map((m) => (
             <option key={m.id} value={m.id}>
               {m.user.name || m.user.email}
             </option>

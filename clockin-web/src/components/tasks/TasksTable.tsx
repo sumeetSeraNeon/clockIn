@@ -18,6 +18,8 @@ type TasksTableProps = {
   showBillable?: boolean;
   /** When true, show Created instead of Assignee (member own-task list). */
   memberView?: boolean;
+  /** Hide Project column when already on a project detail page. */
+  hideProjectColumn?: boolean;
   onTrack?: (task: Task) => void;
   onEdit: (task: Task) => void;
   onMarkDone: (task: Task) => void;
@@ -78,6 +80,7 @@ export function TasksTable({
   canTrackTime = false,
   showBillable = false,
   memberView = false,
+  hideProjectColumn = false,
   onTrack,
   onEdit,
   onMarkDone,
@@ -98,7 +101,10 @@ export function TasksTable({
         </div>
       ),
     },
-    {
+  ];
+
+  if (!hideProjectColumn) {
+    columns.push({
       id: 'project',
       header: 'Project',
       cell: (row) => (
@@ -106,17 +112,18 @@ export function TasksTable({
           {projectName(row, projectsById) || '—'}
         </span>
       ),
-    },
-    {
-      id: 'manager',
-      header: 'Manager',
-      cell: (row) => (
-        <span className="truncate text-slate">
-          {managerName(row) || '—'}
-        </span>
-      ),
-    },
-  ];
+    });
+  }
+
+  columns.push({
+    id: 'manager',
+    header: 'Manager',
+    cell: (row) => (
+      <span className="truncate text-slate">
+        {managerName(row) || '—'}
+      </span>
+    ),
+  });
 
   if (memberView) {
     columns.push({

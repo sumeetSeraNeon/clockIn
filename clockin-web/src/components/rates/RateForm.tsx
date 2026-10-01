@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useState } from 'react';
+import { CurrencySelect } from '@/components/common/CurrencySelect';
 import { FormField } from '@/components/common/FormField';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -21,6 +22,8 @@ type RateFormProps = {
   projects: Project[];
   tasks: Task[];
   members: Member[];
+  /** Org default currency for the dropdown */
+  defaultCurrency?: string;
   submitting: boolean;
   onSubmit: (values: CreateRateInput) => Promise<void>;
   onCancel: () => void;
@@ -44,6 +47,7 @@ export function RateForm({
   projects,
   tasks,
   members,
+  defaultCurrency = 'GBP',
   submitting,
   onSubmit,
   onCancel,
@@ -56,7 +60,7 @@ export function RateForm({
     userId: '',
     taskId: '',
     amount: '',
-    currency: 'GBP',
+    currency: defaultCurrency,
     effectiveFrom: toDateParam(new Date()),
     effectiveTo: '',
   }));
@@ -152,11 +156,6 @@ export function RateForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <p className="rounded-xl bg-paper px-3.5 py-3 text-xs text-slate">
-        Rates are append-only. Adding a new open-ended rate for the same
-        identity closes the previous one — history is never overwritten.
-      </p>
-
       <div className="grid gap-4 sm:grid-cols-2">
         <FormField label="Rate type" htmlFor="rate-type">
           <Select
@@ -176,11 +175,13 @@ export function RateForm({
           >
             <option value="project">Project</option>
             <option value="task">Task (pick project first)</option>
-            <optgroup label="Advanced">
+            <optgroup label="Advanced fallbacks">
               <option value="organisation">Organisation</option>
               <option value="client">Client</option>
               <option value="user">User</option>
-              <option value="project_user">Project + user</option>
+              <option value="project_user">
+                Project + user (single type)
+              </option>
             </optgroup>
           </Select>
         </FormField>
@@ -304,12 +305,10 @@ export function RateForm({
           />
         </FormField>
         <FormField label="Currency" htmlFor="rate-currency" hint="ISO 4217">
-          <Input
+          <CurrencySelect
             id="rate-currency"
             value={form.currency}
-            onChange={(e) => setField('currency', e.target.value.toUpperCase())}
-            placeholder="GBP"
-            maxLength={3}
+            onChange={(code) => setField('currency', code)}
           />
         </FormField>
       </div>

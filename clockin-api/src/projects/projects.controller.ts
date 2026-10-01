@@ -17,6 +17,7 @@ import { RequirePermission } from '../auth/decorators/require-permission.decorat
 import { FirebaseAuthGuard } from '../auth/firebase-auth.guard';
 import { PermissionsGuard } from '../auth/permissions.guard';
 import { CreateProjectDto } from './dto/create-project.dto';
+import { AddProjectMemberDto } from './dto/add-project-member.dto';
 import { ListProjectsQueryDto } from './dto/list-projects-query.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { ProjectsService } from './projects.service';
@@ -54,6 +55,48 @@ export class ProjectsController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.projectsService.findOne(organisationId, membership, id);
+  }
+
+  @Get(':id/members')
+  @RequirePermission('project', 'view')
+  listMembers(
+    @CurrentOrg() organisationId: string,
+    @CurrentMembership() membership: AuthMembership,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.projectsService.listMembers(organisationId, membership, id);
+  }
+
+  @Post(':id/members')
+  @RequirePermission('project', 'edit')
+  addMember(
+    @CurrentOrg() organisationId: string,
+    @CurrentMembership() membership: AuthMembership,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AddProjectMemberDto,
+  ) {
+    return this.projectsService.addMember(
+      organisationId,
+      membership,
+      id,
+      dto,
+    );
+  }
+
+  @Delete(':id/members/:membershipId')
+  @RequirePermission('project', 'edit')
+  removeMember(
+    @CurrentOrg() organisationId: string,
+    @CurrentMembership() membership: AuthMembership,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('membershipId', ParseUUIDPipe) membershipId: string,
+  ) {
+    return this.projectsService.removeMember(
+      organisationId,
+      membership,
+      id,
+      membershipId,
+    );
   }
 
   @Patch(':id')

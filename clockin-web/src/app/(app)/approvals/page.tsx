@@ -7,7 +7,6 @@ import { PageHeader } from '@/components/common/PageHeader';
 import { ListSkeleton } from '@/components/common/Skeleton';
 import { useToast } from '@/components/common/Toast';
 import { Button } from '@/components/ui/Button';
-import { Badge } from '@/components/ui/Badge';
 import { api } from '@/lib/api-client';
 import { formatHoursMinutes } from '@/lib/format-duration';
 import { getErrorMessage } from '@/lib/get-error-message';
@@ -168,7 +167,7 @@ export default function ApprovalsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="mx-auto max-w-4xl space-y-8">
       <PageHeader
         title="Approvals"
         description="Approve or reject each time line, or decide all pending lines on a project at once."
@@ -182,12 +181,11 @@ export default function ApprovalsPage() {
       {loading ? (
         <ListSkeleton rows={4} />
       ) : error ? (
-        <div className="rounded-lg border border-border/80 bg-card px-5 py-6">
+        <div className="space-y-3 border-t border-border/50 pt-6">
           <p className="text-sm font-medium text-danger">{error}</p>
           <Button
             type="button"
             variant="secondary"
-            className="mt-4"
             onClick={() => void reload()}
           >
             Try again
@@ -199,7 +197,7 @@ export default function ApprovalsPage() {
           description="When someone submits a day or week, each project (or non-project time) appears here for your approval."
         />
       ) : (
-        <ul className="space-y-6">
+        <ul className="divide-y divide-border/40 border-t border-border/50">
           {data.map((item) => {
             const label = item.user.name || item.user.email || item.userId;
             const busy = actingKey === `slice:${item.id}` || Boolean(actingKey);
@@ -223,27 +221,24 @@ export default function ApprovalsPage() {
             );
 
             return (
-              <li
-                key={item.id}
-                className="border border-border/80 bg-card px-5 py-5 sm:px-6"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-4 border-b border-navy/10 pb-4">
+              <li key={item.id} className="py-8 first:pt-6">
+                <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
                   <div className="min-w-0 space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="text-lg font-semibold text-navy">
+                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                      <h2 className="text-xl font-semibold tracking-tight text-navy">
                         {label}
                       </h2>
-                      <Badge variant="neutral">{kind}</Badge>
-                      {item.projectName ? (
-                        <Badge variant="neutral">{item.projectName}</Badge>
-                      ) : null}
+                      <span className="text-sm text-slate">
+                        {kind}
+                        {item.projectName ? ` · ${item.projectName}` : ''}
+                      </span>
                     </div>
                     <p className="text-sm text-slate">
                       {formatRange(item.periodStart, item.periodEnd)}
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className="text-2xl font-semibold tabular-nums text-navy">
+                    <p className="text-2xl font-semibold tabular-nums tracking-tight text-navy">
                       {formatHoursMinutes(item.durationMinutes)}
                     </p>
                     <p className="mt-0.5 text-sm text-slate">
@@ -254,26 +249,22 @@ export default function ApprovalsPage() {
                 </div>
 
                 {item.projects.length === 0 ? (
-                  <p className="py-4 text-sm text-slate">
+                  <p className="mt-6 text-sm text-slate">
                     No time lines for this period.
                   </p>
                 ) : (
-                  <div className="divide-y divide-border/70">
+                  <div className="mt-6 space-y-7">
                     {item.projects.map((project) => (
-                      <div
+                      <section
                         key={project.projectId ?? project.projectName}
-                        className="py-4"
                       >
-                        <p className="text-xs font-semibold uppercase tracking-wide text-navy/70">
+                        <p className="text-xs font-medium uppercase tracking-[0.08em] text-slate">
                           {project.projectName}
                         </p>
-                        <ul className="mt-3 space-y-4">
+                        <ul className="mt-3 space-y-5">
                           {project.tasks.map((task) => (
-                            <li
-                              key={task.taskId ?? task.taskName}
-                              className="space-y-3"
-                            >
-                              <div className="min-w-0">
+                            <li key={task.taskId ?? task.taskName}>
+                              <div className="flex flex-wrap items-baseline justify-between gap-2">
                                 <p className="font-medium text-navy">
                                   {task.taskName}
                                 </p>
@@ -281,7 +272,7 @@ export default function ApprovalsPage() {
                                   {formatHoursMinutes(task.durationMinutes)}
                                 </p>
                               </div>
-                              <ul className="space-y-2 border-l border-navy/10 pl-3">
+                              <ul className="mt-2 divide-y divide-border/30 rounded-lg bg-paper/50 px-3 sm:px-4">
                                 {task.days.map((day) => {
                                   const status = day.status ?? 'submitted';
                                   const lineBusy =
@@ -290,34 +281,32 @@ export default function ApprovalsPage() {
                                   return (
                                     <li
                                       key={day.lineId}
-                                      className="flex flex-wrap items-center justify-between gap-3"
+                                      className="flex flex-wrap items-center justify-between gap-3 py-3.5"
                                     >
                                       <div className="min-w-0 text-sm">
-                                        <span className="font-medium text-navy">
-                                          {formatDay(day.entryDate)}
-                                        </span>
-                                        <span className="mx-1.5 text-slate">
-                                          ·
-                                        </span>
-                                        <span className="tabular-nums text-navy">
-                                          {formatHoursMinutes(
-                                            day.durationMinutes,
-                                          )}
-                                        </span>
-                                        <span className="mx-1.5 text-slate">
-                                          ·
-                                        </span>
-                                        <span
-                                          className={
-                                            status === 'approved'
-                                              ? 'text-navy'
-                                              : status === 'rejected'
-                                                ? 'text-danger'
-                                                : 'text-slate'
-                                          }
-                                        >
-                                          {lineStatusLabel(status)}
-                                        </span>
+                                        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                                          <span className="font-medium text-navy">
+                                            {formatDay(day.entryDate)}
+                                          </span>
+                                          <span className="text-slate">·</span>
+                                          <span className="tabular-nums text-navy">
+                                            {formatHoursMinutes(
+                                              day.durationMinutes,
+                                            )}
+                                          </span>
+                                          <span className="text-slate">·</span>
+                                          <span
+                                            className={
+                                              status === 'approved'
+                                                ? 'text-navy'
+                                                : status === 'rejected'
+                                                  ? 'text-danger'
+                                                  : 'text-slate'
+                                            }
+                                          >
+                                            {lineStatusLabel(status)}
+                                          </span>
+                                        </div>
                                         {day.description ? (
                                           <p className="mt-0.5 truncate text-slate">
                                             {day.description}
@@ -367,12 +356,12 @@ export default function ApprovalsPage() {
                             </li>
                           ))}
                         </ul>
-                      </div>
+                      </section>
                     ))}
                   </div>
                 )}
 
-                <div className="mt-2 flex flex-wrap justify-end gap-2 border-t border-navy/10 pt-4">
+                <div className="mt-6 flex flex-wrap items-center justify-end gap-2">
                   <Button
                     type="button"
                     variant="secondary"

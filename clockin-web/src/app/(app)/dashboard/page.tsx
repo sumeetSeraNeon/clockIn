@@ -82,8 +82,8 @@ export default function DashboardPage() {
           Hi, {firstName}
         </h1>
 
-        <div className="mt-5 flex flex-wrap items-end gap-3">
-          <div className="flex gap-1 border-b border-navy/10">
+        <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-navy/10 pb-px">
+          <div className="flex gap-1">
             {(
               [
                 ['week', 'This week'],
@@ -94,11 +94,17 @@ export default function DashboardPage() {
               <button
                 key={key}
                 type="button"
-                onClick={() => setPreset(key)}
+                onClick={() => {
+                  if (key === 'custom' && preset !== 'custom') {
+                    setCustomFrom(toDateParam(range.from));
+                    setCustomTo(toDateParam(range.to));
+                  }
+                  setPreset(key);
+                }}
                 className={
                   preset === key
                     ? 'border-b-2 border-coral px-3 py-2 text-sm font-medium text-coral'
-                    : 'px-3 py-2 text-sm text-slate hover:text-navy'
+                    : 'border-b-2 border-transparent px-3 py-2 text-sm text-slate hover:text-navy'
                 }
               >
                 {label}
@@ -106,28 +112,35 @@ export default function DashboardPage() {
             ))}
           </div>
 
-          {preset === 'custom' ? (
-            <div className="flex flex-wrap items-end gap-3">
-              <label className="flex flex-col gap-1 text-xs text-slate">
-                From
-                <Input
-                  type="date"
-                  value={customFrom}
-                  onChange={(e) => setCustomFrom(e.target.value)}
-                  className="w-auto"
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-xs text-slate">
-                To
-                <Input
-                  type="date"
-                  value={customTo}
-                  onChange={(e) => setCustomTo(e.target.value)}
-                  className="w-auto"
-                />
-              </label>
-            </div>
-          ) : null}
+          {/* Same-row fade/slide — no vertical jump when dates appear */}
+          <div
+            className={
+              preset === 'custom'
+                ? 'flex max-w-[28rem] items-center gap-2 overflow-hidden opacity-100 transition-[max-width,opacity] duration-200 ease-out'
+                : 'pointer-events-none flex max-w-0 items-center gap-2 overflow-hidden opacity-0 transition-[max-width,opacity] duration-150 ease-out'
+            }
+            aria-hidden={preset !== 'custom'}
+          >
+            <Input
+              type="date"
+              aria-label="From date"
+              value={customFrom}
+              onChange={(e) => setCustomFrom(e.target.value)}
+              className="min-w-[9.5rem] w-auto"
+              tabIndex={preset === 'custom' ? undefined : -1}
+            />
+            <span className="shrink-0 text-sm text-slate" aria-hidden>
+              –
+            </span>
+            <Input
+              type="date"
+              aria-label="To date"
+              value={customTo}
+              onChange={(e) => setCustomTo(e.target.value)}
+              className="min-w-[9.5rem] w-auto"
+              tabIndex={preset === 'custom' ? undefined : -1}
+            />
+          </div>
         </div>
       </header>
 

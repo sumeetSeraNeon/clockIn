@@ -8,6 +8,7 @@ import { ClientsModule } from './clients/clients.module';
 import { FirebaseModule } from './firebase/firebase.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { MembersModule } from './members/members.module';
+import { OrganisationsModule } from './organisations/organisations.module';
 import { ProjectsModule } from './projects/projects.module';
 import { RatesModule } from './rates/rates.module';
 import { ReportsModule } from './reports/reports.module';
@@ -27,6 +28,7 @@ import { TimesheetsModule } from './timesheets/timesheets.module';
     AuditModule,
     AuthModule,
     ClientsModule,
+    OrganisationsModule,
     ProjectsModule,
     TasksModule,
     TicketsModule,

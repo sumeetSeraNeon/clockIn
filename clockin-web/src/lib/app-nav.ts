@@ -7,6 +7,7 @@ import {
   IconProjects,
   IconRates,
   IconReports,
+  IconSettings,
   IconTasks,
   IconTeam,
   IconTickets,
@@ -97,6 +98,13 @@ export const APP_NAV: AppNavItem[] = [
     label: 'Reports',
     Icon: IconReports,
     permission: { resource: 'report', action: 'view' },
+  },
+  {
+    href: '/settings',
+    label: 'Settings',
+    Icon: IconSettings,
+    // Owner/admin only (same gate as rates edit)
+    permission: { resource: 'rate', action: 'edit' },
   },
 ];
 

@@ -1,14 +1,16 @@
 'use client';
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { CurrencySelect } from '@/components/common/CurrencySelect';
 import { FormField } from '@/components/common/FormField';
+import { MoneyAmountField } from '@/components/common/MoneyAmountField';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { api } from '@/lib/api-client';
 import { toDateParam } from '@/lib/date-range';
+import { formatMoney, resolveCurrency } from '@/lib/format-money';
 import type {
+  Client,
   CreateRatePairInput,
   Member,
   Project,
@@ -17,13 +19,20 @@ import type {
 
 type RatePairFormProps = {
   projects: Project[];
+  clients?: Client[];
   /** Fallback when project team cannot be loaded */
   members?: Member[];
   /** Prefill / lock when opened from project Team */
   projectMembers?: ProjectMember[];
   defaultProjectId?: string;
   defaultUserId?: string;
-  defaultCurrency?: string;
+  /** Org default when client has no override */
+  orgCurrency?: string;
+  /**
+   * When set (e.g. project Team modal), use this currency label instead of
+   * resolving from clients list.
+   */
+  displayCurrency?: string;
   initialCost?: string;
   initialBillable?: string;
   submitting: boolean;
@@ -37,7 +46,6 @@ type FormState = {
   userId: string;
   costAmount: string;
   billableAmount: string;
-  currency: string;
   effectiveFrom: string;
 };
 
@@ -54,15 +62,17 @@ function marginPreview(costRaw: string, billRaw: string) {
 }
 
 /**
- * STEP 2 — primary rate entry: project → person → cost + bill → margin.
+ * Project → person → cost + bill. Currency is resolved (client → org), not chosen.
  */
 export function RatePairForm({
   projects,
+  clients = [],
   members = [],
   projectMembers,
   defaultProjectId = '',
   defaultUserId = '',
-  defaultCurrency = 'GBP',
+  orgCurrency = 'GBP',
+  displayCurrency: displayCurrencyProp,
   initialCost = '',
   initialBillable = '',
   submitting,
@@ -75,7 +85,6 @@ export function RatePairForm({
     userId: defaultUserId,
     costAmount: initialCost,
     billableAmount: initialBillable,
-    currency: defaultCurrency,
     effectiveFrom: toDateParam(new Date()),
   }));
   const [teamMembers, setTeamMembers] = useState<ProjectMember[]>(
@@ -95,17 +104,10 @@ export function RatePairForm({
       ...prev,
       projectId: defaultProjectId || prev.projectId,
       userId: defaultUserId || prev.userId,
-      currency: defaultCurrency || prev.currency,
       ...(initialCost ? { costAmount: initialCost } : {}),
       ...(initialBillable ? { billableAmount: initialBillable } : {}),
     }));
-  }, [
-    defaultProjectId,
-    defaultUserId,
-    defaultCurrency,
-    initialCost,
-    initialBillable,
-  ]);
+  }, [defaultProjectId, defaultUserId, initialCost, initialBillable]);
 
   useEffect(() => {
     if (projectMembers) {
@@ -120,10 +122,10 @@ export function RatePairForm({
     setTeamLoading(true);
     void (async () => {
       try {
-        const list = await api<ProjectMember[]>(
+        const res = await api<ProjectMember[]>(
           `/projects/${form.projectId}/members`,
         );
-        if (!cancelled) setTeamMembers(list ?? []);
+        if (!cancelled) setTeamMembers(Array.isArray(res) ? res : []);
       } catch {
         if (!cancelled) setTeamMembers([]);
       } finally {
@@ -135,14 +137,29 @@ export function RatePairForm({
     };
   }, [form.projectId, projectMembers]);
 
-  const personOptions = useMemo((): PersonOption[] => {
+  const displayCurrency = useMemo(() => {
+    if (displayCurrencyProp) {
+      return resolveCurrency(displayCurrencyProp, orgCurrency);
+    }
+    const project = projects.find((p) => p.id === form.projectId);
+    const clientCurrency = project
+      ? clients.find((c) => c.id === project.clientId)?.currency
+      : null;
+    return resolveCurrency(clientCurrency, orgCurrency);
+  }, [
+    displayCurrencyProp,
+    form.projectId,
+    projects,
+    clients,
+    orgCurrency,
+  ]);
+
+  const personOptions: PersonOption[] = useMemo(() => {
     if (teamMembers.length > 0) {
-      return teamMembers
-        .filter((m) => m.status === 'active')
-        .map((m) => ({
-          userId: m.membership.user.id,
-          label: m.membership.user.name || m.membership.user.email,
-        }));
+      return teamMembers.map((pm) => ({
+        userId: pm.membership.user.id,
+        label: pm.membership.user.name || pm.membership.user.email,
+      }));
     }
     return members.map((m) => ({
       userId: m.userId,
@@ -184,12 +201,12 @@ export function RatePairForm({
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
 
+    // FIX 3 — omit currency; API resolves from project → client → org
     await onSubmit({
       projectId: form.projectId,
       userId: form.userId,
       costAmount: cost,
       billableAmount: bill,
-      currency: form.currency,
       effectiveFrom: form.effectiveFrom,
     });
   }
@@ -220,11 +237,7 @@ export function RatePairForm({
         </Select>
       </FormField>
 
-      <FormField
-        label="Person"
-        htmlFor="pair-user"
-        error={errors.userId}
-      >
+      <FormField label="Person" htmlFor="pair-user" error={errors.userId}>
         <Select
           id="pair-user"
           value={form.userId}
@@ -250,49 +263,35 @@ export function RatePairForm({
       </FormField>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <FormField
+        <MoneyAmountField
+          id="pair-cost"
           label="Cost / hour"
-          htmlFor="pair-cost"
+          value={form.costAmount}
+          onChange={(v) => setField('costAmount', v)}
+          currency={displayCurrency}
           error={errors.costAmount}
-        >
-          <Input
-            id="pair-cost"
-            type="number"
-            min={0}
-            step="0.01"
-            value={form.costAmount}
-            onChange={(e) => setField('costAmount', e.target.value)}
-            placeholder="75.00"
-            invalid={Boolean(errors.costAmount)}
-            disabled={submitting}
-            required
-          />
-        </FormField>
-        <FormField
+          placeholder="75.00"
+          disabled={submitting}
+          required
+        />
+        <MoneyAmountField
+          id="pair-bill"
           label="Bill / hour"
-          htmlFor="pair-bill"
+          value={form.billableAmount}
+          onChange={(v) => setField('billableAmount', v)}
+          currency={displayCurrency}
           error={errors.billableAmount}
-        >
-          <Input
-            id="pair-bill"
-            type="number"
-            min={0}
-            step="0.01"
-            value={form.billableAmount}
-            onChange={(e) => setField('billableAmount', e.target.value)}
-            placeholder="125.00"
-            invalid={Boolean(errors.billableAmount)}
-            disabled={submitting}
-            required
-          />
-        </FormField>
+          placeholder="125.00"
+          disabled={submitting}
+          required
+        />
       </div>
 
       {preview ? (
         <p className="rounded-lg border border-navy/10 bg-card px-3.5 py-2.5 text-sm text-navy">
           Margin{' '}
           <span className="font-semibold tabular-nums">
-            {preview.margin.toFixed(2)} {form.currency}/h
+            {formatMoney(preview.margin, displayCurrency)}/h
           </span>
           {preview.pct != null ? (
             <span className="text-slate">
@@ -307,31 +306,21 @@ export function RatePairForm({
         </p>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <FormField label="Currency" htmlFor="pair-currency">
-          <CurrencySelect
-            id="pair-currency"
-            value={form.currency}
-            onChange={(code) => setField('currency', code)}
-            disabled={submitting}
-          />
-        </FormField>
-        <FormField
-          label="Effective from"
-          htmlFor="pair-from"
-          error={errors.effectiveFrom}
-        >
-          <Input
-            id="pair-from"
-            type="date"
-            value={form.effectiveFrom}
-            onChange={(e) => setField('effectiveFrom', e.target.value)}
-            invalid={Boolean(errors.effectiveFrom)}
-            disabled={submitting}
-            required
-          />
-        </FormField>
-      </div>
+      <FormField
+        label="Effective from"
+        htmlFor="pair-from"
+        error={errors.effectiveFrom}
+      >
+        <Input
+          id="pair-from"
+          type="date"
+          value={form.effectiveFrom}
+          onChange={(e) => setField('effectiveFrom', e.target.value)}
+          invalid={Boolean(errors.effectiveFrom)}
+          disabled={submitting}
+          required
+        />
+      </FormField>
 
       <div className="flex justify-end gap-2 pt-2">
         <Button

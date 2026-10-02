@@ -13,6 +13,7 @@ import { Skeleton } from '@/components/common/Skeleton';
 import { Stat } from '@/app/(app)/dashboard/Stat';
 import { api, ApiError } from '@/lib/api-client';
 import { formatHoursMinutes } from '@/lib/format-duration';
+import { formatMoney } from '@/lib/format-money';
 import { usePermissions } from '@/lib/use-permissions';
 import type {
   ReportSummaryGroup,
@@ -34,14 +35,6 @@ type ManagerOverviewProps = {
   todayParam: string;
   daysElapsed: number;
 };
-
-function formatMoney(amount: string | null | undefined, currency: string | null) {
-  if (amount == null || amount === '') return '—';
-  const code = currency || 'GBP';
-  const symbol =
-    code === 'GBP' ? '£' : code === 'EUR' ? '€' : code === 'USD' ? '$' : '';
-  return symbol ? `${symbol}${amount}` : `${amount} ${code}`;
-}
 
 function ProfitabilityList({
   title,

@@ -79,6 +79,24 @@ export class TimeService {
       );
     }
 
+    // FIX 4 — only one running timer per user
+    if (source === 'timer') {
+      const alreadyRunning = await this.prisma.timeEntry.findFirst({
+        where: {
+          organisationId,
+          userId,
+          endTime: null,
+          source: 'timer',
+        },
+        select: { id: true },
+      });
+      if (alreadyRunning) {
+        throw new BadRequestException(
+          'Stop your running timer before starting another',
+        );
+      }
+    }
+
     // Manual/API entries must be closed — derive from duration if needed
     if (source !== 'timer' && endTime === null) {
       const mins = dto.line?.durationMinutes ?? 0;
@@ -111,6 +129,17 @@ export class TimeService {
       lineData.projectId,
       lineData.durationMinutes,
     );
+
+    // FIX 2 — no overlapping closed ranges for the same user/day
+    if (startTime && endTime) {
+      await this.assertNoTimeOverlap(
+        organisationId,
+        userId,
+        dto.entryDate.slice(0, 10),
+        startTime,
+        endTime,
+      );
+    }
 
     try {
       const entry = await this.prisma.$transaction(async (tx) => {
@@ -199,6 +228,18 @@ export class TimeService {
         firstLine.projectId,
         minutes,
         firstLine.id,
+      );
+    }
+
+    // FIX 2 — timer stop cannot overlap another closed entry
+    if (existing.startTime) {
+      await this.assertNoTimeOverlap(
+        organisationId,
+        userId,
+        existing.entryDate.toISOString().slice(0, 10),
+        existing.startTime,
+        endTime,
+        existing.id,
       );
     }
 
@@ -317,6 +358,17 @@ export class TimeService {
           firstLine.id,
         );
       }
+      await this.assertNoTimeOverlap(
+        organisationId,
+        userId,
+        (dto.entryDate ?? existing.entryDate.toISOString().slice(0, 10)).slice(
+          0,
+          10,
+        ),
+        nextStart,
+        nextEnd,
+        existing.id,
+      );
     }
 
     try {
@@ -1031,6 +1083,53 @@ export class TimeService {
       throw new BadRequestException(
         'Cannot log time for a future date',
       );
+    }
+  }
+
+  /**
+   * FIX 2 — reject overlapping closed [start, end) ranges for the same user/day.
+   * Open timers (endTime null) are ignored. Touching endpoints (end === next start) are OK.
+   */
+  private async assertNoTimeOverlap(
+    organisationId: string,
+    userId: string,
+    entryDate: string,
+    startTime: Date,
+    endTime: Date,
+    excludeEntryId?: string,
+  ): Promise<void> {
+    if (!(startTime < endTime)) {
+      throw new BadRequestException('endTime must be after startTime');
+    }
+
+    const dayStart = new Date(`${entryDate.slice(0, 10)}T00:00:00.000Z`);
+    const dayEnd = new Date(`${entryDate.slice(0, 10)}T23:59:59.999Z`);
+
+    const others = await this.prisma.timeEntry.findMany({
+      where: {
+        organisationId,
+        userId,
+        entryDate: { gte: dayStart, lte: dayEnd },
+        startTime: { not: null },
+        endTime: { not: null },
+        ...(excludeEntryId ? { id: { not: excludeEntryId } } : {}),
+      },
+      select: { id: true, startTime: true, endTime: true },
+    });
+
+    for (const other of others) {
+      if (!other.startTime || !other.endTime) continue;
+      // overlap if start < other.end && end > other.start (half-open friendly)
+      if (startTime < other.endTime && endTime > other.startTime) {
+        const fmt = (d: Date) =>
+          d.toLocaleTimeString(undefined, {
+            hour: 'numeric',
+            minute: '2-digit',
+          });
+        throw new BadRequestException(
+          `overlaps an existing entry ${fmt(other.startTime)}–${fmt(other.endTime)}`,
+        );
+      }
     }
   }
 

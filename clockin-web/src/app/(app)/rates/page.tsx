@@ -439,8 +439,9 @@ export default function RatesPage() {
       >
         <RatePairForm
           projects={projects}
+          clients={clients}
           members={members}
-          defaultCurrency={orgCurrency}
+          orgCurrency={orgCurrency}
           submitting={submitting}
           onSubmit={handleCreatePair}
           onCancel={() => setModalMode(null)}
@@ -458,7 +459,7 @@ export default function RatesPage() {
           projects={projects}
           tasks={tasks}
           members={members}
-          defaultCurrency={orgCurrency}
+          orgCurrency={orgCurrency}
           submitting={submitting}
           onSubmit={handleCreate}
           onCancel={() => setModalMode(null)}

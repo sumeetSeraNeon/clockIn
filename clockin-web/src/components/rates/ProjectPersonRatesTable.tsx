@@ -4,19 +4,12 @@ import {
   DataTable,
   type DataTableColumn,
 } from '@/components/common/DataTable';
+import { formatMoney } from '@/lib/format-money';
 import type { ProjectPersonRateRow } from '@/lib/rate-pairs';
 
 type ProjectPersonRatesTableProps = {
   rows: ProjectPersonRateRow[];
 };
-
-function money(amount: string | null, currency: string | null) {
-  if (amount == null) return '—';
-  const code = currency || 'GBP';
-  const symbol =
-    code === 'GBP' ? '£' : code === 'EUR' ? '€' : code === 'USD' ? '$' : '';
-  return symbol ? `${symbol}${amount}` : `${amount} ${code}`;
-}
 
 function marginPctClass(pct: number | null): string {
   if (pct == null) return 'text-slate';
@@ -51,7 +44,7 @@ export function ProjectPersonRatesTable({
       header: 'Cost/h',
       cell: (row) => (
         <span className="tabular-nums text-slate">
-          {money(row.costAmount, row.currency)}
+          {formatMoney(row.costAmount, row.currency)}
         </span>
       ),
     },
@@ -60,7 +53,7 @@ export function ProjectPersonRatesTable({
       header: 'Bill/h',
       cell: (row) => (
         <span className="tabular-nums text-navy">
-          {money(row.billableAmount, row.currency)}
+          {formatMoney(row.billableAmount, row.currency)}
         </span>
       ),
     },
@@ -69,7 +62,7 @@ export function ProjectPersonRatesTable({
       header: 'Margin/h',
       cell: (row) => (
         <span className="font-medium tabular-nums text-navy">
-          {money(row.marginAmount, row.currency)}
+          {formatMoney(row.marginAmount, row.currency)}
         </span>
       ),
     },

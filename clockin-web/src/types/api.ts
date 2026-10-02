@@ -678,6 +678,8 @@ export type Project = {
   updatedAt: string;
   /** Nested from API — members get manager without /members */
   owner?: TaskPerson | null;
+  /** FIX 3 — client currency for money display */
+  client?: { id: string; name: string; currency: string | null } | null;
 };
 
 /** STEP 1 — person on a project team (GET /projects/:id/members) */

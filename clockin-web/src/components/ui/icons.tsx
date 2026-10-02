@@ -307,3 +307,17 @@ export function IconApprovals({ className }: IconProps) {
     </svg>
   );
 }
+
+export function IconSettings({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={iconClass(className)} aria-hidden>
+      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.6" />
+      <path
+        d="M12 3.75v1.75M12 18.5v1.75M3.75 12h1.75M18.5 12h1.75M6.05 6.05l1.24 1.24M16.71 16.71l1.24 1.24M17.95 6.05l-1.24 1.24M7.29 16.71l-1.24 1.24"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}

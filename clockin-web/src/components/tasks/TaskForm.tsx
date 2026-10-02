@@ -290,9 +290,9 @@ export function TaskForm({
       )}
 
       <FormField
-        label="Assignee"
+        label="Primary owner"
         htmlFor="task-assignee"
-        hint="Only people on this project’s Team"
+        hint="Optional label. Anyone on this project’s Team can log time."
       >
         <Select
           id="task-assignee"

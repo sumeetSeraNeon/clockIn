@@ -8,7 +8,7 @@ type ModalProps = {
   title: string;
   description?: string;
   onClose: () => void;
-  children: ReactNode;
+  children?: ReactNode;
   footer?: ReactNode;
   className?: string;
 };
@@ -72,7 +72,9 @@ export function Modal({
             </p>
           ) : null}
         </div>
-        <div className="overflow-y-auto px-6 py-5">{children}</div>
+        {children ? (
+          <div className="overflow-y-auto px-6 py-5">{children}</div>
+        ) : null}
         {footer ? (
           <div className="flex justify-end gap-2 border-t border-border/70 px-6 py-4">
             {footer}

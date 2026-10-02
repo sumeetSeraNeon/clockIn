@@ -4,6 +4,7 @@ import {
   DataTable,
   type DataTableColumn,
 } from '@/components/common/DataTable';
+import { formatMoney } from '@/lib/format-money';
 import { isRateCurrent } from '@/lib/use-rates';
 import type { Rate } from '@/types/api';
 
@@ -18,15 +19,6 @@ function label(value: string) {
 function formatDate(value: string | null) {
   if (!value) return '—';
   return value.slice(0, 10);
-}
-
-function formatAmount(amount: string | number, currency: string | null) {
-  const n = typeof amount === 'number' ? amount : Number(amount);
-  const formatted = Number.isFinite(n) ? n.toFixed(2) : String(amount);
-  const code = currency || 'GBP';
-  const symbol =
-    code === 'GBP' ? '£' : code === 'EUR' ? '€' : code === 'USD' ? '$' : '';
-  return symbol ? `${symbol}${formatted}` : `${formatted} ${code}`;
 }
 
 export function RatesTable({ rates }: RatesTableProps) {
@@ -61,7 +53,7 @@ export function RatesTable({ rates }: RatesTableProps) {
       header: 'Amount',
       cell: (row) => (
         <span className="font-medium tabular-nums text-ink">
-          {formatAmount(row.amount, row.currency)}
+          {formatMoney(row.amount, row.currency)}
           <span className="font-normal text-slate">/h</span>
         </span>
       ),

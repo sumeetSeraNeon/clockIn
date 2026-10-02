@@ -66,6 +66,15 @@ export class TimesheetsService {
       end,
     );
 
+    const draftCount = await this.prisma.timeEntry.count({
+      where: {
+        organisationId,
+        userId,
+        entryDate: { gte: start, lte: end },
+        status: { in: ['draft', 'rejected'] },
+      },
+    });
+
     const conflictDays = await this.lockedDaysInRange(
       organisationId,
       userId,
@@ -74,11 +83,13 @@ export class TimesheetsService {
       period?.id,
     );
 
+    // Can submit remaining drafts even after a partial (per-task) submit
+    const periodClosed =
+      period != null &&
+      (period.status === 'approved' || period.status === 'locked');
     const canSubmitBase =
-      (!period ||
-        period.status === 'draft' ||
-        period.status === 'rejected') &&
-      entryStats.entryCount > 0 &&
+      !periodClosed &&
+      draftCount > 0 &&
       entryStats.runningCount === 0;
 
     return {
@@ -88,9 +99,8 @@ export class TimesheetsService {
       ...entryStats,
       conflictDays,
       canSubmit: canSubmitBase && conflictDays.length === 0,
-      locked: period
-        ? (LOCKED_PERIOD_STATUSES as readonly string[]).includes(period.status)
-        : false,
+      // FIX 2 — only fully closed periods lock the day for new entries
+      locked: periodClosed,
     };
   }
 
@@ -103,6 +113,7 @@ export class TimesheetsService {
     this.assertRange(dto.periodStart, dto.periodEnd);
     const start = this.dateOnly(dto.periodStart);
     const end = this.dateOnly(dto.periodEnd);
+    const taskId = dto.taskId ?? null;
 
     const stats = await this.entryStats(organisationId, userId, start, end);
     if (stats.runningCount > 0) {
@@ -110,9 +121,23 @@ export class TimesheetsService {
         'Stop running timers before submitting this period',
       );
     }
-    if (stats.entryCount === 0) {
+
+    const draftWhere: Prisma.TimeEntryWhereInput = {
+      organisationId,
+      userId,
+      entryDate: { gte: start, lte: end },
+      status: { in: ['draft', 'rejected'] },
+      ...(taskId
+        ? { timeLines: { some: { taskId } } }
+        : {}),
+    };
+
+    const draftCount = await this.prisma.timeEntry.count({ where: draftWhere });
+    if (draftCount === 0) {
       throw new BadRequestException(
-        'Log at least one time entry before submitting',
+        taskId
+          ? 'No draft time for this task to submit'
+          : 'Log at least one time entry before submitting',
       );
     }
 
@@ -125,7 +150,7 @@ export class TimesheetsService {
       },
     });
 
-    if (period && (LOCKED_PERIOD_STATUSES as readonly string[]).includes(period.status)) {
+    if (period && (period.status === 'approved' || period.status === 'locked')) {
       throw new BadRequestException(
         `This period is already ${period.status}`,
       );
@@ -167,27 +192,28 @@ export class TimesheetsService {
       });
     }
 
-    await this.prisma.timeEntry.updateMany({
-      where: {
-        organisationId,
-        userId,
-        entryDate: { gte: start, lte: end },
-        status: { in: ['draft', 'rejected'] },
-      },
-      data: { status: 'submitted' },
+    const entriesToSubmit = await this.prisma.timeEntry.findMany({
+      where: draftWhere,
+      select: { id: true },
     });
+    const entryIds = entriesToSubmit.map((e) => e.id);
 
-    await this.prisma.timeLine.updateMany({
-      where: {
-        organisationId,
-        status: { in: ['draft', 'rejected'] },
-        timeEntry: {
-          userId,
-          entryDate: { gte: start, lte: end },
+    if (entryIds.length > 0) {
+      await this.prisma.timeEntry.updateMany({
+        where: { id: { in: entryIds }, organisationId },
+        data: { status: 'submitted' },
+      });
+
+      await this.prisma.timeLine.updateMany({
+        where: {
+          organisationId,
+          timeEntryId: { in: entryIds },
+          status: { in: ['draft', 'rejected'] },
+          ...(taskId ? { taskId } : {}),
         },
-      },
-      data: { status: 'submitted' },
-    });
+        data: { status: 'submitted' },
+      });
+    }
 
     await this.audit.writeAudit({
       organisationId,
@@ -196,7 +222,12 @@ export class TimesheetsService {
       entityId: period.id,
       action: 'submit',
       oldValue: oldStatus ? { status: oldStatus } : null,
-      newValue: { status: 'submitted', periodStart: dto.periodStart, periodEnd: dto.periodEnd },
+      newValue: {
+        status: 'submitted',
+        periodStart: dto.periodStart,
+        periodEnd: dto.periodEnd,
+        ...(taskId ? { taskId } : {}),
+      },
     });
 
     await this.rebuildSlicesForPeriod(
@@ -614,8 +645,8 @@ export class TimesheetsService {
   }
 
   /**
-   * FIX 7 — throw if this user/date is inside a submitted/approved/locked period.
-   * Call before creating or mutating time for that day.
+   * FIX 7 / FIX 2 — block creates when day is approved or locked.
+   * Submitted (incl. per-task) still allows adding more draft entries.
    */
   async assertDateUnlocked(
     organisationId: string,
@@ -632,7 +663,7 @@ export class TimesheetsService {
       where: {
         organisationId,
         userId,
-        status: { in: [...LOCKED_PERIOD_STATUSES] },
+        status: { in: ['approved', 'locked'] },
         periodStart: { lte: day },
         periodEnd: { gte: day },
       },
@@ -641,9 +672,7 @@ export class TimesheetsService {
 
     if (locked) {
       throw new ForbiddenException(
-        locked.status === 'submitted'
-          ? 'This date is locked (submitted). You cannot add or change time until a manager approves or rejects it. After a rejection, edit the rejected entry and resubmit.'
-          : `This date is locked (${locked.status}). Waiting for approval or already approved.`,
+        `This date is locked (${locked.status}). Waiting for approval or already approved.`,
       );
     }
   }

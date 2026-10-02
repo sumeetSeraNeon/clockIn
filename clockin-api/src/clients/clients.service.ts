@@ -38,12 +38,21 @@ export class ClientsService {
     }
 
     try {
+      let currency = dto.currency;
+      if (!currency) {
+        const org = await this.prisma.organisation.findUnique({
+          where: { id: organisationId },
+          select: { currency: true },
+        });
+        currency = org?.currency ?? 'GBP';
+      }
+
       const client = await this.prisma.client.create({
         data: {
           organisationId,
           name: dto.name,
           code: dto.code,
-          currency: dto.currency,
+          currency,
           ownerId: dto.ownerId,
           status: dto.status ?? 'active',
           externalRef: dto.externalRef,

@@ -13,6 +13,7 @@ import { RatePairForm } from '@/components/rates/RatePairForm';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
 import { api } from '@/lib/api-client';
+import { formatMoney } from '@/lib/format-money';
 import { getErrorMessage } from '@/lib/get-error-message';
 import type {
   AddProjectMemberInput,
@@ -29,6 +30,8 @@ type ProjectTeamPanelProps = {
   projectId: string;
   projectOwnerId: string | null;
   projectName?: string;
+  clientId?: string;
+  clientCurrency?: string | null;
   canEdit: boolean;
   canViewOrgMembers: boolean;
   /** rate:view (admin/owner). Cost stays hidden without this. */
@@ -40,14 +43,6 @@ type ProjectTeamPanelProps = {
   onTeamChange?: () => void;
 };
 
-function formatMoney(amount: string | null, currency: string | null) {
-  if (amount == null) return '—';
-  const code = currency || 'GBP';
-  const symbol =
-    code === 'GBP' ? '£' : code === 'EUR' ? '€' : code === 'USD' ? '$' : '';
-  return symbol ? `${symbol}${amount}` : `${amount} ${code}`;
-}
-
 /**
  * STEP 1 — project Team; STEP 2 — cost/bill/margin when rate:view.
  * FIX 4 — compact table instead of stacked cards.
@@ -56,6 +51,7 @@ export function ProjectTeamPanel({
   projectId,
   projectOwnerId,
   projectName,
+  clientCurrency = null,
   canEdit,
   canViewOrgMembers,
   canViewRates = false,
@@ -207,7 +203,7 @@ export function ProjectTeamPanel({
           ? ` (${Number(res.marginPercent).toFixed(0)}%)`
           : '';
       toast.success(
-        `Rates saved · margin ${res.marginAmount} ${res.currency}/h${pct}`,
+        `Rates saved · margin ${formatMoney(res.marginAmount, res.currency)}/h${pct}`,
       );
       setRateTarget(null);
       await loadRates();
@@ -450,7 +446,10 @@ export function ProjectTeamPanel({
             projectMembers={members}
             defaultProjectId={projectId}
             defaultUserId={rateTarget.membership.user.id}
-            defaultCurrency={rateTargetPair?.currency || orgCurrency}
+            orgCurrency={orgCurrency}
+            displayCurrency={
+              rateTargetPair?.currency || clientCurrency || orgCurrency
+            }
             initialCost={rateTargetPair?.costAmount ?? ''}
             initialBillable={rateTargetPair?.billableAmount ?? ''}
             submitting={rateSubmitting}

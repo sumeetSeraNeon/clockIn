@@ -13,6 +13,11 @@ import type {
   EventInput,
 } from '@fullcalendar/core';
 import type { EventResizeDoneArg } from '@fullcalendar/interaction';
+import {
+  entryDurationMinutes,
+  formatEntryCalendarTitle,
+  isEntryLocked,
+} from '@/lib/entry-display';
 import type { Project, Task, TimeEntry } from '@/types/api';
 
 export type CalendarView = 'timeGridDay' | 'timeGridWeek' | 'dayGridMonth';
@@ -47,19 +52,6 @@ function toDateParam(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-function entryDurationMinutes(entry: TimeEntry): number {
-  return (entry.timeLines ?? []).reduce(
-    (sum, line) => sum + (line.durationMinutes ?? 0),
-    0,
-  );
-}
-
-function isLockedStatus(status: string): boolean {
-  return (
-    status === 'submitted' || status === 'approved' || status === 'locked'
-  );
-}
-
 function entryToEvent(
   entry: TimeEntry,
   projectsById: Map<string, Project>,
@@ -71,15 +63,12 @@ function entryToEvent(
     ? projectsById.get(first.projectId)
     : undefined;
   const projectName = task?.project?.name || project?.name;
-  const note = first?.description?.trim();
 
-  // FINAL FIX 5 — title is task/work context only (never billable)
-  let title: string;
-  if (task?.name && note) title = `${task.name}: ${note}`;
-  else if (task?.name) title = task.name;
-  else if (note) title = note;
-  else if (projectName) title = projectName;
-  else title = entry.endTime ? 'Time entry' : 'Timer running';
+  const title = formatEntryCalendarTitle(
+    entry,
+    task?.name,
+    projectName,
+  );
 
   let start: Date;
   let end: Date;
@@ -96,7 +85,7 @@ function entryToEvent(
     end = new Date(start.getTime() + durationMs);
   }
 
-  const locked = isLockedStatus(entry.status);
+  const locked = isEntryLocked(entry);
   const running = entry.endTime === null && entry.source === 'timer';
 
   return {
@@ -128,7 +117,7 @@ export function TimeCalendar({
   projectsById,
   tasksById,
   canEdit,
-  initialView = 'dayGridMonth',
+  initialView = 'timeGridDay',
   onDatesSet,
   onSelectCreate,
   onEventClick,
@@ -154,7 +143,8 @@ export function TimeCalendar({
         headerToolbar={{
           left: 'prev,next today',
           center: 'title',
-          right: 'dayGridMonth,timeGridWeek,timeGridDay',
+          // FIX 2 — Day first, then Week, then Month
+          right: 'timeGridDay,timeGridWeek,dayGridMonth',
         }}
         buttonText={{
           today: 'Today',

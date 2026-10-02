@@ -1,8 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { EmptyState } from '@/components/common/EmptyState';
-import { Modal } from '@/components/common/Modal';
 import { PageHeader } from '@/components/common/PageHeader';
 import { ListSkeleton } from '@/components/common/Skeleton';
 import { useToast } from '@/components/common/Toast';
@@ -16,6 +16,10 @@ import type { TimesheetDayLine, TimesheetPendingItem } from '@/types/api';
 
 type RejectTarget =
   | { kind: 'slice'; item: TimesheetPendingItem }
+  | { kind: 'line'; sliceId: string; line: TimesheetDayLine };
+
+type ApproveTarget =
+  | { kind: 'all'; item: TimesheetPendingItem }
   | { kind: 'line'; sliceId: string; line: TimesheetDayLine };
 
 function formatRange(start: string | null, end: string | null) {
@@ -56,6 +60,9 @@ export default function ApprovalsPage() {
   const [error, setError] = useState<string | null>(null);
   const [actingKey, setActingKey] = useState<string | null>(null);
   const [rejectTarget, setRejectTarget] = useState<RejectTarget | null>(null);
+  const [approveTarget, setApproveTarget] = useState<ApproveTarget | null>(
+    null,
+  );
   const [reason, setReason] = useState('');
   const [rejecting, setRejecting] = useState(false);
 
@@ -85,6 +92,7 @@ export default function ApprovalsPage() {
     try {
       await api(`/timesheets/${item.id}/approve`, { method: 'POST' });
       toast.success('All pending lines approved');
+      setApproveTarget(null);
       await reload();
     } catch (err) {
       toast.error(getErrorMessage(err, 'Could not approve'));
@@ -100,6 +108,7 @@ export default function ApprovalsPage() {
         method: 'POST',
       });
       toast.success('Line approved');
+      setApproveTarget(null);
       await reload();
     } catch (err) {
       toast.error(getErrorMessage(err, 'Could not approve line'));
@@ -324,10 +333,11 @@ export default function ApprovalsPage() {
                                             disabled={Boolean(actingKey)}
                                             loading={lineBusy}
                                             onClick={() =>
-                                              void handleApproveLine(
-                                                item.id,
-                                                day,
-                                              )
+                                              setApproveTarget({
+                                                kind: 'line',
+                                                sliceId: item.id,
+                                                line: day,
+                                              })
                                             }
                                           >
                                             Approve
@@ -378,7 +388,9 @@ export default function ApprovalsPage() {
                     type="button"
                     loading={actingKey === `slice:${item.id}`}
                     disabled={busy || pendingLineCount === 0}
-                    onClick={() => void handleApproveAll(item)}
+                    onClick={() =>
+                      setApproveTarget({ kind: 'all', item })
+                    }
                   >
                     Approve all
                   </Button>
@@ -389,47 +401,82 @@ export default function ApprovalsPage() {
         </ul>
       )}
 
-      <Modal
+      <ConfirmDialog
         open={Boolean(rejectTarget)}
         title={
           rejectTarget?.kind === 'line'
-            ? 'Reject time line'
-            : 'Reject all pending lines'
+            ? 'Reject this time?'
+            : 'Reject all pending lines?'
         }
-        description="A reason is required. The member can edit and resubmit after rejection."
-        onClose={() => !rejecting && setRejectTarget(null)}
+        description={
+          rejectTarget?.kind === 'line'
+            ? 'This line goes back to the member so they can edit and resubmit. A reason is required.'
+            : 'Every waiting line on this project slice will be rejected. The member can edit and resubmit. A reason is required.'
+        }
+        confirmLabel="Reject"
+        danger
+        loading={rejecting}
+        onConfirm={() => void handleRejectConfirm()}
+        onCancel={() => {
+          if (!rejecting) setRejectTarget(null);
+        }}
       >
-        <div className="space-y-4">
-          <label className="block text-sm text-navy">
-            Reason
-            <textarea
-              className="mt-1.5 w-full rounded-md border border-border bg-paper px-3 py-2 text-sm text-navy outline-none focus:ring-2 focus:ring-coral/40"
-              rows={4}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="What needs to change?"
-            />
-          </label>
-          <div className="flex justify-end gap-2">
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={rejecting}
-              onClick={() => setRejectTarget(null)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              loading={rejecting}
-              disabled={rejecting}
-              onClick={() => void handleRejectConfirm()}
-            >
-              Reject
-            </Button>
-          </div>
-        </div>
-      </Modal>
+        <label className="block text-sm text-ink">
+          Reason
+          <textarea
+            className="mt-1.5 w-full rounded-md border border-border bg-paper px-3 py-2 text-sm text-ink outline-none focus:ring-2 focus:ring-coral/40"
+            rows={4}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="What needs to change?"
+            disabled={rejecting}
+          />
+        </label>
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={approveTarget?.kind === 'line'}
+        title="Approve this time?"
+        description={
+          approveTarget?.kind === 'line'
+            ? `Approve ${formatHoursMinutes(approveTarget.line.durationMinutes)} logged on ${formatDay(approveTarget.line.entryDate)}${approveTarget.line.description ? ` — “${approveTarget.line.description}”` : ''}. This locks the line for the member.`
+            : ''
+        }
+        confirmLabel="Approve"
+        loading={
+          approveTarget?.kind === 'line'
+            ? actingKey === `line:${approveTarget.line.lineId}`
+            : false
+        }
+        onConfirm={() => {
+          if (approveTarget?.kind === 'line') {
+            void handleApproveLine(approveTarget.sliceId, approveTarget.line);
+          }
+        }}
+        onCancel={() => setApproveTarget(null)}
+      />
+
+      <ConfirmDialog
+        open={approveTarget?.kind === 'all'}
+        title="Approve all pending lines?"
+        description={
+          approveTarget?.kind === 'all'
+            ? `Approve every waiting line for ${approveTarget.item.user?.name || approveTarget.item.user?.email || 'this member'} (${formatRange(approveTarget.item.periodStart, approveTarget.item.periodEnd)}). Approved time becomes locked.`
+            : ''
+        }
+        confirmLabel="Approve all"
+        loading={
+          approveTarget?.kind === 'all'
+            ? actingKey === `slice:${approveTarget.item.id}`
+            : false
+        }
+        onConfirm={() => {
+          if (approveTarget?.kind === 'all') {
+            void handleApproveAll(approveTarget.item);
+          }
+        }}
+        onCancel={() => setApproveTarget(null)}
+      />
     </div>
   );
 }

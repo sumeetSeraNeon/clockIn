@@ -125,6 +125,20 @@ export function TasksTable({
     ),
   });
 
+  columns.push({
+    id: 'assignee',
+    header: 'Primary owner',
+    cell: (row) => {
+      const name = assigneeName(row, membersById);
+      if (!row.assigneeId) {
+        return <span className="text-slate">—</span>;
+      }
+      return (
+        <span className="truncate text-slate">{name || '—'}</span>
+      );
+    },
+  });
+
   if (memberView) {
     columns.push({
       id: 'created',
@@ -134,20 +148,6 @@ export function TasksTable({
           {formatShortDate(row.createdAt)}
         </span>
       ),
-    });
-  } else {
-    columns.push({
-      id: 'assignee',
-      header: 'Assignee',
-      cell: (row) => {
-        const name = assigneeName(row, membersById);
-        if (!row.assigneeId) {
-          return <span className="text-slate">Unassigned</span>;
-        }
-        return (
-          <span className="truncate text-slate">{name || '—'}</span>
-        );
-      },
     });
   }
 

@@ -141,15 +141,31 @@ export class VisibilityService {
     if (!scope) return this.emptyIdFilter();
     if (scope === 'all') return {};
 
-    // Members still only see tasks assigned to them (even on member projects)
+    // FIX 1 (refine) — any active project member can see all tasks on that project.
+    // assignee_id is an optional primary-owner label, not a visibility gate.
+    const memberOf = await this.memberProjectIds(
+      organisationId,
+      membership.id,
+    );
+
     if (scope === 'own') {
-      return { assigneeId: membership.id };
+      return memberOf.length
+        ? { projectId: { in: memberOf } }
+        : this.emptyIdFilter();
     }
 
-    // managed: assigned to me OR on a project I own
+    // managed: projects I am on OR projects I own
+    const managed = await this.managedProjectIds(
+      organisationId,
+      membership.id,
+    );
+    const ids = [...new Set([...memberOf, ...managed])];
+    if (!ids.length) {
+      return { project: { ownerId: membership.id } };
+    }
     return {
       OR: [
-        { assigneeId: membership.id },
+        { projectId: { in: ids } },
         { project: { ownerId: membership.id } },
       ],
     };
@@ -310,10 +326,10 @@ export class VisibilityService {
   // ─── FIX 4 action assertions ─────────────────────────────────────────
 
   /**
-   * FINAL FIX 1 — who may log time against a task.
-   * Always requires the task to be assigned to this membership.
-   * Scope `all` does NOT bypass (admins/owners logging their own time use the same rule).
-   * "Log time for someone else" is not supported here.
+   * FIX 1 (refine) — who may log time against a task.
+   * Allowed when the caller is an active member of the task's project.
+   * assignee_id is an optional primary-owner label, not a restriction.
+   * Scope `all` does NOT bypass (admins logging their own time use the same rule).
    */
   async assertCanLogTime(
     organisationId: string,
@@ -334,28 +350,34 @@ export class VisibilityService {
     if (taskId) {
       const task = await this.prisma.task.findFirst({
         where: { id: taskId, organisationId },
-        select: { assigneeId: true, projectId: true },
+        select: { projectId: true },
       });
       if (!task) {
         throw new NotFoundException('Task not found');
       }
-      if (task.assigneeId !== membership.id) {
+      const onTeam = await this.isProjectMember(
+        organisationId,
+        task.projectId,
+        membership.id,
+      );
+      if (!onTeam) {
         throw new ForbiddenException(
-          'You can only log time on tasks assigned to you',
+          'You can only log time on tasks for projects you are on',
         );
       }
       return;
     }
 
-    // Project without task: only if this user has at least one assigned task on it
+    // Project without task: must be an active project member
     if (projectId) {
-      const assigned = await this.assignedProjectIds(
+      const onTeam = await this.isProjectMember(
         organisationId,
+        projectId,
         membership.id,
       );
-      if (assigned.includes(projectId)) return;
+      if (onTeam) return;
       throw new ForbiddenException(
-        'You can only log time on projects where you have assigned tasks',
+        'You can only log time on projects you are on',
       );
     }
   }

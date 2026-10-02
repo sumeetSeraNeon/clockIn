@@ -118,11 +118,12 @@ export class RatesService {
     }
 
     try {
-      const org = await this.prisma.organisation.findUnique({
-        where: { id: organisationId },
-        select: { currency: true },
+      // FIX 3 — currency from client override, else org default (ignore form currency)
+      const currency = await this.resolveRateCurrency(organisationId, {
+        clientId: dto.clientId,
+        projectId: dto.projectId,
+        taskId: dto.taskId,
       });
-      const currency = dto.currency ?? org?.currency ?? 'GBP';
 
       const rate = await this.prisma.$transaction(async (tx) => {
         // Close previous open-ended rate for the same identity (history preserved).
@@ -188,12 +189,10 @@ export class RatesService {
     actorMembershipId: string,
     dto: CreateRatePairDto,
   ): Promise<CreateRatePairResult> {
-    const currencyHint = dto.currency;
     const shared = {
       scope: 'project_user' as const,
       projectId: dto.projectId,
       userId: dto.userId,
-      currency: currencyHint,
       effectiveFrom: dto.effectiveFrom,
       effectiveTo: null as string | null,
     };
@@ -772,6 +771,53 @@ export class RatesService {
         );
       }
     }
+  }
+
+  /**
+   * FIX 3 — client's currency override, else organisation default.
+   * Form-supplied currency is ignored; scope drives resolution.
+   */
+  private async resolveRateCurrency(
+    organisationId: string,
+    refs: {
+      clientId?: string | null;
+      projectId?: string | null;
+      taskId?: string | null;
+    },
+  ): Promise<string> {
+    let clientId = refs.clientId ?? null;
+
+    if (!clientId && refs.projectId) {
+      const project = await this.prisma.project.findFirst({
+        where: { id: refs.projectId, organisationId },
+        select: { clientId: true },
+      });
+      clientId = project?.clientId ?? null;
+    }
+
+    if (!clientId && refs.taskId) {
+      const task = await this.prisma.task.findFirst({
+        where: { id: refs.taskId, organisationId },
+        select: { project: { select: { clientId: true } } },
+      });
+      clientId = task?.project?.clientId ?? null;
+    }
+
+    if (clientId) {
+      const client = await this.prisma.client.findFirst({
+        where: { id: clientId, organisationId },
+        select: { currency: true },
+      });
+      if (client?.currency) {
+        return client.currency.toUpperCase();
+      }
+    }
+
+    const org = await this.prisma.organisation.findUnique({
+      where: { id: organisationId },
+      select: { currency: true },
+    });
+    return (org?.currency ?? 'GBP').toUpperCase();
   }
 
   private toAuditJson(rate: Rate): Prisma.InputJsonValue {

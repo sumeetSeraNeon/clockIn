@@ -5,6 +5,7 @@ import {
   type DataTableColumn,
 } from '@/components/common/DataTable';
 import { formatHoursMinutes } from '@/lib/format-duration';
+import { formatMoney } from '@/lib/format-money';
 import type { ReportDetailedLine } from '@/types/api';
 
 type ReportDetailedTableProps = {
@@ -12,11 +13,6 @@ type ReportDetailedTableProps = {
   /** When false, hide revenue/rate columns (PM / no rate:view). */
   commercial?: boolean;
 };
-
-function formatMoney(amount: string | null, currency: string | null) {
-  if (amount === null || amount === undefined) return '—';
-  return currency ? `${amount} ${currency}` : amount;
-}
 
 function formatDate(value: string) {
   return value.slice(0, 10);

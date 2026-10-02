@@ -8,6 +8,10 @@ export const PROJECT_DETAIL_INCLUDE = {
       user: { select: { id: true, name: true, email: true } },
     },
   },
+  // FIX 3 — client currency for rate forms on project Team
+  client: {
+    select: { id: true, name: true, currency: true },
+  },
 } satisfies Prisma.ProjectInclude;
 
 export type ProjectWithDetail = Prisma.ProjectGetPayload<{

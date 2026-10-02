@@ -1,12 +1,13 @@
 'use client';
 
-import { FormEvent, useEffect, useState } from 'react';
-import { CurrencySelect } from '@/components/common/CurrencySelect';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { FormField } from '@/components/common/FormField';
+import { MoneyAmountField } from '@/components/common/MoneyAmountField';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { toDateParam } from '@/lib/date-range';
+import { resolveCurrency } from '@/lib/format-money';
 import type {
   Client,
   CreateRateInput,
@@ -22,8 +23,8 @@ type RateFormProps = {
   projects: Project[];
   tasks: Task[];
   members: Member[];
-  /** Org default currency for the dropdown */
-  defaultCurrency?: string;
+  /** Org default when no client override applies */
+  orgCurrency?: string;
   submitting: boolean;
   onSubmit: (values: CreateRateInput) => Promise<void>;
   onCancel: () => void;
@@ -37,7 +38,6 @@ type FormState = {
   userId: string;
   taskId: string;
   amount: string;
-  currency: string;
   effectiveFrom: string;
   effectiveTo: string;
 };
@@ -47,7 +47,7 @@ export function RateForm({
   projects,
   tasks,
   members,
-  defaultCurrency = 'GBP',
+  orgCurrency = 'GBP',
   submitting,
   onSubmit,
   onCancel,
@@ -60,7 +60,6 @@ export function RateForm({
     userId: '',
     taskId: '',
     amount: '',
-    currency: defaultCurrency,
     effectiveFrom: toDateParam(new Date()),
     effectiveTo: '',
   }));
@@ -73,6 +72,28 @@ export function RateForm({
   useEffect(() => {
     setErrors({});
   }, [form.scope]);
+
+  const displayCurrency = useMemo(() => {
+    let clientCurrency: string | null = null;
+    if (form.scope === 'client' && form.clientId) {
+      clientCurrency =
+        clients.find((c) => c.id === form.clientId)?.currency ?? null;
+    } else if (form.projectId) {
+      const project = projects.find((p) => p.id === form.projectId);
+      if (project) {
+        clientCurrency =
+          clients.find((c) => c.id === project.clientId)?.currency ?? null;
+      }
+    }
+    return resolveCurrency(clientCurrency, orgCurrency);
+  }, [
+    form.scope,
+    form.clientId,
+    form.projectId,
+    clients,
+    projects,
+    orgCurrency,
+  ]);
 
   function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => {
@@ -134,11 +155,11 @@ export function RateForm({
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
 
+    // FIX 3 — omit currency; API resolves client → org
     const payload: CreateRateInput = {
       rateType: form.rateType,
       scope: form.scope,
       amount,
-      currency: form.currency.trim().toUpperCase() || undefined,
       effectiveFrom: form.effectiveFrom,
       effectiveTo: form.effectiveTo || null,
       ...(form.scope === 'client' ? { clientId: form.clientId } : {}),
@@ -148,7 +169,9 @@ export function RateForm({
       ...(form.scope === 'user' || form.scope === 'project_user'
         ? { userId: form.userId }
         : {}),
-      ...(form.scope === 'task' ? { taskId: form.taskId } : {}),
+      ...(form.scope === 'task'
+        ? { projectId: form.projectId, taskId: form.taskId }
+        : {}),
     };
 
     await onSubmit(payload);
@@ -290,28 +313,16 @@ export function RateForm({
         </FormField>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <FormField label="Amount" htmlFor="rate-amount" error={errors.amount}>
-          <Input
-            id="rate-amount"
-            type="number"
-            min={0}
-            step="0.01"
-            value={form.amount}
-            onChange={(e) => setField('amount', e.target.value)}
-            placeholder="85.00"
-            invalid={Boolean(errors.amount)}
-            required
-          />
-        </FormField>
-        <FormField label="Currency" htmlFor="rate-currency">
-          <CurrencySelect
-            id="rate-currency"
-            value={form.currency}
-            onChange={(code) => setField('currency', code)}
-          />
-        </FormField>
-      </div>
+      <MoneyAmountField
+        id="rate-amount"
+        label="Amount / hour"
+        value={form.amount}
+        onChange={(v) => setField('amount', v)}
+        currency={displayCurrency}
+        error={errors.amount}
+        placeholder="85.00"
+        required
+      />
 
       <div className="grid gap-4 sm:grid-cols-2">
         <FormField

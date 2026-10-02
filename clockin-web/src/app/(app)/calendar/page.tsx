@@ -19,6 +19,10 @@ import { Button } from '@/components/ui/Button';
 import { api } from '@/lib/api-client';
 import { toDateParam } from '@/lib/date-range';
 import { getErrorMessage } from '@/lib/get-error-message';
+import {
+  findOverlappingEntry,
+  overlapErrorMessage,
+} from '@/lib/time-overlap';
 import { useTimeEntries } from '@/lib/use-time-entries';
 import { usePermissions } from '@/lib/use-permissions';
 import { useAuth } from '@/lib/auth-context';
@@ -93,19 +97,16 @@ export default function CalendarPage() {
       if (!myMembershipId) return;
 
       try {
+        // FIX 1 (refine) — tasks on any project the member is on (API taskWhere)
         const taskParams = new URLSearchParams({
           pageSize: '100',
-          assigneeId: myMembershipId,
+          status: 'open',
         });
         const tasksRes = await api<Paginated<Task>>(
           `/tasks?${taskParams.toString()}`,
         );
         if (!cancelled) {
-          setTasks(
-            (tasksRes.data ?? []).filter(
-              (t) => t.assigneeId === myMembershipId,
-            ),
-          );
+          setTasks(tasksRes.data ?? []);
         }
       } catch {
         if (!cancelled) setTasks([]);
@@ -208,6 +209,21 @@ export default function CalendarPage() {
     entry: TimeEntry,
     next: { entryDate: string; startTime: string; endTime: string | null },
   ) {
+    if (next.startTime && next.endTime) {
+      const dayEntries = entries.filter(
+        (e) => e.entryDate.slice(0, 10) === next.entryDate.slice(0, 10),
+      );
+      const clash = findOverlappingEntry(
+        dayEntries,
+        new Date(next.startTime),
+        new Date(next.endTime),
+        entry.id,
+      );
+      if (clash) {
+        toast.error(overlapErrorMessage(clash));
+        throw new Error(overlapErrorMessage(clash));
+      }
+    }
     const body: UpdateTimeEntryInput = {
       entryDate: next.entryDate,
       startTime: next.startTime,
@@ -281,6 +297,18 @@ export default function CalendarPage() {
               toast.error('Cannot log time for a future date');
               return;
             }
+            const dayEntries = entries.filter(
+              (e) => e.entryDate.slice(0, 10) === range.entryDate.slice(0, 10),
+            );
+            const clash = findOverlappingEntry(
+              dayEntries,
+              new Date(range.startTime),
+              new Date(range.endTime),
+            );
+            if (clash) {
+              toast.error(overlapErrorMessage(clash));
+              return;
+            }
             setModal({ type: 'create', range });
           }}
           onEventClick={handleEventClick}
@@ -303,6 +331,7 @@ export default function CalendarPage() {
               startTime: modal.range.startTime,
               endTime: modal.range.endTime,
             }}
+            existingEntries={entries}
             submitting={submitting}
             submitLabel="Create entry"
             onSubmit={handleAddTimeSubmit}
@@ -322,6 +351,7 @@ export default function CalendarPage() {
             tasks={tasks}
             projects={projects}
             initialEntry={modal.entry}
+            existingEntries={entries}
             submitting={submitting}
             submitLabel="Save entry"
             onSubmit={handleEditEntrySubmit}

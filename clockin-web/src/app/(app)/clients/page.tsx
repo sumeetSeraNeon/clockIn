@@ -13,6 +13,7 @@ import { useToast } from '@/components/common/Toast';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
 import { api } from '@/lib/api-client';
+import { useAuth } from '@/lib/auth-context';
 import { getErrorMessage } from '@/lib/get-error-message';
 import { useClients } from '@/lib/use-clients';
 import { usePermissions } from '@/lib/use-permissions';
@@ -34,9 +35,11 @@ type ModalMode = 'create' | 'edit' | null;
  */
 export default function ClientsPage() {
   const toast = useToast();
+  const { me } = useAuth();
   const { can } = usePermissions();
   const canEdit = can('client', 'edit');
   const canViewMembers = can('member', 'view');
+  const orgCurrency = me?.organisation?.currency ?? 'GBP';
 
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState<StatusFilter>('active');
@@ -234,6 +237,7 @@ export default function ClientsPage() {
           mode={modalMode === 'edit' ? 'edit' : 'create'}
           initial={editing}
           members={members}
+          orgCurrency={orgCurrency}
           submitting={submitting}
           onSubmit={handleSubmit}
           onCancel={closeModal}

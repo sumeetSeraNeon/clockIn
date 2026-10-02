@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useState, type ReactNode } from 'react';
 import { FormField } from '@/components/common/FormField';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -508,6 +508,8 @@ export function TimerBarFields({
   storedBillable,
   /** FINAL FIX 3 — members never see billable */
   showBillable = false,
+  /** Elapsed + Start/Stop cluster on the project/task row */
+  actions,
 }: {
   description: string;
   onDescriptionChange: (v: string) => void;
@@ -518,6 +520,7 @@ export function TimerBarFields({
   disabled?: boolean;
   storedBillable?: boolean | null;
   showBillable?: boolean;
+  actions?: ReactNode;
 }) {
   const projectOptions = projectsFromTasks(tasks, projects);
   const selectedProjectId = projectIdForTask(tasks, taskId);
@@ -536,60 +539,63 @@ export function TimerBarFields({
       : previewInheritedBillable(taskId, projectId, tasks, projects);
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-center">
+    <div className="flex w-full min-w-0 flex-col gap-3">
       <Input
         value={description}
         onChange={(e) => onDescriptionChange(e.target.value)}
         placeholder="What are you working on?"
         disabled={disabled}
-        className="min-w-0 flex-1"
+        className="w-full min-w-0"
       />
-      <Select
-        value={projectId}
-        onChange={(e) => {
-          setProjectId(e.target.value);
-          onTaskChange('');
-        }}
-        disabled={disabled}
-        className="w-full sm:w-44"
-        aria-label="Project"
-      >
-        <option value="">Project…</option>
-        {projectOptions.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.name}
-          </option>
-        ))}
-      </Select>
-      <Select
-        value={taskId}
-        onChange={(e) => onTaskChange(e.target.value)}
-        disabled={disabled || !projectId}
-        className="w-full sm:w-44"
-        aria-label="Task"
-      >
-        <option value="">{!projectId ? 'Pick project' : 'Task…'}</option>
-        {taskOptions.map((t) => (
-          <option key={t.id} value={t.id}>
-            {t.name}
-          </option>
-        ))}
-      </Select>
-      {showBillable ? (
-        <p
-          className={cn(
-            'shrink-0 text-sm text-slate',
-            disabled && 'opacity-60',
-          )}
-          title={
-            storedBillable !== undefined && storedBillable !== null
-              ? 'Stored on this time line'
-              : 'Will inherit from task / project on start'
-          }
+      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center">
+        <Select
+          value={projectId}
+          onChange={(e) => {
+            setProjectId(e.target.value);
+            onTaskChange('');
+          }}
+          disabled={disabled}
+          className="min-w-0 w-full sm:flex-1"
+          aria-label="Project"
         >
-          {billable ? 'Billable' : 'Non-billable'}
-        </p>
-      ) : null}
+          <option value="">Project…</option>
+          {projectOptions.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </Select>
+        <Select
+          value={taskId}
+          onChange={(e) => onTaskChange(e.target.value)}
+          disabled={disabled || !projectId}
+          className="min-w-0 w-full sm:flex-1"
+          aria-label="Task"
+        >
+          <option value="">{!projectId ? 'Pick project' : 'Task…'}</option>
+          {taskOptions.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name}
+            </option>
+          ))}
+        </Select>
+        {showBillable ? (
+          <p
+            className={cn(
+              'shrink-0 text-sm text-slate',
+              disabled && 'opacity-60',
+            )}
+            title={
+              storedBillable !== undefined && storedBillable !== null
+                ? 'Stored on this time line'
+                : 'Will inherit from task / project on start'
+            }
+          >
+            {billable ? 'Billable' : 'Non-billable'}
+          </p>
+        ) : null}
+        {actions}
+      </div>
     </div>
   );
 }

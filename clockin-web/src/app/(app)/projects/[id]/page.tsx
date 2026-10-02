@@ -57,8 +57,10 @@ export default function ProjectDetailPage() {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Task | null>(null);
   const [archiving, setArchiving] = useState<Task | null>(null);
+  const [markingDone, setMarkingDone] = useState<Task | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [archiveLoading, setArchiveLoading] = useState(false);
+  const [markDoneLoading, setMarkDoneLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -68,14 +70,12 @@ export default function ProjectDetailPage() {
     setError(null);
     try {
       const projectRes = await api<Project>(`/projects/${projectId}`);
+      // FIX 1 (refine) — all open tasks on the project for anyone on the team
       const taskParams = new URLSearchParams({
         projectId,
         pageSize: '100',
         status: 'open',
       });
-      if (!canEditTasks && myMembershipId) {
-        taskParams.set('assigneeId', myMembershipId);
-      }
       const [tasksRes, teamRes] = await Promise.all([
         api<Paginated<Task>>(`/tasks?${taskParams.toString()}`),
         api<ProjectMember[]>(`/projects/${projectId}/members`).catch(
@@ -83,11 +83,7 @@ export default function ProjectDetailPage() {
         ),
       ]);
       setProject(projectRes);
-      let list = tasksRes.data ?? [];
-      if (!canEditTasks && myMembershipId) {
-        list = list.filter((t) => t.assigneeId === myMembershipId);
-      }
-      setTasks(list);
+      setTasks(tasksRes.data ?? []);
       setTeamMembers(
         (teamRes ?? [])
           .filter((m) => m.status === 'active')
@@ -102,7 +98,7 @@ export default function ProjectDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [projectId, canEditTasks, myMembershipId]);
+  }, [projectId]);
 
   useEffect(() => {
     void load();
@@ -162,16 +158,21 @@ export default function ProjectDetailPage() {
     }
   }
 
-  async function handleMarkDone(task: Task) {
+  async function handleMarkDone() {
+    if (!markingDone) return;
+    setMarkDoneLoading(true);
     try {
-      await api<Task>(`/tasks/${task.id}`, {
+      await api<Task>(`/tasks/${markingDone.id}`, {
         method: 'PATCH',
         body: { status: 'done' } satisfies UpdateTaskInput,
       });
-      toast.success(`Marked ${task.name} done`);
+      toast.success(`Marked ${markingDone.name} done`);
+      setMarkingDone(null);
       await load();
     } catch (err) {
       toast.error(getErrorMessage(err, 'Could not mark task done'));
+    } finally {
+      setMarkDoneLoading(false);
     }
   }
 
@@ -254,6 +255,8 @@ export default function ProjectDetailPage() {
         projectId={project.id}
         projectOwnerId={project.ownerId}
         projectName={project.name}
+        clientId={project.clientId}
+        clientCurrency={project.client?.currency ?? null}
         canEdit={canEditProject}
         canViewOrgMembers={canViewMembers}
         canViewRates={canViewRates}
@@ -266,12 +269,12 @@ export default function ProjectDetailPage() {
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold uppercase tracking-wide text-slate">
-              {canEditTasks ? 'Tasks' : 'Your tasks'}
+              Tasks
             </h2>
             <p className="mt-0.5 text-sm text-slate">
               {canEditTasks
-                ? 'Open tasks on this project. Assignees must be on the project Team.'
-                : 'Open tasks assigned to you on this project.'}
+                ? 'Open tasks on this project. Anyone on the Team can log time; assignee is an optional primary owner.'
+                : 'Open tasks on this project. You can log time to any of them.'}
             </p>
           </div>
           {canEditTasks ? (
@@ -286,7 +289,7 @@ export default function ProjectDetailPage() {
             description={
               canEditTasks
                 ? 'Add a task on this project to get started.'
-                : 'No open tasks assigned to you on this project yet.'
+                : 'No open tasks on this project yet.'
             }
             actionLabel={canEditTasks ? 'Add task' : undefined}
             onAction={
@@ -305,7 +308,7 @@ export default function ProjectDetailPage() {
             hideProjectColumn
             onTrack={(task) => setActivityTask(task)}
             onEdit={setEditing}
-            onMarkDone={(t) => void handleMarkDone(t)}
+            onMarkDone={setMarkingDone}
             onArchive={setArchiving}
           />
         )}
@@ -316,14 +319,7 @@ export default function ProjectDetailPage() {
         open={Boolean(activityTask)}
         onClose={() => setActivityTask(null)}
         showBillable={showBillable}
-        canStartTimer={
-          Boolean(
-            canTrackTime &&
-              activityTask &&
-              myMembershipId &&
-              activityTask.assigneeId === myMembershipId,
-          )
-        }
+        canStartTimer={Boolean(canTrackTime && activityTask)}
       />
 
       <Modal
@@ -370,6 +366,22 @@ export default function ProjectDetailPage() {
           />
         ) : null}
       </Modal>
+
+      <ConfirmDialog
+        open={Boolean(markingDone)}
+        title="Mark task done?"
+        description={
+          markingDone
+            ? `${markingDone.name} will leave Open and show as Done. You can change status again from Edit if needed.`
+            : ''
+        }
+        confirmLabel="Mark done"
+        loading={markDoneLoading}
+        onConfirm={() => void handleMarkDone()}
+        onCancel={() => {
+          if (!markDoneLoading) setMarkingDone(null);
+        }}
+      />
 
       <ConfirmDialog
         open={Boolean(archiving)}

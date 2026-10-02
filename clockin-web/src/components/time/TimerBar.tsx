@@ -82,62 +82,61 @@ export function TimerBar({
     <div
       className={
         running
-          ? 'rounded-lg border border-coral/25 bg-coral-tint/60 px-4 py-4 sm:px-5'
-          : 'rounded-lg border border-border/80 bg-card px-4 py-4 sm:px-5'
+          ? 'rounded-xl border border-coral/20 bg-coral-tint/50 px-4 py-4 sm:px-5 sm:py-5'
+          : 'rounded-xl border border-border/50 bg-card/80 px-4 py-4 sm:px-5 sm:py-5'
       }
     >
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
-        <TimerBarFields
-          description={description}
-          onDescriptionChange={setDescription}
-          taskId={taskId}
-          onTaskChange={setTaskId}
-          tasks={tasks}
-          projects={projects}
-          disabled={!canEdit || Boolean(running) || busy}
-          showBillable={showBillable}
-          storedBillable={
-            running ? (running.timeLines?.[0]?.billable ?? null) : null
-          }
-        />
+      <TimerBarFields
+        description={description}
+        onDescriptionChange={setDescription}
+        taskId={taskId}
+        onTaskChange={setTaskId}
+        tasks={tasks}
+        projects={projects}
+        disabled={!canEdit || Boolean(running) || busy}
+        showBillable={showBillable}
+        storedBillable={
+          running ? (running.timeLines?.[0]?.billable ?? null) : null
+        }
+        actions={
+          <div className="flex shrink-0 items-center justify-between gap-3 sm:justify-end sm:pl-1">
+            <p
+              className={
+                running
+                  ? 'min-w-[7rem] text-right font-mono text-xl font-medium tabular-nums text-coral sm:text-2xl'
+                  : 'min-w-[7rem] text-right font-mono text-xl font-medium tabular-nums text-ink sm:text-2xl'
+              }
+            >
+              {formatElapsed(elapsedSeconds)}
+            </p>
 
-        <div className="flex items-center justify-between gap-4 lg:justify-end">
-          <p
-            className={
-              running
-                ? 'min-w-[7.5rem] text-right font-mono text-2xl font-medium tabular-nums text-coral'
-                : 'min-w-[7.5rem] text-right font-mono text-2xl font-medium tabular-nums text-ink'
-            }
-          >
-            {formatElapsed(elapsedSeconds)}
-          </p>
-
-          {canEdit ? (
-            running ? (
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => void onStop()}
-                loading={stopping}
-                disabled={busy}
-                className="min-w-[6.5rem]"
-              >
-                Stop
-              </Button>
-            ) : (
-              <Button
-                type="button"
-                onClick={() => void handleStart()}
-                loading={starting}
-                disabled={busy}
-                className="min-w-[6.5rem]"
-              >
-                Start
-              </Button>
-            )
-          ) : null}
-        </div>
-      </div>
+            {canEdit ? (
+              running ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => void onStop()}
+                  loading={stopping}
+                  disabled={busy}
+                  className="min-w-[5.5rem]"
+                >
+                  Stop
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  onClick={() => void handleStart()}
+                  loading={starting}
+                  disabled={busy}
+                  className="min-w-[5.5rem]"
+                >
+                  Start
+                </Button>
+              )
+            ) : null}
+          </div>
+        }
+      />
     </div>
   );
 }

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { TicketForm } from '@/components/tickets/TicketForm';
 import { TicketsTable } from '@/components/tickets/TicketsTable';
+import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { EmptyState } from '@/components/common/EmptyState';
 import { Modal } from '@/components/common/Modal';
 import { PageHeader } from '@/components/common/PageHeader';
@@ -50,7 +51,9 @@ export default function TicketsPage() {
   const [priority, setPriority] = useState<PriorityFilter>('all');
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [editing, setEditing] = useState<Ticket | null>(null);
+  const [advancing, setAdvancing] = useState<Ticket | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [advanceLoading, setAdvanceLoading] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
 
@@ -149,21 +152,38 @@ export default function TicketsPage() {
     }
   }
 
-  async function handleAdvance(ticket: Ticket) {
+  async function handleAdvance() {
+    if (!advancing) return;
     const next =
-      TICKET_NEXT_STATUS[(ticket.status as TicketStatus) || 'open'];
+      TICKET_NEXT_STATUS[(advancing.status as TicketStatus) || 'open'];
     if (!next) return;
+    setAdvanceLoading(true);
     try {
-      await api<Ticket>(`/tickets/${ticket.id}`, {
+      await api<Ticket>(`/tickets/${advancing.id}`, {
         method: 'PATCH',
         body: { status: next } satisfies UpdateTicketInput,
       });
-      toast.success(`${ticket.reference} → ${next.replace(/_/g, ' ')}`);
+      toast.success(`${advancing.reference} → ${next.replace(/_/g, ' ')}`);
+      setAdvancing(null);
       reload();
     } catch (err) {
       toast.error(getErrorMessage(err, 'Could not update ticket status'));
+    } finally {
+      setAdvanceLoading(false);
     }
   }
+
+  const advanceNext = advancing
+    ? TICKET_NEXT_STATUS[(advancing.status as TicketStatus) || 'open']
+    : null;
+  const advanceConfirmLabel =
+    advanceNext === 'in_progress'
+      ? 'Start'
+      : advanceNext === 'resolved'
+        ? 'Resolve'
+        : advanceNext === 'closed'
+          ? 'Close'
+          : 'Advance';
 
   const filtersClear =
     status === 'all' &&
@@ -305,7 +325,7 @@ export default function TicketsPage() {
             projectsById={projectsById}
             canEdit={canEdit}
             onEdit={openEdit}
-            onAdvance={(t) => void handleAdvance(t)}
+            onAdvance={setAdvancing}
           />
           <Pagination
             page={page}
@@ -337,6 +357,22 @@ export default function TicketsPage() {
           onCancel={closeModal}
         />
       </Modal>
+
+      <ConfirmDialog
+        open={Boolean(advancing && advanceNext)}
+        title={`${advanceConfirmLabel} ticket?`}
+        description={
+          advancing && advanceNext
+            ? `${advancing.reference} will move from ${String(advancing.status).replace(/_/g, ' ')} to ${advanceNext.replace(/_/g, ' ')}. Status only moves forward.`
+            : ''
+        }
+        confirmLabel={advanceConfirmLabel}
+        loading={advanceLoading}
+        onConfirm={() => void handleAdvance()}
+        onCancel={() => {
+          if (!advanceLoading) setAdvancing(null);
+        }}
+      />
     </div>
   );
 }

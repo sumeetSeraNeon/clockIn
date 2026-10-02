@@ -6,6 +6,7 @@ import { FormField } from '@/components/common/FormField';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { ensureCurrencyOption } from '@/lib/currencies';
 import type {
   Client,
   ClientStatus,
@@ -18,6 +19,8 @@ type ClientFormProps = {
   mode: 'create' | 'edit';
   initial?: Client | null;
   members: MemberSummary[];
+  /** FIX 3 — org default; client currency is optional override */
+  orgCurrency?: string;
   submitting: boolean;
   onSubmit: (values: CreateClientInput | UpdateClientInput) => Promise<void>;
   onCancel: () => void;
@@ -32,24 +35,24 @@ type FormState = {
   externalRef: string;
 };
 
-const EMPTY: FormState = {
-  name: '',
-  code: '',
-  currency: 'GBP',
-  status: 'active',
-  ownerId: '',
-  externalRef: '',
-};
-
 export function ClientForm({
   mode,
   initial,
   members,
+  orgCurrency = 'GBP',
   submitting,
   onSubmit,
   onCancel,
 }: ClientFormProps) {
-  const [form, setForm] = useState<FormState>(EMPTY);
+  const defaultCurrency = ensureCurrencyOption(orgCurrency);
+  const [form, setForm] = useState<FormState>(() => ({
+    name: '',
+    code: '',
+    currency: defaultCurrency,
+    status: 'active',
+    ownerId: '',
+    externalRef: '',
+  }));
   const [nameError, setNameError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -57,16 +60,23 @@ export function ClientForm({
       setForm({
         name: initial.name ?? '',
         code: initial.code ?? '',
-        currency: initial.currency ?? 'GBP',
+        currency: ensureCurrencyOption(initial.currency ?? orgCurrency),
         status: (initial.status as ClientStatus) || 'active',
         ownerId: initial.ownerId ?? '',
         externalRef: initial.externalRef ?? '',
       });
     } else {
-      setForm(EMPTY);
+      setForm({
+        name: '',
+        code: '',
+        currency: ensureCurrencyOption(orgCurrency),
+        status: 'active',
+        ownerId: '',
+        externalRef: '',
+      });
     }
     setNameError(null);
-  }, [mode, initial]);
+  }, [mode, initial, orgCurrency]);
 
   function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -115,7 +125,11 @@ export function ClientForm({
             placeholder="ACME"
           />
         </FormField>
-        <FormField label="Currency" htmlFor="client-currency">
+        <FormField
+          label="Currency"
+          htmlFor="client-currency"
+          hint={`Optional override. Blank projects use org default (${defaultCurrency}).`}
+        >
           <CurrencySelect
             id="client-currency"
             value={form.currency}

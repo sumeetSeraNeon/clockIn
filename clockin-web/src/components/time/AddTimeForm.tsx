@@ -12,6 +12,10 @@ import {
   tasksForProject,
 } from '@/lib/task-project-picker';
 import type { Project, Task, TimeEntry } from '@/types/api';
+import {
+  findOverlappingEntry,
+  overlapErrorMessage,
+} from '@/lib/time-overlap';
 
 export type AddTimeValues = {
   taskId: string;
@@ -37,6 +41,8 @@ type AddTimeFormProps = {
   defaultRange?: { startTime: string; endTime: string } | null;
   /** Edit existing Level-1 entry (first line only). */
   initialEntry?: TimeEntry | null;
+  /** FIX 2 — other entries for overlap checks (same user/day). */
+  existingEntries?: TimeEntry[];
   submitLabel?: string;
   onSubmit: (values: AddTimeValues) => Promise<void>;
   onCancel: () => void;
@@ -65,7 +71,8 @@ function clockFromIso(iso: string | null | undefined): string {
 }
 
 /**
- * Level 1 manual time. Project then Task pickers (STEP 1 UX).
+ * FIX 4 — keyboard path: project → task → start → end → description → save.
+ * Defaults to start/end range for new entries.
  */
 export function AddTimeForm({
   tasks,
@@ -75,6 +82,7 @@ export function AddTimeForm({
   defaultDate,
   defaultRange = null,
   initialEntry = null,
+  existingEntries = [],
   submitLabel = 'Save entry',
   onSubmit,
   onCancel,
@@ -87,7 +95,7 @@ export function AddTimeForm({
     defaultDate ?? toDateParam(new Date()),
   );
   const [description, setDescription] = useState('');
-  const [mode, setMode] = useState<'duration' | 'range'>('duration');
+  const [mode, setMode] = useState<'duration' | 'range'>('range');
   const [durationHours, setDurationHours] = useState('1');
   const [durationMinutes, setDurationMinutes] = useState('0');
   const [startTime, setStartTime] = useState('09:00');
@@ -141,7 +149,8 @@ export function AddTimeForm({
         setDurationHours(parts.durationHours);
         setDurationMinutes(parts.durationMinutes);
       } else {
-        setMode('duration');
+        // FIX 4 — new entries default to start/end for keyboard flow
+        setMode('range');
         setDurationHours('1');
         setDurationMinutes('0');
         setStartTime('09:00');
@@ -157,7 +166,7 @@ export function AddTimeForm({
       return;
     }
     if (!taskId) {
-      setError('Pick an assigned task.');
+      setError('Pick a task.');
       return;
     }
     if (mode === 'duration') {
@@ -183,8 +192,8 @@ export function AddTimeForm({
       setError('Cannot log time for a future date.');
       return;
     }
-    setError(null);
-    await onSubmit({
+
+    const draftValues: AddTimeValues = {
       taskId,
       entryDate,
       description,
@@ -193,11 +202,31 @@ export function AddTimeForm({
       durationMinutes,
       startTime,
       endTime,
-    });
+    };
+    const range = isoRangeFromAddValues(draftValues);
+    if (range.startTime && range.endTime) {
+      const dayEntries = existingEntries.filter(
+        (e) => e.entryDate.slice(0, 10) === entryDate.slice(0, 10),
+      );
+      const clash = findOverlappingEntry(
+        dayEntries,
+        new Date(range.startTime),
+        new Date(range.endTime),
+        initialEntry?.id,
+      );
+      if (clash) {
+        setError(overlapErrorMessage(clash));
+        return;
+      }
+    }
+
+    setError(null);
+    await onSubmit(draftValues);
   }
 
   return (
     <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
+      {/* Tab order: project → task → start → end → description → save */}
       <FormField label="Project" htmlFor="add-time-project">
         <Select
           id="add-time-project"
@@ -235,89 +264,77 @@ export function AddTimeForm({
         </Select>
       </FormField>
 
-      <FormField label="Date" htmlFor="add-time-date">
-        <Input
-          id="add-time-date"
-          type="date"
-          value={entryDate}
-          max={toDateParam(new Date())}
-          onChange={(e) => setEntryDate(e.target.value)}
-          disabled={submitting}
-        />
-      </FormField>
+      <div className="flex flex-wrap gap-3 text-sm">
+        <label className="flex items-center gap-2 text-slate">
+          <input
+            type="radio"
+            name="add-time-mode"
+            checked={mode === 'range'}
+            onChange={() => setMode('range')}
+            disabled={submitting}
+          />
+          Start / end
+        </label>
+        <label className="flex items-center gap-2 text-slate">
+          <input
+            type="radio"
+            name="add-time-mode"
+            checked={mode === 'duration'}
+            onChange={() => setMode('duration')}
+            disabled={submitting}
+          />
+          Duration
+        </label>
+      </div>
 
-      <fieldset className="space-y-2">
-        <legend className="text-sm font-medium text-ink">How long?</legend>
-        <div className="flex flex-wrap gap-3 text-sm">
-          <label className="flex items-center gap-2 text-slate">
-            <input
-              type="radio"
-              name="add-time-mode"
-              checked={mode === 'duration'}
-              onChange={() => setMode('duration')}
+      {mode === 'range' ? (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <FormField label="Start" htmlFor="add-time-start">
+            <Input
+              id="add-time-start"
+              type="time"
+              value={startTime}
+              onChange={(e) => setStartTime(e.target.value)}
               disabled={submitting}
+              required
             />
-            Duration
-          </label>
-          <label className="flex items-center gap-2 text-slate">
-            <input
-              type="radio"
-              name="add-time-mode"
-              checked={mode === 'range'}
-              onChange={() => setMode('range')}
+          </FormField>
+          <FormField label="End" htmlFor="add-time-end">
+            <Input
+              id="add-time-end"
+              type="time"
+              value={endTime}
+              onChange={(e) => setEndTime(e.target.value)}
               disabled={submitting}
+              required
             />
-            Start / end
-          </label>
+          </FormField>
         </div>
-
-        {mode === 'duration' ? (
-          <div className="flex gap-3">
-            <FormField label="Hours" htmlFor="add-time-hours">
-              <Input
-                id="add-time-hours"
-                type="number"
-                min={0}
-                value={durationHours}
-                onChange={(e) => setDurationHours(e.target.value)}
-                disabled={submitting}
-              />
-            </FormField>
-            <FormField label="Minutes" htmlFor="add-time-mins">
-              <Input
-                id="add-time-mins"
-                type="number"
-                min={0}
-                max={59}
-                value={durationMinutes}
-                onChange={(e) => setDurationMinutes(e.target.value)}
-                disabled={submitting}
-              />
-            </FormField>
-          </div>
-        ) : (
-          <div className="flex gap-3">
-            <FormField label="Start" htmlFor="add-time-start">
-              <Input
-                id="add-time-start"
-                type="time"
-                value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
-                disabled={submitting}
-              />
-            </FormField>
-            <FormField label="End" htmlFor="add-time-end">
-              <Input
-                id="add-time-end"
-                type="time"
-                value={endTime}
-                onChange={(e) => setEndTime(e.target.value)}
-                disabled={submitting}
-              />
-            </FormField>
-          </div>
-        )}
-      </fieldset>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <FormField label="Hours" htmlFor="add-time-hours">
+            <Input
+              id="add-time-hours"
+              type="number"
+              min={0}
+              value={durationHours}
+              onChange={(e) => setDurationHours(e.target.value)}
+              disabled={submitting}
+            />
+          </FormField>
+          <FormField label="Minutes" htmlFor="add-time-mins">
+            <Input
+              id="add-time-mins"
+              type="number"
+              min={0}
+              max={59}
+              value={durationMinutes}
+              onChange={(e) => setDurationMinutes(e.target.value)}
+              disabled={submitting}
+            />
+          </FormField>
+        </div>
+      )}
 
       <FormField label="What did you do?" htmlFor="add-time-note">
         <Input
@@ -325,6 +342,17 @@ export function AddTimeForm({
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           placeholder="Short note"
+          disabled={submitting}
+        />
+      </FormField>
+
+      <FormField label="Date" htmlFor="add-time-date" hint="Defaults to today">
+        <Input
+          id="add-time-date"
+          type="date"
+          value={entryDate}
+          max={toDateParam(new Date())}
+          onChange={(e) => setEntryDate(e.target.value)}
           disabled={submitting}
         />
       </FormField>

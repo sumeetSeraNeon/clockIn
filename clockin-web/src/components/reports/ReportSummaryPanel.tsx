@@ -15,6 +15,7 @@ import {
 } from 'recharts';
 import { Stat } from '@/app/(app)/dashboard/Stat';
 import { formatHoursMinutes } from '@/lib/format-duration';
+import { formatMoney } from '@/lib/format-money';
 import type { ReportSummaryResponse } from '@/types/api';
 
 const COLORS = [
@@ -29,12 +30,6 @@ const COLORS = [
 type ReportSummaryPanelProps = {
   report: ReportSummaryResponse;
 };
-
-function formatRevenue(amount: string | null, currency: string | null) {
-  const cur = currency && currency !== 'USD' ? currency : currency || 'GBP';
-  if (!amount || amount === '0.00') return `0.00 ${cur}`;
-  return `${amount} ${cur}`;
-}
 
 export function ReportSummaryPanel({ report }: ReportSummaryPanelProps) {
   const { totals, groups, groupBy, reconcile } = report;
@@ -123,7 +118,7 @@ export function ReportSummaryPanel({ report }: ReportSummaryPanelProps) {
         {commercial ? (
           <Stat
             label="Revenue"
-            value={formatRevenue(totals.revenue, totals.currency)}
+            value={formatMoney(totals.revenue, totals.currency)}
             hint="Approved billable × bill rate"
           />
         ) : null}
@@ -133,12 +128,12 @@ export function ReportSummaryPanel({ report }: ReportSummaryPanelProps) {
         <div className="grid gap-6 rounded-lg border border-border/80 bg-card px-5 py-5 sm:grid-cols-3 sm:px-7 sm:py-7">
           <Stat
             label="Cost"
-            value={formatRevenue(totals.cost ?? null, totals.currency)}
+            value={formatMoney(totals.cost ?? null, totals.currency)}
             hint="Approved hours × cost rate"
           />
           <Stat
             label="Margin"
-            value={formatRevenue(totals.margin ?? null, totals.currency)}
+            value={formatMoney(totals.margin ?? null, totals.currency)}
             hint="Revenue − cost"
             accent
           />
@@ -298,17 +293,17 @@ export function ReportSummaryPanel({ report }: ReportSummaryPanelProps) {
                     </span>
                     {commercial && group.revenue != null ? (
                       <span className="text-xs text-slate">
-                        Rev {formatRevenue(group.revenue, group.currency)}
+                        Rev {formatMoney(group.revenue, group.currency)}
                       </span>
                     ) : null}
                     {commercial && group.cost != null ? (
                       <span className="text-xs text-slate">
-                        Cost {formatRevenue(group.cost, group.currency)}
+                        Cost {formatMoney(group.cost, group.currency)}
                       </span>
                     ) : null}
                     {commercial && group.margin != null ? (
                       <span className="text-xs font-medium text-navy">
-                        Margin {formatRevenue(group.margin, group.currency)}
+                        Margin {formatMoney(group.margin, group.currency)}
                         {group.marginPercent != null
                           ? ` (${Number(group.marginPercent).toFixed(0)}%)`
                           : ''}

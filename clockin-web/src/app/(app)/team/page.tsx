@@ -51,10 +51,11 @@ export default function TeamPage() {
   const [editing, setEditing] = useState<Member | null>(null);
   const [deactivating, setDeactivating] = useState<Member | null>(null);
   const [deleting, setDeleting] = useState<Member | null>(null);
+  const [approving, setApproving] = useState<Member | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [deactivateLoading, setDeactivateLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
-  const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [approveLoading, setApproveLoading] = useState(false);
   const [allMembers, setAllMembers] = useState<Member[]>([]);
   const [inviteResetLink, setInviteResetLink] = useState<string | null>(null);
 
@@ -182,19 +183,23 @@ export default function TeamPage() {
     }
   }
 
-  async function handleApprove(member: Member) {
-    setApprovingId(member.id);
+  async function handleApprove() {
+    if (!approving) return;
+    setApproveLoading(true);
     try {
-      await api<Member>(`/members/${member.id}/approve`, { method: 'POST' });
+      await api<Member>(`/members/${approving.id}/approve`, {
+        method: 'POST',
+      });
       toast.success(
-        `Approved ${member.user.name || member.user.email} — they can sign in now`,
+        `Approved ${approving.user.name || approving.user.email} — they can sign in now`,
       );
+      setApproving(null);
       reload();
       void loadLookups();
     } catch (err) {
       toast.error(getErrorMessage(err, 'Could not approve member'));
     } finally {
-      setApprovingId(null);
+      setApproveLoading(false);
     }
   }
 
@@ -356,9 +361,9 @@ export default function TeamPage() {
             membersById={membersById}
             canEdit={canEdit}
             currentMembershipId={currentMembershipId}
-            approvingId={approvingId}
+            approvingId={approveLoading ? approving?.id ?? null : null}
             onEdit={openEdit}
-            onApprove={(m) => void handleApprove(m)}
+            onApprove={setApproving}
             onDeactivate={setDeactivating}
             onDelete={setDeleting}
           />
@@ -450,6 +455,22 @@ export default function TeamPage() {
           />
         ) : null}
       </Modal>
+
+      <ConfirmDialog
+        open={Boolean(approving)}
+        title="Approve this person?"
+        description={
+          approving
+            ? `${approving.user.name || approving.user.email} will be able to sign in once approved.`
+            : ''
+        }
+        confirmLabel="Approve"
+        loading={approveLoading}
+        onConfirm={() => void handleApprove()}
+        onCancel={() => {
+          if (!approveLoading) setApproving(null);
+        }}
+      />
 
       <ConfirmDialog
         open={Boolean(deactivating)}

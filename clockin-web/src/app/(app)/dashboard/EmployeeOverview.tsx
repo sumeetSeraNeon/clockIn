@@ -7,7 +7,6 @@ import { Skeleton } from '@/components/common/Skeleton';
 import { Stat } from '@/app/(app)/dashboard/Stat';
 import { api, ApiError } from '@/lib/api-client';
 import { formatHoursMinutes } from '@/lib/format-duration';
-import { useAuth } from '@/lib/auth-context';
 import type { Paginated, Task, TimeEntry } from '@/types/api';
 
 type EmployeeOverviewProps = {
@@ -40,9 +39,6 @@ export function EmployeeOverview({
   todayParam,
   daysElapsed,
 }: EmployeeOverviewProps) {
-  const { me } = useAuth();
-  const membershipId = me?.membership?.id;
-
   const [periodEntries, setPeriodEntries] = useState<TimeEntry[]>([]);
   const [todayEntries, setTodayEntries] = useState<TimeEntry[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -73,21 +69,17 @@ export function EmployeeOverview({
         ]);
 
         let openTasks: Task[] = [];
-        if (membershipId) {
-          try {
-            const tasksRes = await api<Paginated<Task>>(
-              `/tasks?${new URLSearchParams({
-                status: 'open',
-                assigneeId: membershipId,
-                pageSize: '20',
-              })}`,
-            );
-            openTasks = (tasksRes.data ?? []).filter(
-              (t) => t.assigneeId === membershipId,
-            );
-          } catch {
-            openTasks = [];
-          }
+        try {
+          // FIX 1 (refine) — open tasks on projects the member is on
+          const tasksRes = await api<Paginated<Task>>(
+            `/tasks?${new URLSearchParams({
+              status: 'open',
+              pageSize: '20',
+            })}`,
+          );
+          openTasks = tasksRes.data ?? [];
+        } catch {
+          openTasks = [];
         }
 
         if (!cancelled) {
@@ -112,7 +104,7 @@ export function EmployeeOverview({
     return () => {
       cancelled = true;
     };
-  }, [dateFrom, dateTo, todayParam, membershipId]);
+  }, [dateFrom, dateTo, todayParam]);
 
   const periodMinutes = sumDurationMinutes(periodEntries);
   const todayMinutes = sumDurationMinutes(todayEntries);
@@ -197,7 +189,7 @@ export function EmployeeOverview({
               Open tasks
             </h2>
             <p className="mt-1 text-sm text-slate">
-              Assigned to you · {tasks.length} open
+              On your projects · {tasks.length} open
             </p>
           </div>
           <Link

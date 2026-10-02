@@ -56,8 +56,10 @@ export default function TasksPage() {
   const [editing, setEditing] = useState<Task | null>(null);
   const [activityTask, setActivityTask] = useState<Task | null>(null);
   const [archiving, setArchiving] = useState<Task | null>(null);
+  const [markingDone, setMarkingDone] = useState<Task | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [archiveLoading, setArchiveLoading] = useState(false);
+  const [markDoneLoading, setMarkDoneLoading] = useState(false);
   const [members, setMembers] = useState<MemberSummary[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
 
@@ -159,16 +161,21 @@ export default function TasksPage() {
     }
   }
 
-  async function handleMarkDone(task: Task) {
+  async function handleMarkDone() {
+    if (!markingDone) return;
+    setMarkDoneLoading(true);
     try {
-      await api<Task>(`/tasks/${task.id}`, {
+      await api<Task>(`/tasks/${markingDone.id}`, {
         method: 'PATCH',
         body: { status: 'done' } satisfies UpdateTaskInput,
       });
-      toast.success(`Marked ${task.name} done`);
+      toast.success(`Marked ${markingDone.name} done`);
+      setMarkingDone(null);
       reload();
     } catch (err) {
       toast.error(getErrorMessage(err, 'Could not mark task done'));
+    } finally {
+      setMarkDoneLoading(false);
     }
   }
 
@@ -310,7 +317,7 @@ export default function TasksPage() {
             memberView={isMember}
             onTrack={(task) => setActivityTask(task)}
             onEdit={openEdit}
-            onMarkDone={(t) => void handleMarkDone(t)}
+            onMarkDone={setMarkingDone}
             onArchive={setArchiving}
           />
           <Pagination
@@ -328,14 +335,7 @@ export default function TasksPage() {
         open={Boolean(activityTask)}
         onClose={() => setActivityTask(null)}
         showBillable={showBillable}
-        canStartTimer={
-          Boolean(
-            canTrackTime &&
-              activityTask &&
-              myMembershipId &&
-              activityTask.assigneeId === myMembershipId,
-          )
-        }
+        canStartTimer={Boolean(canTrackTime && activityTask)}
       />
 
       <Modal
@@ -360,6 +360,22 @@ export default function TasksPage() {
           onCancel={closeModal}
         />
       </Modal>
+
+      <ConfirmDialog
+        open={Boolean(markingDone)}
+        title="Mark task done?"
+        description={
+          markingDone
+            ? `${markingDone.name} will leave Open and show as Done. You can change status again from Edit if needed.`
+            : ''
+        }
+        confirmLabel="Mark done"
+        loading={markDoneLoading}
+        onConfirm={() => void handleMarkDone()}
+        onCancel={() => {
+          if (!markDoneLoading) setMarkingDone(null);
+        }}
+      />
 
       <ConfirmDialog
         open={Boolean(archiving)}

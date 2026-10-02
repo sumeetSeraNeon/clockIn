@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Modal } from '@/components/common/Modal';
 import { Button } from '@/components/ui/Button';
 import { api } from '@/lib/api-client';
+import { entryStatusLabel } from '@/lib/entry-display';
 import { formatHoursMinutes } from '@/lib/format-duration';
 import type { Paginated, Task, TimeEntry, TimeLine } from '@/types/api';
 
@@ -40,11 +41,6 @@ function formatEntryDate(iso: string) {
     day: 'numeric',
     year: 'numeric',
   });
-}
-
-function statusLabel(status: string, running: boolean) {
-  if (running) return 'Running';
-  return status.replace(/_/g, ' ');
 }
 
 /**
@@ -192,8 +188,10 @@ export function TaskActivityPanel({
             {loading ? '…' : formatHoursMinutes(hourBreakdown.approved)}
           </p>
           <p className="mt-0.5 text-xs text-slate">
-            {rows.length} line{rows.length === 1 ? '' : 's'} · approved time
-            drives revenue
+            {rows.length} line{rows.length === 1 ? '' : 's'}
+            {showBillable
+              ? ' · approved time drives revenue'
+              : ' · approved time counts toward sign-off'}
           </p>
           {!loading && rows.length > 0 ? (
             <dl className="mt-3 grid grid-cols-3 gap-2 text-xs">
@@ -251,7 +249,7 @@ export function TaskActivityPanel({
                       row.running ? 'font-medium text-coral' : 'text-slate'
                     }
                   >
-                    {statusLabel(row.status, row.running)}
+                    {entryStatusLabel(row.status, row.running)}
                   </span>
                   {showBillable && row.billable !== null ? (
                     <>

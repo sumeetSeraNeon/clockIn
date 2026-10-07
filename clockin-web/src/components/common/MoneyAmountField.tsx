@@ -40,6 +40,7 @@ export function MoneyAmountField({
       htmlFor={id}
       error={error}
       hint={hint ?? `Currency: ${currency.toUpperCase()}`}
+      required={required}
     >
       <div className="flex items-center gap-2">
         <span

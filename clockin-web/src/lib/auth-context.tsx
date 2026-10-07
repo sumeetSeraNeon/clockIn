@@ -10,11 +10,14 @@ import {
   type ReactNode,
 } from 'react';
 import {
+  EmailAuthProvider,
   createUserWithEmailAndPassword,
   onAuthStateChanged,
+  reauthenticateWithCredential,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
+  updatePassword,
   updateProfile,
   type User as FirebaseUser,
 } from 'firebase/auth';
@@ -42,6 +45,11 @@ type AuthContextValue = {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   requestPasswordReset: (email: string) => Promise<void>;
+  /** Settings — reauth with current password, then set a new one. */
+  changePassword: (
+    currentPassword: string,
+    newPassword: string,
+  ) => Promise<void>;
   requestAccess: (
     input: RequestAccessInput & { email: string; password: string },
   ) => Promise<RequestAccessResponse>;
@@ -162,6 +170,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const changePassword = useCallback(
+    async (currentPassword: string, newPassword: string) => {
+      const auth = getFirebaseAuth();
+      const user = auth.currentUser;
+      const email = user?.email;
+      if (!user || !email) {
+        throw new Error('You must be signed in to change your password.');
+      }
+      if (!currentPassword || !newPassword) {
+        throw new Error('Enter your current and new password.');
+      }
+      try {
+        const credential = EmailAuthProvider.credential(
+          email,
+          currentPassword,
+        );
+        await reauthenticateWithCredential(user, credential);
+        await updatePassword(user, newPassword);
+      } catch (err) {
+        throw new Error(friendlyAuthError(err));
+      }
+    },
+    [],
+  );
+
   /**
    * Invite-only signup: create Firebase account, then submit an access
    * request for admin approval. Signs out afterwards — they cannot use
@@ -244,6 +277,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       login,
       logout,
       requestPasswordReset,
+      changePassword,
       requestAccess,
       refreshMe,
       getIdToken,
@@ -258,6 +292,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       login,
       logout,
       requestPasswordReset,
+      changePassword,
       requestAccess,
       refreshMe,
       getIdToken,

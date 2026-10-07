@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { api } from '@/lib/api-client';
+import { api, isAbortError } from '@/lib/api-client';
 import type { Paginated, Project, ProjectStatus } from '@/types/api';
 
 export type ProjectsQuery = {
@@ -9,6 +9,8 @@ export type ProjectsQuery = {
   pageSize?: number;
   status?: ProjectStatus | 'all';
   clientId?: string | 'all';
+  /** Server-side name/code search */
+  q?: string;
 };
 
 export function useProjects(query: ProjectsQuery) {
@@ -16,6 +18,7 @@ export function useProjects(query: ProjectsQuery) {
   const pageSize = query.pageSize ?? 20;
   const status = query.status ?? 'all';
   const clientId = query.clientId ?? 'all';
+  const q = query.q?.trim() ?? '';
 
   const [data, setData] = useState<Project[]>([]);
   const [total, setTotal] = useState(0);
@@ -27,6 +30,7 @@ export function useProjects(query: ProjectsQuery) {
   const reload = useCallback(() => setReloadKey((k) => k + 1), []);
 
   useEffect(() => {
+    const controller = new AbortController();
     let cancelled = false;
 
     async function load() {
@@ -39,9 +43,11 @@ export function useProjects(query: ProjectsQuery) {
         });
         if (status !== 'all') params.set('status', status);
         if (clientId !== 'all') params.set('clientId', clientId);
+        if (q) params.set('q', q);
 
         const result = await api<Paginated<Project>>(
           `/projects?${params.toString()}`,
+          { signal: controller.signal },
         );
         if (!cancelled) {
           setData(result.data ?? []);
@@ -49,24 +55,24 @@ export function useProjects(query: ProjectsQuery) {
           setTotalPages(result.pagination?.totalPages ?? 0);
         }
       } catch (err) {
-        if (!cancelled) {
-          setData([]);
-          setTotal(0);
-          setTotalPages(0);
-          setError(
-            err instanceof Error ? err.message : 'Could not load projects.',
-          );
-        }
+        if (cancelled || isAbortError(err)) return;
+        setData([]);
+        setTotal(0);
+        setTotalPages(0);
+        setError(
+          err instanceof Error ? err.message : 'Could not load projects.',
+        );
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && !controller.signal.aborted) setLoading(false);
       }
     }
 
     void load();
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [page, pageSize, status, clientId, reloadKey]);
+  }, [page, pageSize, status, clientId, q, reloadKey]);
 
   return {
     data,

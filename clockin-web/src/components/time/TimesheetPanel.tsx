@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
+import { CollapserHeader } from '@/components/common/CollapserHeader';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import {
@@ -36,17 +37,35 @@ type TimesheetPanelProps = {
   defaultEntryDate: string;
 };
 
-type TaskGroup = {
+type TaskNode = {
   taskId: string | null;
   taskName: string;
-  projectName: string;
   entries: TimeEntry[];
   totalMinutes: number;
   draftCount: number;
 };
 
+type ProjectNode = {
+  projectId: string;
+  projectName: string;
+  totalMinutes: number;
+  tasks: TaskNode[];
+};
+
+type ClientNode = {
+  clientId: string;
+  clientName: string;
+  totalMinutes: number;
+  projects: ProjectNode[];
+};
+
+type SheetTree = {
+  clients: ClientNode[];
+  unassigned: TaskNode | null;
+};
+
 /**
- * Day/Week sheet with guiding empty state and clear locked rows (FIX 4).
+ * Day/Week sheet — Client → Project → Task (only tasks with time).
  */
 export function TimesheetPanel({
   mode,
@@ -67,32 +86,16 @@ export function TimesheetPanel({
 }: TimesheetPanelProps) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
-  const groups = useMemo(() => {
-    const byTask = new Map<string, TaskGroup>();
-
-    for (const task of tasks) {
-      const projectName =
-        task.project?.name ||
-        (task.projectId ? projectsById.get(task.projectId)?.name : null) ||
-        '—';
-      byTask.set(task.id, {
-        taskId: task.id,
-        taskName: task.name,
-        projectName,
-        entries: [],
-        totalMinutes: 0,
-        draftCount: 0,
-      });
-    }
-
-    const unassigned: TaskGroup = {
-      taskId: null,
-      taskName: 'Unassigned',
-      projectName: 'No task',
-      entries: [],
-      totalMinutes: 0,
-      draftCount: 0,
+  const tree = useMemo((): SheetTree => {
+    type AccTask = TaskNode & {
+      projectId: string | null;
+      clientId: string;
+      clientName: string;
+      projectName: string;
     };
+
+    const byTask = new Map<string, AccTask>();
+    let unassigned: TaskNode | null = null;
 
     for (const entry of entries) {
       const lines = entry.timeLines ?? [];
@@ -102,53 +105,110 @@ export function TimesheetPanel({
       const isDraft =
         entry.status === 'draft' || entry.status === 'rejected';
 
-      const bump = (g: TaskGroup) => {
-        g.entries.push(entry);
-        g.totalMinutes += mins;
-        if (isDraft) g.draftCount += 1;
-      };
-
-      if (taskId && byTask.has(taskId)) {
-        bump(byTask.get(taskId)!);
-      } else if (taskId) {
-        const task = tasks.find((t) => t.id === taskId);
-        let g = byTask.get(taskId);
-        if (!g) {
-          g = {
-            taskId,
-            taskName: task?.name ?? 'Task',
-            projectName:
-              task?.project?.name ||
-              (task?.projectId
-                ? projectsById.get(task.projectId)?.name
-                : null) ||
-              '—',
+      if (!taskId) {
+        if (!unassigned) {
+          unassigned = {
+            taskId: null,
+            taskName: 'Unassigned',
             entries: [],
             totalMinutes: 0,
             draftCount: 0,
           };
-          byTask.set(taskId, g);
         }
-        bump(g);
-      } else {
-        bump(unassigned);
+        unassigned.entries.push(entry);
+        unassigned.totalMinutes += mins;
+        if (isDraft) unassigned.draftCount += 1;
+        continue;
       }
+
+      let g = byTask.get(taskId);
+      if (!g) {
+        const task = tasks.find((t) => t.id === taskId);
+        const projectId = task?.projectId ?? first?.projectId ?? null;
+        const project =
+          (projectId ? projectsById.get(projectId) : null) ?? null;
+        const projectName = task?.project?.name || project?.name || 'Project';
+        const clientId =
+          project?.client?.id ?? project?.clientId ?? 'unknown-client';
+        const clientName = project?.client?.name?.trim() || 'Client';
+        g = {
+          taskId,
+          taskName: task?.name ?? 'Task',
+          entries: [],
+          totalMinutes: 0,
+          draftCount: 0,
+          projectId,
+          clientId,
+          clientName,
+          projectName,
+        };
+        byTask.set(taskId, g);
+      }
+      g.entries.push(entry);
+      g.totalMinutes += mins;
+      if (isDraft) g.draftCount += 1;
     }
 
-    const list = [...byTask.values()]
-      .filter((g) => g.entries.length > 0 || tasks.some((t) => t.id === g.taskId))
-      .sort((a, b) => {
-        if (b.totalMinutes !== a.totalMinutes) {
-          return b.totalMinutes - a.totalMinutes;
-        }
-        return a.taskName.localeCompare(b.taskName);
+    const clientMap = new Map<string, ClientNode>();
+    for (const g of byTask.values()) {
+      const pid = g.projectId ?? 'unknown-project';
+      let client = clientMap.get(g.clientId);
+      if (!client) {
+        client = {
+          clientId: g.clientId,
+          clientName: g.clientName,
+          totalMinutes: 0,
+          projects: [],
+        };
+        clientMap.set(g.clientId, client);
+      }
+      let project = client.projects.find((p) => p.projectId === pid);
+      if (!project) {
+        project = {
+          projectId: pid,
+          projectName: g.projectName,
+          totalMinutes: 0,
+          tasks: [],
+        };
+        client.projects.push(project);
+      }
+      project.tasks.push({
+        taskId: g.taskId,
+        taskName: g.taskName,
+        entries: g.entries,
+        totalMinutes: g.totalMinutes,
+        draftCount: g.draftCount,
       });
-    if (unassigned.entries.length > 0) list.push(unassigned);
-    return list;
+      project.totalMinutes += g.totalMinutes;
+      client.totalMinutes += g.totalMinutes;
+    }
+
+    const clients = [...clientMap.values()]
+      .map((c) => ({
+        ...c,
+        projects: c.projects
+          .map((p) => ({
+            ...p,
+            tasks: [...p.tasks].sort((a, b) => {
+              if (b.totalMinutes !== a.totalMinutes) {
+                return b.totalMinutes - a.totalMinutes;
+              }
+              return a.taskName.localeCompare(b.taskName);
+            }),
+          }))
+          .sort((a, b) => a.projectName.localeCompare(b.projectName)),
+      }))
+      .sort((a, b) => a.clientName.localeCompare(b.clientName));
+
+    return { clients, unassigned };
   }, [tasks, projectsById, entries]);
 
   function toggle(key: string) {
     setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
+
+  function isOpen(key: string, defaultOpen = true) {
+    return expanded[key] ?? defaultOpen;
   }
 
   if (tasks.length === 0 && entries.length === 0) {
@@ -164,17 +224,144 @@ export function TimesheetPanel({
 
   const periodLabel = mode === 'day' ? 'today' : 'this week';
   const noTimeLogged = entries.length === 0;
+  const periodTotalLabel = mode === 'day' ? "Today's total" : 'Period total';
+
+  function renderTaskSection(group: TaskNode): ReactNode {
+    const key = `task-${group.taskId ?? 'unassigned'}`;
+    const open = isOpen(key, true);
+    const hasEntries = group.entries.length > 0;
+    const sortedEntries = [...group.entries].sort((a, b) => {
+      const aT = a.startTime ? new Date(a.startTime).getTime() : 0;
+      const bT = b.startTime ? new Date(b.startTime).getTime() : 0;
+      return aT - bT;
+    });
+
+    return (
+      <section key={key} className="border-t border-border/25">
+        <CollapserHeader
+          level="task"
+          open={open}
+          title={group.taskName}
+          hoursLabel={formatHoursMinutes(group.totalMinutes)}
+          hoursSubLabel={periodTotalLabel}
+          onToggle={() => toggle(key)}
+        />
+
+        {open ? (
+          <div className="space-y-4 px-4 pb-4 pt-1 sm:px-5 sm:pl-10 sm:pb-5">
+            <ul className="rounded-lg bg-paper/50 px-3 sm:px-4">
+              {sortedEntries.map((entry) => {
+                const locked = isEntryLocked(entry);
+                const running = isEntryRunning(entry);
+                const note = entryDescription(entry);
+                const dateLabel = entry.entryDate.slice(0, 10);
+
+                return (
+                  <li
+                    key={entry.id}
+                    className={`grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 border-b border-border/30 py-3.5 last:border-b-0 ${
+                      locked ? 'opacity-60' : ''
+                    }`}
+                  >
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="tabular-nums text-sm font-medium text-ink">
+                          {formatEntryTimeLabel(entry)}
+                        </span>
+                        {mode === 'week' ? (
+                          <span className="text-xs text-slate">
+                            {dateLabel}
+                          </span>
+                        ) : null}
+                        {running ? (
+                          <Badge variant="coral">Running</Badge>
+                        ) : locked || entry.status !== 'draft' ? (
+                          <Badge variant={entryStatusVariant(entry.status)}>
+                            {entryStatusLabel(entry.status)}
+                          </Badge>
+                        ) : null}
+                      </div>
+                      {note ? (
+                        <p className="truncate text-sm text-slate">{note}</p>
+                      ) : null}
+                    </div>
+                    {canEdit && !locked ? (
+                      <div className="flex shrink-0 items-start gap-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => onEditEntry(entry)}
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="text-danger hover:text-danger"
+                          onClick={() => onDeleteEntry(entry)}
+                        >
+                          Delete
+                        </Button>
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+
+            {canEdit && group.taskId ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() =>
+                    onAddTime(group.taskId ?? undefined, defaultEntryDate)
+                  }
+                >
+                  {hasEntries ? 'Add more time' : 'Add time'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={timerBusy || Boolean(runningTaskId)}
+                  onClick={() => onStartTimer(group.taskId!)}
+                >
+                  {runningTaskId === group.taskId ? 'Running' : 'Start timer'}
+                </Button>
+                {onSubmitTask && group.draftCount > 0 ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={!canSubmit || Boolean(submittingTaskId)}
+                    loading={submittingTaskId === group.taskId}
+                    onClick={() => onSubmitTask(group.taskId!)}
+                  >
+                    Submit task
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
+    );
+  }
 
   return (
     <div className="space-y-3">
-      {/* FIX 4 — guiding empty state */}
       {noTimeLogged ? (
         <div className="rounded-xl border border-dashed border-border/60 bg-paper/40 px-5 py-6 text-center">
           <p className="text-sm font-medium text-ink">
             No time logged {periodLabel}
           </p>
           <p className="mt-1 text-sm text-slate">
-            Start a timer above or add time on a task below.
+            Start a timer above or add time — pick Client, then Project, then
+            Task.
           </p>
           {canEdit ? (
             <Button
@@ -188,177 +375,65 @@ export function TimesheetPanel({
             </Button>
           ) : null}
         </div>
-      ) : null}
-
-      <div className="overflow-hidden rounded-xl border border-border/50 bg-card/70 divide-y divide-border/40">
-        {groups.map((group) => {
-          const key = group.taskId ?? 'unassigned';
-          const open = expanded[key] ?? group.totalMinutes > 0;
-          const hasEntries = group.entries.length > 0;
-          const sortedEntries = [...group.entries].sort((a, b) => {
-            const aT = a.startTime ? new Date(a.startTime).getTime() : 0;
-            const bT = b.startTime ? new Date(b.startTime).getTime() : 0;
-            return aT - bT;
-          });
-
-          return (
-            <section key={key} className="bg-transparent">
-              <button
-                type="button"
-                onClick={() => toggle(key)}
-                className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left transition hover:bg-paper/40 sm:px-5"
-                aria-expanded={open}
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-border/50 bg-card/70 shadow-sm shadow-navy/[0.03]">
+          {tree.clients.map((client) => {
+            const clientKey = `client-${client.clientId}`;
+            const clientOpen = isOpen(clientKey, true);
+            return (
+              <div
+                key={client.clientId}
+                className="border-b border-border/40 last:border-b-0"
               >
-                <div className="min-w-0">
-                  <p className="truncate text-base font-medium text-ink">
-                    {group.taskName}
-                  </p>
-                  <p className="mt-0.5 truncate text-sm text-slate">
-                    {group.projectName}
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-3">
-                  <div className="text-right">
-                    <p className="tabular-nums text-sm font-semibold text-ink">
-                      {group.totalMinutes > 0
-                        ? formatHoursMinutes(group.totalMinutes)
-                        : '—'}
-                    </p>
-                    <p className="text-xs text-slate">
-                      {mode === 'day' ? "Today's total" : 'Period total'}
-                    </p>
-                  </div>
-                  <span
-                    className="flex h-6 w-6 items-center justify-center rounded-md text-slate"
-                    aria-hidden
-                  >
-                    {open ? '▾' : '▸'}
-                  </span>
-                </div>
-              </button>
+                <CollapserHeader
+                  level="client"
+                  open={clientOpen}
+                  title={client.clientName}
+                  hoursLabel={formatHoursMinutes(client.totalMinutes)}
+                  onToggle={() => toggle(clientKey)}
+                />
 
-              {open ? (
-                <div className="space-y-4 px-4 pb-4 pt-0 sm:px-5 sm:pb-5">
-                  {sortedEntries.length === 0 ? (
-                    <p className="text-sm text-slate">
-                      No entries for {periodLabel} yet.
-                    </p>
-                  ) : (
-                    <ul className="rounded-lg bg-paper/50 px-3 sm:px-4">
-                      {sortedEntries.map((entry) => {
-                        const locked = isEntryLocked(entry);
-                        const running = isEntryRunning(entry);
-                        const note = entryDescription(entry);
-                        const dateLabel = entry.entryDate.slice(0, 10);
-
-                        return (
-                          <li
-                            key={entry.id}
-                            className={`grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 border-b border-border/30 py-3.5 last:border-b-0 ${
-                              locked ? 'opacity-60' : ''
-                            }`}
-                          >
-                            <div className="min-w-0 space-y-1">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="tabular-nums text-sm font-medium text-ink">
-                                  {formatEntryTimeLabel(entry)}
-                                </span>
-                                {mode === 'week' ? (
-                                  <span className="text-xs text-slate">
-                                    {dateLabel}
-                                  </span>
-                                ) : null}
-                                {running ? (
-                                  <Badge variant="coral">Running</Badge>
-                                ) : locked || entry.status !== 'draft' ? (
-                                  <Badge
-                                    variant={entryStatusVariant(entry.status)}
-                                  >
-                                    {entryStatusLabel(entry.status)}
-                                  </Badge>
-                                ) : null}
-                              </div>
-                              {note ? (
-                                <p className="truncate text-sm text-slate">
-                                  {note}
-                                </p>
-                              ) : null}
-                            </div>
-                            {canEdit && !locked ? (
-                              <div className="flex shrink-0 items-start gap-1">
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => onEditEntry(entry)}
-                                >
-                                  Edit
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  className="text-danger hover:text-danger"
-                                  onClick={() => onDeleteEntry(entry)}
-                                >
-                                  Delete
-                                </Button>
-                              </div>
-                            ) : null}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-
-                  {canEdit && group.taskId ? (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="sm"
-                        onClick={() =>
-                          onAddTime(
-                            group.taskId ?? undefined,
-                            defaultEntryDate,
-                          )
-                        }
-                      >
-                        {hasEntries ? 'Add more time' : 'Add time'}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        disabled={timerBusy || Boolean(runningTaskId)}
-                        onClick={() => onStartTimer(group.taskId!)}
-                      >
-                        {runningTaskId === group.taskId
-                          ? 'Running'
-                          : 'Start timer'}
-                      </Button>
-                      {onSubmitTask && group.draftCount > 0 ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          disabled={
-                            !canSubmit || Boolean(submittingTaskId)
-                          }
-                          loading={submittingTaskId === group.taskId}
-                          onClick={() => onSubmitTask(group.taskId!)}
+                {clientOpen
+                  ? client.projects.map((project) => {
+                      const projectKey = `project-${project.projectId}`;
+                      const projectOpen = isOpen(projectKey, true);
+                      return (
+                        <div
+                          key={project.projectId}
+                          className="border-t border-border/25"
                         >
-                          Submit task
-                        </Button>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-            </section>
-          );
-        })}
-      </div>
+                          <CollapserHeader
+                            level="project"
+                            open={projectOpen}
+                            title={project.projectName}
+                            hoursLabel={formatHoursMinutes(
+                              project.totalMinutes,
+                            )}
+                            onToggle={() => toggle(projectKey)}
+                          />
+
+                          {projectOpen ? (
+                            <div>
+                              {project.tasks.map((task) =>
+                                renderTaskSection(task),
+                              )}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })
+                  : null}
+              </div>
+            );
+          })}
+
+          {tree.unassigned ? (
+            <div className="border-t border-border/40">
+              {renderTaskSection(tree.unassigned)}
+            </div>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }

@@ -180,7 +180,7 @@ export function RateForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
-        <FormField label="Rate type" htmlFor="rate-type">
+        <FormField label="Rate type" htmlFor="rate-type" required>
           <Select
             id="rate-type"
             value={form.rateType}
@@ -190,7 +190,7 @@ export function RateForm({
             <option value="cost">Cost — what it costs you</option>
           </Select>
         </FormField>
-        <FormField label="Scope" htmlFor="rate-scope">
+        <FormField label="Scope" htmlFor="rate-scope" required>
           <Select
             id="rate-scope"
             value={form.scope}
@@ -215,6 +215,7 @@ export function RateForm({
           label="Client"
           htmlFor="rate-client"
           error={errors.scopeParent}
+          required
         >
           <Select
             id="rate-client"
@@ -238,6 +239,7 @@ export function RateForm({
         <FormField
           label="Project"
           htmlFor="rate-project"
+          required
           error={
             form.scope === 'task' && !form.projectId
               ? errors.scopeParent
@@ -268,6 +270,7 @@ export function RateForm({
           htmlFor="rate-user"
           error={errors.scopeParent}
           hint="Uses the user id (not membership id)"
+          required
         >
           <Select
             id="rate-user"
@@ -291,6 +294,7 @@ export function RateForm({
           htmlFor="rate-task"
           error={errors.scopeParent}
           hint="Filtered to the project above"
+          required
         >
           <Select
             id="rate-task"
@@ -329,6 +333,7 @@ export function RateForm({
           label="Effective from"
           htmlFor="rate-from"
           error={errors.effectiveFrom}
+          required
         >
           <Input
             id="rate-from"

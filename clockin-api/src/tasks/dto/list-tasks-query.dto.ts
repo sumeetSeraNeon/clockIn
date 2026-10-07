@@ -1,5 +1,14 @@
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
+import {
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import {
   DEFAULT_PAGE,
   DEFAULT_PAGE_SIZE,
@@ -33,4 +42,10 @@ export class ListTasksQueryDto {
   @IsOptional()
   @IsUUID()
   assigneeId?: string;
+
+  /** Case-insensitive substring match on task name. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  q?: string;
 }

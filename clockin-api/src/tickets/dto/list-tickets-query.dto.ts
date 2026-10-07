@@ -1,5 +1,14 @@
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
+import {
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import {
   DEFAULT_PAGE,
   DEFAULT_PAGE_SIZE,
@@ -28,6 +37,11 @@ export class ListTicketsQueryDto {
   @IsUUID()
   clientId?: string;
 
+  /** FIX 3 — project detail Tickets tab */
+  @IsOptional()
+  @IsUUID()
+  projectId?: string;
+
   @IsOptional()
   @IsIn(TICKET_STATUSES)
   status?: (typeof TICKET_STATUSES)[number];
@@ -39,4 +53,10 @@ export class ListTicketsQueryDto {
   @IsOptional()
   @IsIn(TICKET_PRIORITIES)
   priority?: (typeof TICKET_PRIORITIES)[number];
+
+  /** Case-insensitive substring match on reference or title. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  q?: string;
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { api } from '@/lib/api-client';
+import { api, isAbortError } from '@/lib/api-client';
 import type {
   Paginated,
   Ticket,
@@ -15,8 +15,13 @@ export type TicketsQuery = {
   pageSize?: number;
   status?: TicketStatus | 'all';
   clientId?: string | 'all';
+  projectId?: string | 'all';
   ticketType?: TicketType | 'all';
   priority?: TicketPriority | 'all';
+  /** Server-side reference/title search */
+  q?: string;
+  /** When false, skip the fetch (e.g. inactive project tab). */
+  enabled?: boolean;
 };
 
 export function useTickets(query: TicketsQuery) {
@@ -24,8 +29,11 @@ export function useTickets(query: TicketsQuery) {
   const pageSize = query.pageSize ?? 20;
   const status = query.status ?? 'all';
   const clientId = query.clientId ?? 'all';
+  const projectId = query.projectId ?? 'all';
   const ticketType = query.ticketType ?? 'all';
   const priority = query.priority ?? 'all';
+  const q = query.q?.trim() ?? '';
+  const enabled = query.enabled !== false;
 
   const [data, setData] = useState<Ticket[]>([]);
   const [total, setTotal] = useState(0);
@@ -37,9 +45,18 @@ export function useTickets(query: TicketsQuery) {
   const reload = useCallback(() => setReloadKey((k) => k + 1), []);
 
   useEffect(() => {
+    const controller = new AbortController();
     let cancelled = false;
 
     async function load() {
+      if (!enabled) {
+        setData([]);
+        setTotal(0);
+        setTotalPages(0);
+        setLoading(false);
+        setError(null);
+        return;
+      }
       setLoading(true);
       setError(null);
       try {
@@ -49,11 +66,14 @@ export function useTickets(query: TicketsQuery) {
         });
         if (status !== 'all') params.set('status', status);
         if (clientId !== 'all') params.set('clientId', clientId);
+        if (projectId !== 'all') params.set('projectId', projectId);
         if (ticketType !== 'all') params.set('ticketType', ticketType);
         if (priority !== 'all') params.set('priority', priority);
+        if (q) params.set('q', q);
 
         const result = await api<Paginated<Ticket>>(
           `/tickets?${params.toString()}`,
+          { signal: controller.signal },
         );
         if (!cancelled) {
           setData(result.data ?? []);
@@ -61,24 +81,35 @@ export function useTickets(query: TicketsQuery) {
           setTotalPages(result.pagination?.totalPages ?? 0);
         }
       } catch (err) {
-        if (!cancelled) {
-          setData([]);
-          setTotal(0);
-          setTotalPages(0);
-          setError(
-            err instanceof Error ? err.message : 'Could not load tickets.',
-          );
-        }
+        if (cancelled || isAbortError(err)) return;
+        setData([]);
+        setTotal(0);
+        setTotalPages(0);
+        setError(
+          err instanceof Error ? err.message : 'Could not load tickets.',
+        );
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && !controller.signal.aborted) setLoading(false);
       }
     }
 
     void load();
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [page, pageSize, status, clientId, ticketType, priority, reloadKey]);
+  }, [
+    enabled,
+    page,
+    pageSize,
+    status,
+    clientId,
+    projectId,
+    ticketType,
+    priority,
+    q,
+    reloadKey,
+  ]);
 
   return {
     data,

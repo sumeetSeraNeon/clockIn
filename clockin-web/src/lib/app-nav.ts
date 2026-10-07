@@ -103,15 +103,16 @@ export const APP_NAV: AppNavItem[] = [
     href: '/settings',
     label: 'Settings',
     Icon: IconSettings,
-    // Owner/admin only (same gate as rates edit)
-    permission: { resource: 'rate', action: 'edit' },
+    // Manager feedback FIX 1 — personal settings for everyone;
+    // Organisation section inside the page stays rate:edit.
+    permission: null,
   },
 ];
 
 /**
  * FINAL FIX 3 — member shell: work context without commercial screens.
  * Projects = read-only assigned projects. No Clients / Reports / Rates /
- * Approvals / Team.
+ * Approvals / Team. Settings = personal account only.
  */
 export const MEMBER_NAV_HREFS = new Set([
   '/dashboard',
@@ -120,6 +121,7 @@ export const MEMBER_NAV_HREFS = new Set([
   '/tasks',
   '/projects',
   '/tickets',
+  '/settings',
 ]);
 
 export function isMemberOnlyRole(highestRole: string | null | undefined): boolean {

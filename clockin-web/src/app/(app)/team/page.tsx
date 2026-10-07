@@ -12,6 +12,7 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { Modal } from '@/components/common/Modal';
 import { PageHeader } from '@/components/common/PageHeader';
 import { Pagination } from '@/components/common/Pagination';
+import { SearchField } from '@/components/common/SearchField';
 import { ListSkeleton } from '@/components/common/Skeleton';
 import { useToast } from '@/components/common/Toast';
 import { Button } from '@/components/ui/Button';
@@ -19,6 +20,7 @@ import { Select } from '@/components/ui/Select';
 import { useAuth } from '@/lib/auth-context';
 import { api } from '@/lib/api-client';
 import { getErrorMessage } from '@/lib/get-error-message';
+import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { useMembers } from '@/lib/use-members';
 import { usePermissions } from '@/lib/use-permissions';
 import type {
@@ -34,6 +36,7 @@ type ModalMode = 'invite' | 'edit' | null;
 
 /**
  * Team — flat list of people. Manager column shows line manager.
+ * Name/email search is server-side (`q`); manager filter stays client-side on the page.
  */
 export default function TeamPage() {
   const toast = useToast();
@@ -47,6 +50,8 @@ export default function TeamPage() {
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState<StatusFilter>('all');
   const [managerFilter, setManagerFilter] = useState<string>('all');
+  const [nameQuery, setNameQuery] = useState('');
+  const debouncedQ = useDebouncedValue(nameQuery.trim());
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [editing, setEditing] = useState<Member | null>(null);
   const [deactivating, setDeactivating] = useState<Member | null>(null);
@@ -59,8 +64,12 @@ export default function TeamPage() {
   const [allMembers, setAllMembers] = useState<Member[]>([]);
   const [inviteResetLink, setInviteResetLink] = useState<string | null>(null);
 
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedQ]);
+
   const { data, total, totalPages, pageSize, loading, error, reload } =
-    useMembers({ page, pageSize: 20, status });
+    useMembers({ page, pageSize: 20, status, q: debouncedQ });
 
   const loadLookups = useCallback(async () => {
     try {
@@ -265,6 +274,10 @@ export default function TeamPage() {
     }
   }
 
+  const hasSearch = Boolean(debouncedQ);
+  const filtersClear =
+    status === 'all' && managerFilter === 'all' && !hasSearch;
+
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader
@@ -274,6 +287,7 @@ export default function TeamPage() {
             ? 'People in the organisation. The Manager column is their line manager.'
             : 'People on your managed team — invites, roles, and status.'
         }
+        helpKey="team"
         actions={
           canEdit ? (
             <Button type="button" onClick={openInvite}>
@@ -283,44 +297,52 @@ export default function TeamPage() {
         }
       />
 
-      <div className="mb-4 flex flex-wrap items-center gap-4">
-        <label className="flex items-center gap-2 text-sm text-slate">
-          Status
-          <Select
-            className="w-44"
-            value={status}
-            onChange={(e) => {
-              setPage(1);
-              setStatus(e.target.value as StatusFilter);
-            }}
-          >
-            <option value="all">All</option>
-            <option value="pending">Pending approval</option>
-            <option value="active">Active</option>
-            <option value="deactivated">Deactivated</option>
-          </Select>
-        </label>
-        {showManagerFilter ? (
-          <label className="flex items-center gap-2 text-sm text-slate">
-            Manager
+      <div className="mb-4 space-y-3">
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1 text-xs text-slate">
+            Status
             <Select
-              className="min-w-[180px]"
-              value={managerFilter}
+              className="w-44"
+              value={status}
               onChange={(e) => {
                 setPage(1);
-                setManagerFilter(e.target.value);
+                setStatus(e.target.value as StatusFilter);
               }}
             >
-              <option value="all">All managers</option>
-              <option value="none">No line manager</option>
-              {managerOptions.map((opt) => (
-                <option key={opt.id} value={opt.id}>
-                  {opt.label}
-                </option>
-              ))}
+              <option value="all">All</option>
+              <option value="pending">Pending approval</option>
+              <option value="active">Active</option>
+              <option value="deactivated">Deactivated</option>
             </Select>
           </label>
-        ) : null}
+          {showManagerFilter ? (
+            <label className="flex flex-col gap-1 text-xs text-slate">
+              Manager
+              <Select
+                className="min-w-[180px]"
+                value={managerFilter}
+                onChange={(e) => {
+                  setPage(1);
+                  setManagerFilter(e.target.value);
+                }}
+              >
+                <option value="all">All managers</option>
+                <option value="none">No line manager</option>
+                {managerOptions.map((opt) => (
+                  <option key={opt.id} value={opt.id}>
+                    {opt.label}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          ) : null}
+        </div>
+        <SearchField
+          value={nameQuery}
+          onChange={setNameQuery}
+          label="Search"
+          placeholder="Name or email"
+        />
       </div>
 
       {loading ? (
@@ -340,19 +362,23 @@ export default function TeamPage() {
       ) : displayMembers.length === 0 ? (
         <EmptyState
           title={
-            status === 'all' && managerFilter === 'all'
-              ? 'No team members to show'
-              : 'No members match'
+            hasSearch
+              ? 'No matching members'
+              : filtersClear
+                ? 'No team members to show'
+                : 'No members match'
           }
           description={
-            canEdit
-              ? 'Invite someone, or wait for access requests from the login page.'
-              : status === 'all' && managerFilter === 'all'
-                ? 'You only see people on your managed team (or yourself).'
-                : 'Nothing matches this filter.'
+            hasSearch
+              ? 'Try another search, or clear the search box.'
+              : canEdit
+                ? 'Invite someone, or wait for access requests from the login page.'
+                : filtersClear
+                  ? 'You only see people on your managed team (or yourself).'
+                  : 'Nothing matches this filter or search.'
           }
-          actionLabel={canEdit ? 'Invite member' : undefined}
-          onAction={canEdit ? openInvite : undefined}
+          actionLabel={canEdit && !hasSearch ? 'Invite member' : undefined}
+          onAction={canEdit && !hasSearch ? openInvite : undefined}
         />
       ) : (
         <>

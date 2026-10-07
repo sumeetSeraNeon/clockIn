@@ -7,6 +7,8 @@ type FormFieldProps = {
   htmlFor?: string;
   error?: string | null;
   hint?: string;
+  /** Shows a coral asterisk; mark fields that must be filled to submit. */
+  required?: boolean;
   children: ReactNode;
   className?: string;
 };
@@ -17,12 +19,20 @@ export function FormField({
   htmlFor,
   error,
   hint,
+  required = false,
   children,
   className,
 }: FormFieldProps) {
   return (
     <div className={cn('block', className)}>
-      <Label htmlFor={htmlFor}>{label}</Label>
+      <Label htmlFor={htmlFor}>
+        {label}
+        {required ? (
+          <span className="ml-0.5 text-coral" aria-hidden="true">
+            *
+          </span>
+        ) : null}
+      </Label>
       {children}
       {error ? (
         <p className="mt-1.5 text-sm text-danger" role="alert">

@@ -263,6 +263,7 @@ export default function ReportsPage() {
         <PageHeader
           title="Reports"
           description="Hours, billable mix, and revenue for your organisation. Revenue uses approved time only."
+          helpKey="reports"
         />
         <EmptyState
           title="No access"
@@ -298,6 +299,7 @@ export default function ReportsPage() {
       <PageHeader
         title="Reports"
         description="Profitability (approved revenue − cost), budget burn vs timeline, and billable utilisation. Money needs rate:view."
+        helpKey="reports"
         actions={
           <Button type="button" variant="secondary" onClick={handleExportCsv}>
             Export CSV

@@ -13,6 +13,9 @@ type TicketsTableProps = {
   clientsById: Map<string, Client>;
   projectsById: Map<string, Project>;
   canEdit: boolean;
+  /** When true (project detail), omit redundant client/project columns. */
+  hideClientColumn?: boolean;
+  hideProjectColumn?: boolean;
   onEdit: (ticket: Ticket) => void;
   onAdvance: (ticket: Ticket) => void;
 };
@@ -33,6 +36,8 @@ export function TicketsTable({
   clientsById,
   projectsById,
   canEdit,
+  hideClientColumn = false,
+  hideProjectColumn = false,
   onEdit,
   onAdvance,
 }: TicketsTableProps) {
@@ -49,7 +54,10 @@ export function TicketsTable({
         </div>
       ),
     },
-    {
+  ];
+
+  if (!hideClientColumn) {
+    columns.push({
       id: 'client',
       header: 'Client',
       cell: (row) => (
@@ -57,8 +65,11 @@ export function TicketsTable({
           {clientsById.get(row.clientId)?.name || '—'}
         </span>
       ),
-    },
-    {
+    });
+  }
+
+  if (!hideProjectColumn) {
+    columns.push({
       id: 'project',
       header: 'Project',
       cell: (row) => (
@@ -68,7 +79,10 @@ export function TicketsTable({
             : '—'}
         </span>
       ),
-    },
+    });
+  }
+
+  columns.push(
     {
       id: 'type',
       header: 'Type',
@@ -104,7 +118,7 @@ export function TicketsTable({
         </span>
       ),
     },
-  ];
+  );
 
   if (canEdit) {
     columns.push({

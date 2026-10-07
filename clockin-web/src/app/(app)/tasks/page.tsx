@@ -9,13 +9,14 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { Modal } from '@/components/common/Modal';
 import { PageHeader } from '@/components/common/PageHeader';
 import { Pagination } from '@/components/common/Pagination';
+import { SearchField } from '@/components/common/SearchField';
 import { ListSkeleton } from '@/components/common/Skeleton';
 import { useToast } from '@/components/common/Toast';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
 import { api } from '@/lib/api-client';
-import { useAuth } from '@/lib/auth-context';
 import { getErrorMessage } from '@/lib/get-error-message';
+import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { useTasks } from '@/lib/use-tasks';
 import { usePermissions } from '@/lib/use-permissions';
 import { isMemberOnlyRole } from '@/lib/app-nav';
@@ -33,11 +34,10 @@ type StatusFilter = TaskStatus | 'all';
 type ModalMode = 'create' | 'edit' | null;
 
 /**
- * List 7 — Tasks CRUD (copy of Projects / Clients template).
+ * Tasks list — filters + server-side name search (`q`).
  */
 export default function TasksPage() {
   const toast = useToast();
-  const { me } = useAuth();
   const { can, highestRole } = usePermissions();
   const canEdit = can('task', 'edit');
   const canTrackTime = can('time_entry', 'edit');
@@ -46,12 +46,13 @@ export default function TasksPage() {
   /** FINAL FIX 8 — commercial strip is member-only, not “lacks edit” */
   const isMember = isMemberOnlyRole(highestRole);
   const showBillable = !isMember;
-  const myMembershipId = me?.membership?.id ?? null;
 
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState<StatusFilter>('open');
   const [projectId, setProjectId] = useState<string | 'all'>('all');
   const [assigneeId, setAssigneeId] = useState<string | 'all'>('all');
+  const [nameQuery, setNameQuery] = useState('');
+  const debouncedQ = useDebouncedValue(nameQuery.trim());
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [editing, setEditing] = useState<Task | null>(null);
   const [activityTask, setActivityTask] = useState<Task | null>(null);
@@ -63,8 +64,19 @@ export default function TasksPage() {
   const [members, setMembers] = useState<MemberSummary[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedQ]);
+
   const { data, total, totalPages, pageSize, loading, error, reload } =
-    useTasks({ page, pageSize: 20, status, projectId, assigneeId });
+    useTasks({
+      page,
+      pageSize: 20,
+      status,
+      projectId,
+      assigneeId,
+      q: debouncedQ,
+    });
 
   useEffect(() => {
     let cancelled = false;
@@ -194,14 +206,19 @@ export default function TasksPage() {
     }
   }
 
+  const hasSearch = Boolean(debouncedQ);
   const filtersClear =
-    status === 'all' && projectId === 'all' && assigneeId === 'all';
+    status === 'all' &&
+    projectId === 'all' &&
+    assigneeId === 'all' &&
+    !hasSearch;
 
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader
         title="Tasks"
         description="Work items under each project."
+        helpKey="tasks"
         actions={
           canEdit ? (
             <Button type="button" onClick={openCreate}>
@@ -211,63 +228,71 @@ export default function TasksPage() {
         }
       />
 
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <label className="flex items-center gap-2 text-sm text-slate">
-          Status
-          <Select
-            className="w-40"
-            value={status}
-            onChange={(e) => {
-              setPage(1);
-              setStatus(e.target.value as StatusFilter);
-            }}
-          >
-            <option value="all">All</option>
-            <option value="open">Open</option>
-            <option value="done">Done</option>
-            <option value="archived">Archived</option>
-          </Select>
-        </label>
-
-        <label className="flex items-center gap-2 text-sm text-slate">
-          Project
-          <Select
-            className="min-w-[180px]"
-            value={projectId}
-            onChange={(e) => {
-              setPage(1);
-              setProjectId(e.target.value);
-            }}
-          >
-            <option value="all">All projects</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </Select>
-        </label>
-
-        {canViewMembers ? (
-          <label className="flex items-center gap-2 text-sm text-slate">
-            Assignee
+      <div className="mb-4 space-y-3">
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1 text-xs text-slate">
+            Status
             <Select
-              className="min-w-[180px]"
-              value={assigneeId}
+              className="w-40"
+              value={status}
               onChange={(e) => {
                 setPage(1);
-                setAssigneeId(e.target.value);
+                setStatus(e.target.value as StatusFilter);
               }}
             >
-              <option value="all">Anyone</option>
-              {members.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.user.name || m.user.email}
+              <option value="all">All</option>
+              <option value="open">Open</option>
+              <option value="done">Done</option>
+              <option value="archived">Archived</option>
+            </Select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-xs text-slate">
+            Project
+            <Select
+              className="min-w-[180px]"
+              value={projectId}
+              onChange={(e) => {
+                setPage(1);
+                setProjectId(e.target.value);
+              }}
+            >
+              <option value="all">All projects</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
                 </option>
               ))}
             </Select>
           </label>
-        ) : null}
+
+          {canViewMembers ? (
+            <label className="flex flex-col gap-1 text-xs text-slate">
+              Assignee
+              <Select
+                className="min-w-[180px]"
+                value={assigneeId}
+                onChange={(e) => {
+                  setPage(1);
+                  setAssigneeId(e.target.value);
+                }}
+              >
+                <option value="all">Anyone</option>
+                {members.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.user.name || m.user.email}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          ) : null}
+        </div>
+        <SearchField
+          value={nameQuery}
+          onChange={setNameQuery}
+          label="Search"
+          placeholder="Task name"
+        />
       </div>
 
       {loading ? (
@@ -287,23 +312,33 @@ export default function TasksPage() {
       ) : data.length === 0 ? (
         <EmptyState
           title={
-            filtersClear
-              ? canEdit
-                ? 'No tasks yet'
-                : 'No tasks assigned to you yet'
-              : 'No tasks match'
+            hasSearch
+              ? 'No matching tasks'
+              : filtersClear
+                ? canEdit
+                  ? 'No tasks yet'
+                  : 'No tasks assigned to you yet'
+                : 'No tasks match'
           }
           description={
-            canEdit
-              ? 'Create a task under a project to track delivery work.'
-              : filtersClear
-                ? 'You will see tasks here once they are assigned to you.'
-                : 'Nothing matches these filters.'
+            hasSearch
+              ? 'Try another search, or clear the search box.'
+              : canEdit
+                ? 'Create a task under a project to track delivery work.'
+                : filtersClear
+                  ? 'You will see tasks here once they are assigned to you.'
+                  : 'Nothing matches these filters.'
           }
           actionLabel={
-            canEdit && projects.length > 0 ? 'New task' : undefined
+            canEdit && projects.length > 0 && !hasSearch
+              ? 'New task'
+              : undefined
           }
-          onAction={canEdit && projects.length > 0 ? openCreate : undefined}
+          onAction={
+            canEdit && projects.length > 0 && !hasSearch
+              ? openCreate
+              : undefined
+          }
         />
       ) : (
         <>

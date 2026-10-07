@@ -18,6 +18,8 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { FirebaseAuthGuard } from '../auth/firebase-auth.guard';
 import { PermissionsGuard } from '../auth/permissions.guard';
+import { ApprovalsLogQueryDto } from './dto/approvals-log-query.dto';
+import { ListPendingQueryDto } from './dto/list-pending-query.dto';
 import { RejectTimesheetDto } from './dto/reject-timesheet.dto';
 import { GetMineTimesheetQueryDto } from './dto/get-mine-query.dto';
 import { SubmitTimesheetDto } from './dto/submit-timesheet.dto';
@@ -66,8 +68,27 @@ export class TimesheetsController {
   listPending(
     @CurrentOrg() organisationId: string,
     @CurrentMembership() membership: AuthMembership,
+    @Query() query: ListPendingQueryDto,
   ) {
-    return this.timesheets.listPending(organisationId, membership);
+    return this.timesheets.listPending(organisationId, membership, query);
+  }
+
+  /**
+   * Manager feedback FIX 2 — org-wide approvals log (admin/owner scope `all`).
+   * Must be registered before `:id` routes.
+   */
+  @Get('approvals-log')
+  @RequirePermission('timesheet', 'approve')
+  listApprovalsLog(
+    @CurrentOrg() organisationId: string,
+    @CurrentMembership() membership: AuthMembership,
+    @Query() query: ApprovalsLogQueryDto,
+  ) {
+    return this.timesheets.listApprovalsLog(
+      organisationId,
+      membership,
+      query,
+    );
   }
 
   /** `:id` is a timesheet period slice id (per-project approval unit). */

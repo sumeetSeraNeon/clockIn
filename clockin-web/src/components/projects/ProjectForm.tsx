@@ -172,7 +172,12 @@ export function ProjectForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <FormField label="Client" htmlFor="project-client" error={errors.clientId}>
+      <FormField
+        label="Client"
+        htmlFor="project-client"
+        error={errors.clientId}
+        required
+      >
         <Select
           id="project-client"
           value={form.clientId}
@@ -191,7 +196,7 @@ export function ProjectForm({
         </Select>
       </FormField>
 
-      <FormField label="Name" htmlFor="project-name" error={errors.name}>
+      <FormField label="Name" htmlFor="project-name" error={errors.name} required>
         <Input
           id="project-name"
           value={form.name}

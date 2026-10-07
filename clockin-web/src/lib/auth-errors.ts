@@ -30,6 +30,12 @@ export function friendlyAuthError(error: unknown): string {
     if (code === 'auth/missing-email') {
       return 'Enter a valid email address.';
     }
+    if (code === 'auth/weak-password') {
+      return 'Choose a stronger password (at least 6 characters).';
+    }
+    if (code === 'auth/requires-recent-login') {
+      return 'For security, enter your current password and try again.';
+    }
   }
   if (error instanceof Error) return error.message;
   return 'Something went wrong. Please try again.';

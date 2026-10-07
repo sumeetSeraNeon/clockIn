@@ -31,6 +31,7 @@ type ProjectTeamPanelProps = {
   projectOwnerId: string | null;
   projectName?: string;
   clientId?: string;
+  clientName?: string | null;
   clientCurrency?: string | null;
   canEdit: boolean;
   canViewOrgMembers: boolean;
@@ -41,6 +42,8 @@ type ProjectTeamPanelProps = {
   orgCurrency?: string;
   /** FIX 4 — notify parent so task assignee lists stay in sync */
   onTeamChange?: () => void;
+  /** FIX 3 — hide section title when the parent tab already labels Team */
+  showHeading?: boolean;
 };
 
 /**
@@ -51,6 +54,8 @@ export function ProjectTeamPanel({
   projectId,
   projectOwnerId,
   projectName,
+  clientId,
+  clientName = null,
   clientCurrency = null,
   canEdit,
   canViewOrgMembers,
@@ -58,6 +63,7 @@ export function ProjectTeamPanel({
   canEditRates = false,
   orgCurrency = 'GBP',
   onTeamChange,
+  showHeading = true,
 }: ProjectTeamPanelProps) {
   const toast = useToast();
   const [members, setMembers] = useState<ProjectMember[]>([]);
@@ -147,9 +153,17 @@ export function ProjectTeamPanel({
       {
         id: projectId,
         name: projectName || 'This project',
+        clientId: clientId || '',
+        client: clientId
+          ? {
+              id: clientId,
+              name: clientName?.trim() || 'Client',
+              currency: clientCurrency,
+            }
+          : null,
       } as Project,
     ];
-  }, [projectId, projectName]);
+  }, [projectId, projectName, clientId, clientName, clientCurrency]);
 
   async function handleAdd() {
     if (!addingId) return;
@@ -353,16 +367,24 @@ export function ProjectTeamPanel({
 
   return (
     <section className="space-y-3">
-      <div>
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate">
-          Team
-        </h2>
-        <p className="mt-0.5 text-sm text-slate">
+      {showHeading ? (
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate">
+            Team
+          </h2>
+          <p className="mt-0.5 text-sm text-slate">
+            {canViewRates
+              ? 'People on this project with cost / bill / margin per hour.'
+              : 'People on this project. Assign tasks only to people listed here.'}
+          </p>
+        </div>
+      ) : (
+        <p className="text-sm text-slate">
           {canViewRates
             ? 'People on this project with cost / bill / margin per hour.'
             : 'People on this project. Assign tasks only to people listed here.'}
         </p>
-      </div>
+      )}
 
       {loading ? (
         <p className="text-sm text-slate">Loading team…</p>

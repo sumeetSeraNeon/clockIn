@@ -222,7 +222,7 @@ export default function LoginPage() {
           <form onSubmit={onSubmit} className="mt-6 space-y-5">
             {isRequest ? (
               <>
-                <FormField label="Full name" htmlFor="name">
+                <FormField label="Full name" htmlFor="name" required>
                   <Input
                     id="name"
                     type="text"
@@ -238,6 +238,7 @@ export default function LoginPage() {
                   label="Organisation code"
                   htmlFor="orgCode"
                   hint="Ask your admin (seed default: CLK)"
+                  required
                 >
                   <Input
                     id="orgCode"
@@ -252,7 +253,7 @@ export default function LoginPage() {
               </>
             ) : null}
 
-            <FormField label="Email" htmlFor="email">
+            <FormField label="Email" htmlFor="email" required>
               <Input
                 id="email"
                 type="email"
@@ -273,7 +274,12 @@ export default function LoginPage() {
               )}
             >
               <div className="overflow-hidden">
-                <FormField label="Password" htmlFor="password" className="pb-0">
+                <FormField
+                  label="Password"
+                  htmlFor="password"
+                  className="pb-0"
+                  required={isLogin || isRequest}
+                >
                   <Input
                     id="password"
                     type="password"

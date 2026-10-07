@@ -91,7 +91,7 @@ export function InviteMemberForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <FormField label="Email" htmlFor="invite-email" error={errors.email}>
+      <FormField label="Email" htmlFor="invite-email" error={errors.email} required>
         <Input
           id="invite-email"
           type="email"

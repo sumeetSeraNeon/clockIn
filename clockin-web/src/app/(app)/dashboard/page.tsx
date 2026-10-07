@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { EmployeeOverview } from '@/app/(app)/dashboard/EmployeeOverview';
 import { ManagerOverview } from '@/app/(app)/dashboard/ManagerOverview';
+import { InfoTip } from '@/components/common/InfoTip';
 import { Input } from '@/components/ui/Input';
 import {
   formatWeekLabel,
@@ -13,6 +14,7 @@ import {
 } from '@/lib/date-range';
 import { useAuth } from '@/lib/auth-context';
 import { isMemberOnlyRole } from '@/lib/app-nav';
+import { PAGE_HELP } from '@/lib/page-help';
 import { usePermissions } from '@/lib/use-permissions';
 
 type PeriodPreset = 'week' | 'month' | 'custom';
@@ -71,16 +73,24 @@ export default function DashboardPage() {
 
   const orgName = me?.organisation?.name ?? 'your organisation';
   const roleLabel = highestRoleLabel ?? 'Member';
+  const dashboardHelp = PAGE_HELP.dashboard;
 
   return (
     <div className="mx-auto max-w-6xl">
-      <header className="border-b border-navy/10 pb-5">
+      <header className="pb-5">
         <p className="text-sm text-slate">
           {periodLabel} · {orgName} · {roleLabel}
         </p>
-        <h1 className="mt-1 text-3xl font-semibold tracking-tight text-navy">
-          Hi, {firstName}
-        </h1>
+        <div className="mt-1 flex items-center gap-2">
+          <h1 className="text-3xl font-semibold tracking-tight text-navy">
+            Hi, {firstName}
+          </h1>
+          <InfoTip title={dashboardHelp.title}>
+            {dashboardHelp.paragraphs.map((p) => (
+              <p key={p}>{p}</p>
+            ))}
+          </InfoTip>
+        </div>
 
         <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-navy/10 pb-px">
           <div className="flex gap-1">

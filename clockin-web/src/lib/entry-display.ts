@@ -49,6 +49,23 @@ export function formatEntryTimeLabel(entry: TimeEntry): string {
   return formatHoursMinutes(mins);
 }
 
+/**
+ * Approvals day-line clock range — e.g. "10:00 AM – 1:00 PM · 3h"
+ * Falls back to duration only when start/end are missing (duration adds).
+ */
+export function formatDayLineTimeLabel(line: {
+  startTime?: string | null;
+  endTime?: string | null;
+  durationMinutes: number;
+}): string {
+  const start = formatEntryClock(line.startTime);
+  const end = formatEntryClock(line.endTime);
+  const hours = formatHoursMinutes(line.durationMinutes);
+  if (start && end) return `${start} – ${end} · ${hours}`;
+  if (start && !end) return `${start} – … · ${hours}`;
+  return hours;
+}
+
 /** Human status tags for locked / draft rows */
 export function entryStatusLabel(status: string, running = false): string {
   if (running) return 'Running';

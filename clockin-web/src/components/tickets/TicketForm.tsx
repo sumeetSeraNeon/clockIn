@@ -151,7 +151,12 @@ export function TicketForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <FormField label="Client" htmlFor="ticket-client" error={errors.clientId}>
+      <FormField
+        label="Client"
+        htmlFor="ticket-client"
+        error={errors.clientId}
+        required
+      >
         <Select
           id="ticket-client"
           value={form.clientId}
@@ -196,6 +201,7 @@ export function TicketForm({
             htmlFor="ticket-reference"
             error={errors.reference}
             hint="Unique per org, e.g. INC-1042"
+            required
           >
             <Input
               id="ticket-reference"

@@ -21,6 +21,14 @@ export class ApiError extends Error {
   }
 }
 
+/** True when fetch was cancelled via AbortController (not a user-facing error). */
+export function isAbortError(err: unknown): boolean {
+  return (
+    (err instanceof DOMException && err.name === 'AbortError') ||
+    (err instanceof Error && err.name === 'AbortError')
+  );
+}
+
 type TokenProvider = () => Promise<string | null>;
 
 let getIdToken: TokenProvider = async () => null;
@@ -42,11 +50,14 @@ type ApiOptions = {
   body?: unknown;
   /** Skip auth header (unused in Phase 1 except health). */
   skipAuth?: boolean;
+  /** Abort in-flight request (list search / filter changes). */
+  signal?: AbortSignal;
 };
 
 /**
  * Shared API client — the ONLY way screens should call the Nest backend.
  * Attaches Bearer token; on 401 clears session via onUnauthorized.
+ * AbortError is rethrown so callers can ignore cancelled requests.
  */
 export async function api<T = unknown>(
   path: string,
@@ -74,6 +85,7 @@ export async function api<T = unknown>(
     headers,
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
     credentials: 'include',
+    signal: options.signal,
   });
 
   const text = await response.text();

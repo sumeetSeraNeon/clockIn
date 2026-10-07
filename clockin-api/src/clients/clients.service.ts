@@ -93,6 +93,14 @@ export class ClientsService {
       ...(query.status ? { status: query.status } : {}),
     };
 
+    const q = query.q?.trim();
+    if (q) {
+      where.OR = [
+        { name: { contains: q, mode: 'insensitive' } },
+        { code: { contains: q, mode: 'insensitive' } },
+      ];
+    }
+
     try {
       const [data, total] = await this.prisma.$transaction([
         this.prisma.client.findMany({

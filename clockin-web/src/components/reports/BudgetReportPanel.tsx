@@ -1,16 +1,9 @@
 'use client';
 
 import { useMemo } from 'react';
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Legend,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
+import { ResponsiveBar } from '@nivo/bar';
+import { InfoTip } from '@/components/common/InfoTip';
+import { CHART_COLORS, nivoTheme } from '@/lib/nivo-theme';
 import type { BudgetReportResponse, BudgetReportProjectRow } from '@/types/api';
 
 type BudgetReportPanelProps = {
@@ -83,8 +76,8 @@ export function BudgetReportPanel({ report }: BudgetReportPanelProps) {
     () =>
       report.projects.slice(0, 10).map((p) => ({
         name: p.projectName.slice(0, 18),
-        budgetBurn: p.budgetBurnPct ?? 0,
-        timeline: p.timelineElapsedPct ?? 0,
+        'Budget burn %': p.budgetBurnPct ?? 0,
+        'Timeline %': p.timelineElapsedPct ?? 0,
       })),
     [report.projects],
   );
@@ -97,42 +90,63 @@ export function BudgetReportPanel({ report }: BudgetReportPanelProps) {
 
   return (
     <div className="space-y-6">
-      <p className="text-sm text-slate">
-        Actual hours use{' '}
-        <span className="font-medium text-navy">{report.entryStatus}</span>{' '}
-        time in the selected date range. Burn % is hours vs budget; the marker
-        is % of project timeline elapsed (start→end as of date to). Amber when
-        burn leads timeline by &gt;10pp; red when &gt;25pp or over budget.
-      </p>
+      <div className="flex items-center gap-2">
+        <h2 className="text-base font-semibold tracking-tight text-ink">
+          Budget burn
+        </h2>
+        <InfoTip title="Budget burn vs timeline">
+          <p>
+            Actual hours use{' '}
+            <strong className="font-medium text-ink">{report.entryStatus}</strong>{' '}
+            time in the selected date range.
+          </p>
+          <p>
+            Burn % is hours vs budget; the coral marker is % of project timeline
+            elapsed (start→end as of date to).
+          </p>
+          <p>
+            Amber when burn leads timeline by &gt;10pp; red when &gt;25pp or over
+            budget.
+          </p>
+        </InfoTip>
+      </div>
 
       <div className="h-72 rounded-lg border border-border/80 bg-card px-3 py-4">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={chartData} margin={{ bottom: 40 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} />
-            <XAxis
-              dataKey="name"
-              angle={-30}
-              textAnchor="end"
-              height={55}
-              tick={{ fontSize: 11 }}
-            />
-            <YAxis tick={{ fontSize: 11 }} unit="%" />
-            <Tooltip />
-            <Legend />
-            <Bar
-              dataKey="budgetBurn"
-              name="Budget burn %"
-              fill="#14142b"
-              radius={2}
-            />
-            <Bar
-              dataKey="timeline"
-              name="Timeline %"
-              fill="#ff494a"
-              radius={2}
-            />
-          </BarChart>
-        </ResponsiveContainer>
+        <ResponsiveBar
+          data={chartData}
+          theme={nivoTheme}
+          keys={['Budget burn %', 'Timeline %']}
+          indexBy="name"
+          groupMode="grouped"
+          margin={{ top: 16, right: 16, bottom: 64, left: 40 }}
+          padding={0.25}
+          colors={[CHART_COLORS.navy, CHART_COLORS.coral]}
+          borderRadius={2}
+          enableLabel={false}
+          axisBottom={{
+            tickRotation: -30,
+            tickSize: 0,
+            tickPadding: 8,
+          }}
+          axisLeft={{
+            tickSize: 0,
+            tickPadding: 6,
+            format: (v) => `${v}%`,
+          }}
+          legends={[
+            {
+              dataFrom: 'keys',
+              anchor: 'bottom',
+              direction: 'row',
+              translateY: 56,
+              itemWidth: 120,
+              itemHeight: 16,
+              symbolSize: 10,
+              symbolShape: 'circle',
+            },
+          ]}
+          valueFormat={(v) => `${Number(v).toFixed(0)}%`}
+        />
       </div>
 
       <div className="overflow-x-auto">
@@ -182,7 +196,9 @@ export function BudgetReportPanel({ report }: BudgetReportPanelProps) {
                       timelinePct={row.timelineElapsedPct}
                     />
                   </td>
-                  <td className={`py-3 pr-3 text-sm font-medium ${signal.className}`}>
+                  <td
+                    className={`py-3 pr-3 text-sm font-medium ${signal.className}`}
+                  >
                     {signal.text}
                   </td>
                   <td className="py-3 pr-3 tabular-nums text-slate">

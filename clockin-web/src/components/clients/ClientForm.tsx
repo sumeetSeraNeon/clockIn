@@ -105,7 +105,7 @@ export function ClientForm({
 
   return (
     <form id="client-form" onSubmit={handleSubmit} className="space-y-4">
-      <FormField label="Name" htmlFor="client-name" error={nameError}>
+      <FormField label="Name" htmlFor="client-name" error={nameError} required>
         <Input
           id="client-name"
           value={form.name}

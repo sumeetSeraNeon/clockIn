@@ -7,10 +7,16 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { toDateParam } from '@/lib/date-range';
 import {
+  DAILY_CAP_MINUTES,
+  clientIdForProject,
+  clientsFromProjects,
+  dayLoggedMinutes,
   projectIdForTask,
-  projectsFromTasks,
+  projectsForClient,
+  projectsScopedToTasks,
   tasksForProject,
 } from '@/lib/task-project-picker';
+import { formatHoursMinutes } from '@/lib/format-duration';
 import type { Project, Task, TimeEntry } from '@/types/api';
 import {
   findOverlappingEntry,
@@ -71,7 +77,7 @@ function clockFromIso(iso: string | null | undefined): string {
 }
 
 /**
- * FIX 4 — keyboard path: project → task → start → end → description → save.
+ * Client → Project → Task cascade, then times → description → save.
  * Defaults to start/end range for new entries.
  */
 export function AddTimeForm({
@@ -89,6 +95,7 @@ export function AddTimeForm({
 }: AddTimeFormProps) {
   const firstLine = initialEntry?.timeLines?.[0];
 
+  const [clientId, setClientId] = useState('');
   const [projectId, setProjectId] = useState('');
   const [taskId, setTaskId] = useState(defaultTaskId);
   const [entryDate, setEntryDate] = useState(
@@ -102,9 +109,17 @@ export function AddTimeForm({
   const [endTime, setEndTime] = useState('10:00');
   const [error, setError] = useState<string | null>(null);
 
-  const projectOptions = useMemo(
-    () => projectsFromTasks(tasks, projects),
+  const scopedProjects = useMemo(
+    () => projectsScopedToTasks(tasks, projects),
     [tasks, projects],
+  );
+  const clientOptions = useMemo(
+    () => clientsFromProjects(scopedProjects),
+    [scopedProjects],
+  );
+  const projectOptions = useMemo(
+    () => projectsForClient(scopedProjects, clientId),
+    [scopedProjects, clientId],
   );
   const taskOptions = useMemo(
     () => tasksForProject(tasks, projectId),
@@ -116,8 +131,10 @@ export function AddTimeForm({
       const parts = partsFromMinutes(firstLine.durationMinutes ?? 0);
       const hasRange = Boolean(initialEntry.startTime && initialEntry.endTime);
       const tid = firstLine.taskId ?? '';
+      const pid = projectIdForTask(tasks, tid);
       setTaskId(tid);
-      setProjectId(projectIdForTask(tasks, tid));
+      setProjectId(pid);
+      setClientId(clientIdForProject(scopedProjects, pid));
       setEntryDate(
         initialEntry.entryDate
           ? initialEntry.entryDate.slice(0, 10)
@@ -131,8 +148,10 @@ export function AddTimeForm({
       setEndTime(clockFromIso(initialEntry.endTime) || '10:00');
     } else {
       const tid = defaultTaskId;
+      const pid = projectIdForTask(tasks, tid);
       setTaskId(tid);
-      setProjectId(projectIdForTask(tasks, tid));
+      setProjectId(pid);
+      setClientId(clientIdForProject(scopedProjects, pid));
       setEntryDate(defaultDate ?? toDateParam(new Date()));
       setDescription('');
       if (defaultRange?.startTime && defaultRange?.endTime) {
@@ -149,7 +168,6 @@ export function AddTimeForm({
         setDurationHours(parts.durationHours);
         setDurationMinutes(parts.durationMinutes);
       } else {
-        // FIX 4 — new entries default to start/end for keyboard flow
         setMode('range');
         setDurationHours('1');
         setDurationMinutes('0');
@@ -157,10 +175,22 @@ export function AddTimeForm({
         setEndTime('10:00');
       }
     }
-  }, [initialEntry, firstLine, defaultTaskId, defaultDate, defaultRange, tasks]);
+  }, [
+    initialEntry,
+    firstLine,
+    defaultTaskId,
+    defaultDate,
+    defaultRange,
+    tasks,
+    scopedProjects,
+  ]);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
+    if (!clientId) {
+      setError('Pick a client.');
+      return;
+    }
     if (!projectId) {
       setError('Pick a project.');
       return;
@@ -220,14 +250,52 @@ export function AddTimeForm({
       }
     }
 
+    const addMinutes = durationMinutesFromAddValues(draftValues);
+    if (addMinutes < 1) {
+      setError('Enter a duration of at least 1 minute.');
+      return;
+    }
+    const already = dayLoggedMinutes(
+      existingEntries,
+      entryDate,
+      initialEntry?.id,
+    );
+    if (already + addMinutes > DAILY_CAP_MINUTES) {
+      const remaining = Math.max(0, DAILY_CAP_MINUTES - already);
+      setError(
+        `This would exceed the 8h daily limit. ${formatHoursMinutes(already)} already logged today; ${formatHoursMinutes(remaining)} remaining.`,
+      );
+      return;
+    }
+
     setError(null);
     await onSubmit(draftValues);
   }
 
   return (
     <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
-      {/* Tab order: project → task → start → end → description → save */}
-      <FormField label="Project" htmlFor="add-time-project">
+      {/* Tab order: client → project → task → times → description → save */}
+      <FormField label="Client" htmlFor="add-time-client" required>
+        <Select
+          id="add-time-client"
+          value={clientId}
+          onChange={(e) => {
+            setClientId(e.target.value);
+            setProjectId('');
+            setTaskId('');
+          }}
+          disabled={submitting}
+        >
+          <option value="">Select client…</option>
+          {clientOptions.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </Select>
+      </FormField>
+
+      <FormField label="Project" htmlFor="add-time-project" required>
         <Select
           id="add-time-project"
           value={projectId}
@@ -235,18 +303,20 @@ export function AddTimeForm({
             setProjectId(e.target.value);
             setTaskId('');
           }}
-          disabled={submitting}
+          disabled={submitting || !clientId}
         >
-          <option value="">Select project…</option>
+          <option value="">
+            {!clientId ? 'Select a client first' : 'Select project…'}
+          </option>
           {projectOptions.map((p) => (
             <option key={p.id} value={p.id}>
-              {p.name}
+              {p.label}
             </option>
           ))}
         </Select>
       </FormField>
 
-      <FormField label="Task" htmlFor="add-time-task">
+      <FormField label="Task" htmlFor="add-time-task" required>
         <Select
           id="add-time-task"
           value={taskId}
@@ -289,7 +359,7 @@ export function AddTimeForm({
 
       {mode === 'range' ? (
         <div className="grid gap-4 sm:grid-cols-2">
-          <FormField label="Start" htmlFor="add-time-start">
+          <FormField label="Start" htmlFor="add-time-start" required>
             <Input
               id="add-time-start"
               type="time"
@@ -299,7 +369,7 @@ export function AddTimeForm({
               required
             />
           </FormField>
-          <FormField label="End" htmlFor="add-time-end">
+          <FormField label="End" htmlFor="add-time-end" required>
             <Input
               id="add-time-end"
               type="time"
@@ -312,7 +382,7 @@ export function AddTimeForm({
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
-          <FormField label="Hours" htmlFor="add-time-hours">
+          <FormField label="Hours" htmlFor="add-time-hours" required>
             <Input
               id="add-time-hours"
               type="number"
@@ -322,7 +392,7 @@ export function AddTimeForm({
               disabled={submitting}
             />
           </FormField>
-          <FormField label="Minutes" htmlFor="add-time-mins">
+          <FormField label="Minutes" htmlFor="add-time-mins" required>
             <Input
               id="add-time-mins"
               type="number"
@@ -346,7 +416,12 @@ export function AddTimeForm({
         />
       </FormField>
 
-      <FormField label="Date" htmlFor="add-time-date" hint="Defaults to today">
+      <FormField
+        label="Date"
+        htmlFor="add-time-date"
+        hint="Defaults to today"
+        required
+      >
         <Input
           id="add-time-date"
           type="date"

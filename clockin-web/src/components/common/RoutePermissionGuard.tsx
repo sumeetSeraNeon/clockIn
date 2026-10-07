@@ -11,8 +11,8 @@ import {
 import { usePermissions } from '@/lib/use-permissions';
 
 /**
- * Route gates: permission check + FINAL FIX 3 member shell
- * (members: Dashboard / Time / Tasks / Projects / Tickets only).
+ * Route gates: permission check + member shell
+ * (members: Dashboard / Time / Calendar / Tasks / Projects / Tickets / Settings).
  */
 export function RoutePermissionGuard({ children }: { children: ReactNode }) {
   const pathname = usePathname();

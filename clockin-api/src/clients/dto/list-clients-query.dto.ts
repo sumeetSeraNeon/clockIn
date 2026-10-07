@@ -1,5 +1,13 @@
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import {
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import {
   DEFAULT_PAGE,
   DEFAULT_PAGE_SIZE,
@@ -26,4 +34,10 @@ export class ListClientsQueryDto {
   @IsString()
   @IsIn(CLIENT_STATUSES)
   status?: (typeof CLIENT_STATUSES)[number];
+
+  /** Case-insensitive substring match on name or code. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  q?: string;
 }

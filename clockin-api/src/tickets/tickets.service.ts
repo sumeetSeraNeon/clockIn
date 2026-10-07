@@ -94,6 +94,15 @@ export class TicketsService {
     if (query.clientId) {
       await this.assertClientInOrg(organisationId, query.clientId);
     }
+    if (query.projectId) {
+      const project = await this.prisma.project.findFirst({
+        where: { id: query.projectId, organisationId },
+        select: { id: true },
+      });
+      if (!project) {
+        throw new NotFoundException('Project not found');
+      }
+    }
 
     const visibilityWhere = await this.visibility.ticketWhere(
       organisationId,
@@ -104,10 +113,24 @@ export class TicketsService {
       organisationId,
       ...visibilityWhere,
       ...(query.clientId ? { clientId: query.clientId } : {}),
+      ...(query.projectId ? { projectId: query.projectId } : {}),
       ...(query.status ? { status: query.status } : {}),
       ...(query.ticketType ? { ticketType: query.ticketType } : {}),
       ...(query.priority ? { priority: query.priority } : {}),
     };
+
+    // Use AND so we do not overwrite visibilityWhere.OR (managed scope).
+    const q = query.q?.trim();
+    if (q) {
+      where.AND = [
+        {
+          OR: [
+            { reference: { contains: q, mode: 'insensitive' } },
+            { title: { contains: q, mode: 'insensitive' } },
+          ],
+        },
+      ];
+    }
 
     try {
       const [data, total] = await this.prisma.$transaction([

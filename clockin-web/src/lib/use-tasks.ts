@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { api } from '@/lib/api-client';
+import { api, isAbortError } from '@/lib/api-client';
 import type { Paginated, Task, TaskStatus } from '@/types/api';
 
 export type TasksQuery = {
@@ -10,6 +10,8 @@ export type TasksQuery = {
   status?: TaskStatus | 'all';
   projectId?: string | 'all';
   assigneeId?: string | 'all';
+  /** Server-side name search */
+  q?: string;
 };
 
 export function useTasks(query: TasksQuery) {
@@ -18,6 +20,7 @@ export function useTasks(query: TasksQuery) {
   const status = query.status ?? 'all';
   const projectId = query.projectId ?? 'all';
   const assigneeId = query.assigneeId ?? 'all';
+  const q = query.q?.trim() ?? '';
 
   const [data, setData] = useState<Task[]>([]);
   const [total, setTotal] = useState(0);
@@ -29,6 +32,7 @@ export function useTasks(query: TasksQuery) {
   const reload = useCallback(() => setReloadKey((k) => k + 1), []);
 
   useEffect(() => {
+    const controller = new AbortController();
     let cancelled = false;
 
     async function load() {
@@ -42,9 +46,11 @@ export function useTasks(query: TasksQuery) {
         if (status !== 'all') params.set('status', status);
         if (projectId !== 'all') params.set('projectId', projectId);
         if (assigneeId !== 'all') params.set('assigneeId', assigneeId);
+        if (q) params.set('q', q);
 
         const result = await api<Paginated<Task>>(
           `/tasks?${params.toString()}`,
+          { signal: controller.signal },
         );
         if (!cancelled) {
           setData(result.data ?? []);
@@ -52,24 +58,24 @@ export function useTasks(query: TasksQuery) {
           setTotalPages(result.pagination?.totalPages ?? 0);
         }
       } catch (err) {
-        if (!cancelled) {
-          setData([]);
-          setTotal(0);
-          setTotalPages(0);
-          setError(
-            err instanceof Error ? err.message : 'Could not load tasks.',
-          );
-        }
+        if (cancelled || isAbortError(err)) return;
+        setData([]);
+        setTotal(0);
+        setTotalPages(0);
+        setError(
+          err instanceof Error ? err.message : 'Could not load tasks.',
+        );
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && !controller.signal.aborted) setLoading(false);
       }
     }
 
     void load();
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [page, pageSize, status, projectId, assigneeId, reloadKey]);
+  }, [page, pageSize, status, projectId, assigneeId, q, reloadKey]);
 
   return {
     data,

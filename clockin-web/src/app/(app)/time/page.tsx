@@ -339,6 +339,12 @@ function TimePageInner() {
       toast.error('Pick an assigned task before starting the timer');
       return;
     }
+    if (todayTotalMinutes >= 8 * 60) {
+      toast.error(
+        'Daily 8h limit reached — edit or remove time before starting a timer.',
+      );
+      return;
+    }
     setStarting(true);
     try {
       const body: CreateTimeEntryInput = {
@@ -362,6 +368,27 @@ function TimePageInner() {
 
   async function handleStop() {
     if (!running) return;
+    if (running.startTime) {
+      const elapsed = Math.max(
+        1,
+        Math.round(
+          (Date.now() - new Date(running.startTime).getTime()) / 60_000,
+        ),
+      );
+      const runningMins = (running.timeLines ?? []).reduce(
+        (s, line) => s + (line.durationMinutes ?? 0),
+        0,
+      );
+      const withoutRunning = Math.max(0, todayTotalMinutes - runningMins);
+      if (withoutRunning + elapsed > 8 * 60) {
+        const remaining = Math.max(0, 8 * 60 - withoutRunning);
+        toast.error(
+          `Stopping would exceed the 8h daily limit (${remaining}m remaining, timer at ${elapsed}m). Edit or remove other time first.`,
+        );
+        setConfirmAction(null);
+        return;
+      }
+    }
     setStopping(true);
     try {
       await api(`/time-entries/${running.id}/stop`, {
@@ -501,18 +528,21 @@ function TimePageInner() {
       ),
     [weekEntries],
   );
-  const overEightHours = todayTotalMinutes > 8 * 60;
+  const atDailyCap = todayTotalMinutes >= 8 * 60;
+  const dailyRemaining = Math.max(0, 8 * 60 - todayTotalMinutes);
+  const nearDailyCap = !atDailyCap && dailyRemaining <= 60;
   const timerBlockingSubmit = Boolean(running);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-5">
+    <div className="mx-auto max-w-6xl space-y-5">
       <PageHeader
         title="Timesheet"
         description="Log time on your project tasks, then submit for approval."
+        helpKey="timesheet"
       />
 
-      {/* Period strip — flat, less boxy */}
-      <div className="rounded-xl border border-border/50 bg-paper/60 px-4 py-4 sm:px-5">
+      {/* Period toolbar — flat under header */}
+      <div className="space-y-3 border-b border-border/50 pb-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0 space-y-2.5">
             <div className="flex flex-wrap items-center gap-2">
@@ -543,7 +573,7 @@ function TimePageInner() {
             </div>
 
             <div
-              className="inline-flex rounded-lg bg-card/90 p-0.5 ring-1 ring-border/40"
+              className="inline-flex rounded-lg bg-paper/80 p-0.5 ring-1 ring-border/40"
               role="group"
               aria-label="Timesheet period"
             >
@@ -551,7 +581,7 @@ function TimePageInner() {
                 type="button"
                 className={`rounded-md px-3.5 py-1.5 text-sm font-medium transition ${
                   mode === 'day'
-                    ? 'bg-paper text-ink shadow-sm'
+                    ? 'bg-card text-ink shadow-sm'
                     : 'text-slate hover:text-ink'
                 }`}
                 onClick={() => setMode('day')}
@@ -562,7 +592,7 @@ function TimePageInner() {
                 type="button"
                 className={`rounded-md px-3.5 py-1.5 text-sm font-medium transition ${
                   mode === 'week'
-                    ? 'bg-paper text-ink shadow-sm'
+                    ? 'bg-card text-ink shadow-sm'
                     : 'text-slate hover:text-ink'
                 }`}
                 onClick={() => setMode('week')}
@@ -625,6 +655,7 @@ function TimePageInner() {
                 type="button"
                 variant="secondary"
                 size="sm"
+                disabled={atDailyCap}
                 onClick={() => setModal({ type: 'add-time' })}
               >
                 Add time
@@ -664,7 +695,7 @@ function TimePageInner() {
           </div>
         </div>
 
-        <div className="mt-3.5 flex flex-wrap items-baseline gap-x-4 gap-y-1 border-t border-border/40 pt-3">
+        <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
           <p className="text-sm text-ink">
             <span className="font-medium tabular-nums">
               {formatHoursMinutes(todayTotalMinutes)}
@@ -677,9 +708,15 @@ function TimePageInner() {
             </span>
             <span className="text-slate"> this week</span>
           </p>
-          {overEightHours ? (
-            <p className="text-sm text-warning">
-              Over 8 hours — check your entries if that was not intentional.
+          {atDailyCap ? (
+            <p className="text-sm text-danger">
+              Daily 8h limit reached — stop or edit existing time before adding
+              more.
+            </p>
+          ) : nearDailyCap ? (
+            <p className="text-sm text-slate">
+              {formatHoursMinutes(dailyRemaining)} left before the 8h daily
+              limit.
             </p>
           ) : null}
         </div>
@@ -693,6 +730,7 @@ function TimePageInner() {
         showBillable={showBillable}
         starting={starting}
         stopping={stopping}
+        atDailyCap={atDailyCap}
         preselectTaskId={pendingTrackTaskId}
         onPreselectConsumed={() => setPendingTrackTaskId(null)}
         onStart={handleStart}
@@ -735,6 +773,12 @@ function TimePageInner() {
             const day = entryDate ?? today;
             if (day > today) {
               toast.error('Cannot log time for a future date');
+              return;
+            }
+            if (day === today && atDailyCap) {
+              toast.error(
+                'Daily 8h limit reached — edit or remove time before adding more.',
+              );
               return;
             }
             setModal({ type: 'add-time', taskId, entryDate: day });

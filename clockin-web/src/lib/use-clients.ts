@@ -1,19 +1,22 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { api } from '@/lib/api-client';
+import { api, isAbortError } from '@/lib/api-client';
 import type { Client, ClientStatus, Paginated } from '@/types/api';
 
 export type ClientsQuery = {
   page?: number;
   pageSize?: number;
   status?: ClientStatus | 'all';
+  /** Server-side name/code search */
+  q?: string;
 };
 
 export function useClients(query: ClientsQuery) {
   const page = query.page ?? 1;
   const pageSize = query.pageSize ?? 20;
   const status = query.status ?? 'all';
+  const q = query.q?.trim() ?? '';
 
   const [data, setData] = useState<Client[]>([]);
   const [total, setTotal] = useState(0);
@@ -25,6 +28,7 @@ export function useClients(query: ClientsQuery) {
   const reload = useCallback(() => setReloadKey((k) => k + 1), []);
 
   useEffect(() => {
+    const controller = new AbortController();
     let cancelled = false;
 
     async function load() {
@@ -36,9 +40,11 @@ export function useClients(query: ClientsQuery) {
           pageSize: String(pageSize),
         });
         if (status !== 'all') params.set('status', status);
+        if (q) params.set('q', q);
 
         const result = await api<Paginated<Client>>(
           `/clients?${params.toString()}`,
+          { signal: controller.signal },
         );
         if (!cancelled) {
           setData(result.data ?? []);
@@ -46,24 +52,24 @@ export function useClients(query: ClientsQuery) {
           setTotalPages(result.pagination?.totalPages ?? 0);
         }
       } catch (err) {
-        if (!cancelled) {
-          setData([]);
-          setTotal(0);
-          setTotalPages(0);
-          setError(
-            err instanceof Error ? err.message : 'Could not load clients.',
-          );
-        }
+        if (cancelled || isAbortError(err)) return;
+        setData([]);
+        setTotal(0);
+        setTotalPages(0);
+        setError(
+          err instanceof Error ? err.message : 'Could not load clients.',
+        );
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && !controller.signal.aborted) setLoading(false);
       }
     }
 
     void load();
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [page, pageSize, status, reloadKey]);
+  }, [page, pageSize, status, q, reloadKey]);
 
   return {
     data,

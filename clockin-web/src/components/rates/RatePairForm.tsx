@@ -42,6 +42,7 @@ type RatePairFormProps = {
 };
 
 type FormState = {
+  clientId: string;
   projectId: string;
   userId: string;
   costAmount: string;
@@ -61,8 +62,14 @@ function marginPreview(costRaw: string, billRaw: string) {
   return { margin, pct };
 }
 
+function clientIdForProject(project: Project | undefined): string {
+  if (!project) return '';
+  return project.clientId || project.client?.id || '';
+}
+
 /**
- * Project → person → cost + bill. Currency is resolved (client → org), not chosen.
+ * Client → Project → Person → cost + bill.
+ * Currency is resolved (client → org), not chosen.
  */
 export function RatePairForm({
   projects,
@@ -80,7 +87,17 @@ export function RatePairForm({
   onSubmit,
   onCancel,
 }: RatePairFormProps) {
+  const projectLocked = Boolean(defaultProjectId);
+  const userLocked = Boolean(defaultUserId);
+
+  const initialClientId = useMemo(() => {
+    if (!defaultProjectId) return '';
+    const project = projects.find((p) => p.id === defaultProjectId);
+    return clientIdForProject(project);
+  }, [defaultProjectId, projects]);
+
   const [form, setForm] = useState<FormState>(() => ({
+    clientId: initialClientId,
     projectId: defaultProjectId,
     userId: defaultUserId,
     costAmount: initialCost,
@@ -92,6 +109,7 @@ export function RatePairForm({
   );
   const [teamLoading, setTeamLoading] = useState(false);
   const [errors, setErrors] = useState<{
+    clientId?: string;
     projectId?: string;
     userId?: string;
     costAmount?: string;
@@ -102,12 +120,19 @@ export function RatePairForm({
   useEffect(() => {
     setForm((prev) => ({
       ...prev,
+      clientId: initialClientId || prev.clientId,
       projectId: defaultProjectId || prev.projectId,
       userId: defaultUserId || prev.userId,
       ...(initialCost ? { costAmount: initialCost } : {}),
       ...(initialBillable ? { billableAmount: initialBillable } : {}),
     }));
-  }, [defaultProjectId, defaultUserId, initialCost, initialBillable]);
+  }, [
+    initialClientId,
+    defaultProjectId,
+    defaultUserId,
+    initialCost,
+    initialBillable,
+  ]);
 
   useEffect(() => {
     if (projectMembers) {
@@ -137,17 +162,44 @@ export function RatePairForm({
     };
   }, [form.projectId, projectMembers]);
 
+  const clientOptions = useMemo(() => {
+    if (clients.length > 0) {
+      return [...clients].sort((a, b) => a.name.localeCompare(b.name));
+    }
+    // Fallback from nested project.client when clients list is empty
+    const map = new Map<string, { id: string; name: string }>();
+    for (const p of projects) {
+      const id = clientIdForProject(p);
+      if (!id) continue;
+      const name = p.client?.name?.trim() || 'Client';
+      if (!map.has(id)) map.set(id, { id, name });
+    }
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [clients, projects]);
+
+  const projectsForClient = useMemo(() => {
+    if (!form.clientId) return [];
+    return projects
+      .filter((p) => clientIdForProject(p) === form.clientId)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [projects, form.clientId]);
+
   const displayCurrency = useMemo(() => {
     if (displayCurrencyProp) {
       return resolveCurrency(displayCurrencyProp, orgCurrency);
     }
+    const fromClients = clients.find((c) => c.id === form.clientId)?.currency;
+    if (fromClients) return resolveCurrency(fromClients, orgCurrency);
     const project = projects.find((p) => p.id === form.projectId);
-    const clientCurrency = project
-      ? clients.find((c) => c.id === project.clientId)?.currency
-      : null;
+    const clientCurrency =
+      project?.client?.currency ??
+      (project
+        ? clients.find((c) => c.id === project.clientId)?.currency
+        : null);
     return resolveCurrency(clientCurrency, orgCurrency);
   }, [
     displayCurrencyProp,
+    form.clientId,
     form.projectId,
     projects,
     clients,
@@ -171,6 +223,14 @@ export function RatePairForm({
 
   function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => {
+      if (key === 'clientId') {
+        return {
+          ...prev,
+          clientId: value as string,
+          projectId: '',
+          userId: '',
+        };
+      }
       if (key === 'projectId') {
         return {
           ...prev,
@@ -187,6 +247,9 @@ export function RatePairForm({
     const nextErrors: typeof errors = {};
     const cost = Number(form.costAmount);
     const bill = Number(form.billableAmount);
+    if (!projectLocked && !form.clientId) {
+      nextErrors.clientId = 'Client is required.';
+    }
     if (!form.projectId) nextErrors.projectId = 'Project is required.';
     if (!form.userId) nextErrors.userId = 'Person is required.';
     if (!Number.isFinite(cost) || cost < 0) {
@@ -211,25 +274,61 @@ export function RatePairForm({
     });
   }
 
-  const projectLocked = Boolean(defaultProjectId);
-  const userLocked = Boolean(defaultUserId);
+  const selectedClientName =
+    clientOptions.find((c) => c.id === form.clientId)?.name ||
+    projects.find((p) => p.id === form.projectId)?.client?.name ||
+    'Client';
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <FormField
+        label="Client"
+        htmlFor="pair-client"
+        error={errors.clientId}
+        required={!projectLocked}
+      >
+        {projectLocked ? (
+          <Input
+            id="pair-client"
+            value={selectedClientName}
+            disabled
+            readOnly
+          />
+        ) : (
+          <Select
+            id="pair-client"
+            value={form.clientId}
+            onChange={(e) => setField('clientId', e.target.value)}
+            disabled={submitting}
+            invalid={Boolean(errors.clientId)}
+          >
+            <option value="">Select client</option>
+            {clientOptions.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </Select>
+        )}
+      </FormField>
+
+      <FormField
         label="Project"
         htmlFor="pair-project"
         error={errors.projectId}
+        required
       >
         <Select
           id="pair-project"
           value={form.projectId}
           onChange={(e) => setField('projectId', e.target.value)}
-          disabled={submitting || projectLocked}
+          disabled={submitting || projectLocked || !form.clientId}
           invalid={Boolean(errors.projectId)}
         >
-          <option value="">Select project</option>
-          {projects.map((p) => (
+          <option value="">
+            {!form.clientId ? 'Pick a client first' : 'Select project'}
+          </option>
+          {projectsForClient.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
             </option>
@@ -237,7 +336,7 @@ export function RatePairForm({
         </Select>
       </FormField>
 
-      <FormField label="Person" htmlFor="pair-user" error={errors.userId}>
+      <FormField label="Person" htmlFor="pair-user" error={errors.userId} required>
         <Select
           id="pair-user"
           value={form.userId}
@@ -310,6 +409,7 @@ export function RatePairForm({
         label="Effective from"
         htmlFor="pair-from"
         error={errors.effectiveFrom}
+        required
       >
         <Input
           id="pair-from"

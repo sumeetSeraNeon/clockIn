@@ -8,12 +8,14 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { Modal } from '@/components/common/Modal';
 import { PageHeader } from '@/components/common/PageHeader';
 import { Pagination } from '@/components/common/Pagination';
+import { SearchField } from '@/components/common/SearchField';
 import { ListSkeleton } from '@/components/common/Skeleton';
 import { useToast } from '@/components/common/Toast';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
 import { api } from '@/lib/api-client';
 import { getErrorMessage } from '@/lib/get-error-message';
+import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { useTickets } from '@/lib/use-tickets';
 import { usePermissions } from '@/lib/use-permissions';
 import type {
@@ -35,7 +37,7 @@ type PriorityFilter = TicketPriority | 'all';
 type ModalMode = 'create' | 'edit' | null;
 
 /**
- * List 8 — Tickets.
+ * Tickets list — filters + server-side reference/title search (`q`).
  * FINAL FIX 9 — ticket:edit gates New / Edit / Start (members view-only).
  */
 export default function TicketsPage() {
@@ -49,6 +51,8 @@ export default function TicketsPage() {
   const [clientId, setClientId] = useState<string | 'all'>('all');
   const [ticketType, setTicketType] = useState<TypeFilter>('all');
   const [priority, setPriority] = useState<PriorityFilter>('all');
+  const [nameQuery, setNameQuery] = useState('');
+  const debouncedQ = useDebouncedValue(nameQuery.trim());
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [editing, setEditing] = useState<Ticket | null>(null);
   const [advancing, setAdvancing] = useState<Ticket | null>(null);
@@ -57,8 +61,20 @@ export default function TicketsPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedQ]);
+
   const { data, total, totalPages, pageSize, loading, error, reload } =
-    useTickets({ page, pageSize: 20, status, clientId, ticketType, priority });
+    useTickets({
+      page,
+      pageSize: 20,
+      status,
+      clientId,
+      ticketType,
+      priority,
+      q: debouncedQ,
+    });
 
   useEffect(() => {
     let cancelled = false;
@@ -185,11 +201,13 @@ export default function TicketsPage() {
           ? 'Close'
           : 'Advance';
 
+  const hasSearch = Boolean(debouncedQ);
   const filtersClear =
     status === 'all' &&
     clientId === 'all' &&
     ticketType === 'all' &&
-    priority === 'all';
+    priority === 'all' &&
+    !hasSearch;
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -200,6 +218,7 @@ export default function TicketsPage() {
             ? 'Incidents and service requests for clients.'
             : 'Tickets on your projects (view only).'
         }
+        helpKey="tickets"
         actions={
           canEdit ? (
             <Button type="button" onClick={openCreate}>
@@ -209,79 +228,87 @@ export default function TicketsPage() {
         }
       />
 
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <label className="flex items-center gap-2 text-sm text-slate">
-          Status
-          <Select
-            className="w-40"
-            value={status}
-            onChange={(e) => {
-              setPage(1);
-              setStatus(e.target.value as StatusFilter);
-            }}
-          >
-            <option value="all">All</option>
-            <option value="open">Open</option>
-            <option value="in_progress">In progress</option>
-            <option value="resolved">Resolved</option>
-            <option value="closed">Closed</option>
-          </Select>
-        </label>
-
-        {canViewClients || canEdit ? (
-          <label className="flex items-center gap-2 text-sm text-slate">
-            Client
+      <div className="mb-4 space-y-3">
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1 text-xs text-slate">
+            Status
             <Select
-              className="min-w-[180px]"
-              value={clientId}
+              className="w-40"
+              value={status}
               onChange={(e) => {
                 setPage(1);
-                setClientId(e.target.value);
+                setStatus(e.target.value as StatusFilter);
               }}
             >
-              <option value="all">All clients</option>
-              {clients.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
+              <option value="all">All</option>
+              <option value="open">Open</option>
+              <option value="in_progress">In progress</option>
+              <option value="resolved">Resolved</option>
+              <option value="closed">Closed</option>
             </Select>
           </label>
-        ) : null}
 
-        <label className="flex items-center gap-2 text-sm text-slate">
-          Type
-          <Select
-            className="min-w-[160px]"
-            value={ticketType}
-            onChange={(e) => {
-              setPage(1);
-              setTicketType(e.target.value as TypeFilter);
-            }}
-          >
-            <option value="all">All types</option>
-            <option value="incident">Incident</option>
-            <option value="service_request">Service request</option>
-          </Select>
-        </label>
+          {canViewClients || canEdit ? (
+            <label className="flex flex-col gap-1 text-xs text-slate">
+              Client
+              <Select
+                className="min-w-[180px]"
+                value={clientId}
+                onChange={(e) => {
+                  setPage(1);
+                  setClientId(e.target.value);
+                }}
+              >
+                <option value="all">All clients</option>
+                {clients.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          ) : null}
 
-        <label className="flex items-center gap-2 text-sm text-slate">
-          Priority
-          <Select
-            className="w-36"
-            value={priority}
-            onChange={(e) => {
-              setPage(1);
-              setPriority(e.target.value as PriorityFilter);
-            }}
-          >
-            <option value="all">All</option>
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-            <option value="critical">Critical</option>
-          </Select>
-        </label>
+          <label className="flex flex-col gap-1 text-xs text-slate">
+            Type
+            <Select
+              className="min-w-[160px]"
+              value={ticketType}
+              onChange={(e) => {
+                setPage(1);
+                setTicketType(e.target.value as TypeFilter);
+              }}
+            >
+              <option value="all">All types</option>
+              <option value="incident">Incident</option>
+              <option value="service_request">Service request</option>
+            </Select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-xs text-slate">
+            Priority
+            <Select
+              className="w-36"
+              value={priority}
+              onChange={(e) => {
+                setPage(1);
+                setPriority(e.target.value as PriorityFilter);
+              }}
+            >
+              <option value="all">All</option>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="critical">Critical</option>
+            </Select>
+          </label>
+        </div>
+        <SearchField
+          value={nameQuery}
+          onChange={setNameQuery}
+          label="Search"
+          placeholder="Reference or title"
+        />
       </div>
 
       {loading ? (
@@ -301,21 +328,31 @@ export default function TicketsPage() {
       ) : data.length === 0 ? (
         <EmptyState
           title={
-            filtersClear
-              ? 'No tickets on your projects yet'
-              : 'No tickets match'
+            hasSearch
+              ? 'No matching tickets'
+              : filtersClear
+                ? 'No tickets on your projects yet'
+                : 'No tickets match'
           }
           description={
-            filtersClear
-              ? canEdit
-                ? 'Raise a ticket against a client when needed.'
-                : 'You will see tickets for projects you are assigned to.'
-              : 'Nothing matches these filters.'
+            hasSearch
+              ? 'Try another search, or clear the search box.'
+              : filtersClear
+                ? canEdit
+                  ? 'Raise a ticket against a client when needed.'
+                  : 'You will see tickets for projects you are assigned to.'
+                : 'Nothing matches these filters.'
           }
           actionLabel={
-            canEdit && clients.length > 0 ? 'New ticket' : undefined
+            canEdit && clients.length > 0 && !hasSearch
+              ? 'New ticket'
+              : undefined
           }
-          onAction={canEdit && clients.length > 0 ? openCreate : undefined}
+          onAction={
+            canEdit && clients.length > 0 && !hasSearch
+              ? openCreate
+              : undefined
+          }
         />
       ) : (
         <>

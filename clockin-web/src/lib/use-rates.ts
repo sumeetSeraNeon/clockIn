@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { api } from '@/lib/api-client';
+import { api, isAbortError } from '@/lib/api-client';
 import type {
   Paginated,
   Rate,
@@ -20,6 +20,8 @@ export type RatesQuery = {
   taskId?: string | 'all';
   /** true = current tab, false = history tab, undefined = all */
   current?: boolean;
+  /** Server-side search (wire when API supports q) */
+  q?: string;
 };
 
 export function useRates(query: RatesQuery) {
@@ -32,6 +34,7 @@ export function useRates(query: RatesQuery) {
   const userId = query.userId ?? 'all';
   const taskId = query.taskId ?? 'all';
   const current = query.current;
+  const q = query.q?.trim() ?? '';
 
   const [data, setData] = useState<Rate[]>([]);
   const [total, setTotal] = useState(0);
@@ -43,6 +46,7 @@ export function useRates(query: RatesQuery) {
   const reload = useCallback(() => setReloadKey((k) => k + 1), []);
 
   useEffect(() => {
+    const controller = new AbortController();
     let cancelled = false;
 
     async function load() {
@@ -61,9 +65,11 @@ export function useRates(query: RatesQuery) {
         if (taskId !== 'all') params.set('taskId', taskId);
         if (current === true) params.set('current', 'true');
         if (current === false) params.set('current', 'false');
+        if (q) params.set('q', q);
 
         const result = await api<Paginated<Rate>>(
           `/rates?${params.toString()}`,
+          { signal: controller.signal },
         );
         if (!cancelled) {
           setData(result.data ?? []);
@@ -71,22 +77,22 @@ export function useRates(query: RatesQuery) {
           setTotalPages(result.pagination?.totalPages ?? 0);
         }
       } catch (err) {
-        if (!cancelled) {
-          setData([]);
-          setTotal(0);
-          setTotalPages(0);
-          setError(
-            err instanceof Error ? err.message : 'Could not load rates.',
-          );
-        }
+        if (cancelled || isAbortError(err)) return;
+        setData([]);
+        setTotal(0);
+        setTotalPages(0);
+        setError(
+          err instanceof Error ? err.message : 'Could not load rates.',
+        );
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && !controller.signal.aborted) setLoading(false);
       }
     }
 
     void load();
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [
     page,
@@ -98,6 +104,7 @@ export function useRates(query: RatesQuery) {
     userId,
     taskId,
     current,
+    q,
     reloadKey,
   ]);
 

@@ -129,6 +129,12 @@ export class TimeService {
       lineData.projectId,
       lineData.durationMinutes,
     );
+    await this.assertWithinDailyCap(
+      organisationId,
+      userId,
+      dto.entryDate.slice(0, 10),
+      lineData.durationMinutes,
+    );
 
     // FIX 2 — no overlapping closed ranges for the same user/day
     if (startTime && endTime) {
@@ -230,6 +236,14 @@ export class TimeService {
         firstLine.id,
       );
     }
+
+    await this.assertWithinDailyCap(
+      organisationId,
+      userId,
+      existing.entryDate.toISOString().slice(0, 10),
+      minutes,
+      { excludeEntryId: existing.id },
+    );
 
     // FIX 2 — timer stop cannot overlap another closed entry
     if (existing.startTime) {
@@ -358,6 +372,16 @@ export class TimeService {
           firstLine.id,
         );
       }
+      await this.assertWithinDailyCap(
+        organisationId,
+        userId,
+        (dto.entryDate ?? existing.entryDate.toISOString().slice(0, 10)).slice(
+          0,
+          10,
+        ),
+        minutes,
+        { excludeEntryId: existing.id },
+      );
       await this.assertNoTimeOverlap(
         organisationId,
         userId,
@@ -609,6 +633,12 @@ export class TimeService {
       lineData.projectId,
       lineData.durationMinutes,
     );
+    await this.assertWithinDailyCap(
+      organisationId,
+      userId,
+      entry.entryDate.toISOString().slice(0, 10),
+      lineData.durationMinutes,
+    );
 
     try {
       const line = await this.prisma.timeLine.create({
@@ -749,6 +779,13 @@ export class TimeService {
       projectId,
       nextDuration,
       existing.id,
+    );
+    await this.assertWithinDailyCap(
+      organisationId,
+      userId,
+      parentEntry.entryDate.toISOString().slice(0, 10),
+      nextDuration,
+      { excludeLineId: existing.id },
     );
 
     try {
@@ -1144,6 +1181,50 @@ export class TimeService {
     if (!project) {
       throw new BadRequestException(
         'projectId must belong to your organisation',
+      );
+    }
+  }
+
+  /**
+   * Timesheet UX — logged minutes for a user/day cannot exceed 8h (480m).
+   * excludeEntryId omits that entry's lines (stop/update). excludeLineId omits one line.
+   */
+  private async assertWithinDailyCap(
+    organisationId: string,
+    userId: string,
+    entryDate: string,
+    additionalMinutes: number,
+    opts?: { excludeEntryId?: string; excludeLineId?: string },
+  ): Promise<void> {
+    const mins = Number(additionalMinutes);
+    if (!Number.isFinite(mins) || mins <= 0) return;
+
+    const day = entryDate.slice(0, 10);
+    const dayStart = new Date(`${day}T00:00:00.000Z`);
+    const dayEnd = new Date(`${day}T23:59:59.999Z`);
+    const cap = 8 * 60;
+
+    const agg = await this.prisma.timeLine.aggregate({
+      where: {
+        organisationId,
+        ...(opts?.excludeLineId ? { id: { not: opts.excludeLineId } } : {}),
+        timeEntry: {
+          organisationId,
+          userId,
+          entryDate: { gte: dayStart, lte: dayEnd },
+          ...(opts?.excludeEntryId
+            ? { id: { not: opts.excludeEntryId } }
+            : {}),
+        },
+      },
+      _sum: { durationMinutes: true },
+    });
+    const used = agg._sum.durationMinutes ?? 0;
+    const total = used + mins;
+    if (total > cap) {
+      const remaining = Math.max(0, cap - used);
+      throw new BadRequestException(
+        `Time exceeds the 8h daily limit. Already logged ${used}m today, remaining ${remaining}m, this entry ${mins}m.`,
       );
     }
   }

@@ -145,6 +145,12 @@ export class TasksService {
       ...(query.assigneeId ? { assigneeId: query.assigneeId } : {}),
     };
 
+    // Use AND so we do not overwrite visibilityWhere.OR (managed scope).
+    const q = query.q?.trim();
+    if (q) {
+      where.AND = [{ name: { contains: q, mode: 'insensitive' } }];
+    }
+
     try {
       const [data, total] = await this.prisma.$transaction([
         this.prisma.task.findMany({

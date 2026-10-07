@@ -36,4 +36,10 @@ export class ListMembersQueryDto {
   @IsOptional()
   @IsIn(MEMBERSHIP_STATUSES)
   status?: (typeof MEMBERSHIP_STATUSES)[number];
+
+  /** Case-insensitive substring match on user name or email. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  q?: string;
 }

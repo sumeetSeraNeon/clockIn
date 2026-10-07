@@ -263,6 +263,7 @@ export default function CalendarPage() {
       <PageHeader
         title="Calendar"
         description="Overview of logged and locked time. Drag a range to add an entry (not future dates). Submit from Timesheet."
+        helpKey="calendar"
       />
 
       {error && !calendarReady ? (

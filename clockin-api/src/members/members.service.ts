@@ -94,6 +94,18 @@ export class MembersService {
       ...(query.status ? { status: query.status } : {}),
     };
 
+    const q = query.q?.trim();
+    if (q) {
+      where.AND = [
+        {
+          OR: [
+            { user: { name: { contains: q, mode: 'insensitive' } } },
+            { user: { email: { contains: q, mode: 'insensitive' } } },
+          ],
+        },
+      ];
+    }
+
     try {
       const [rows, total] = await this.prisma.$transaction([
         this.prisma.membership.findMany({

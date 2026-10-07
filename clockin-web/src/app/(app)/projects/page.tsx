@@ -8,12 +8,14 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { Modal } from '@/components/common/Modal';
 import { PageHeader } from '@/components/common/PageHeader';
 import { Pagination } from '@/components/common/Pagination';
+import { SearchField } from '@/components/common/SearchField';
 import { ListSkeleton } from '@/components/common/Skeleton';
 import { useToast } from '@/components/common/Toast';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
 import { api } from '@/lib/api-client';
 import { getErrorMessage } from '@/lib/get-error-message';
+import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { useProjects } from '@/lib/use-projects';
 import { usePermissions } from '@/lib/use-permissions';
 import { isMemberOnlyRole } from '@/lib/app-nav';
@@ -31,7 +33,7 @@ type StatusFilter = ProjectStatus | 'all';
 type ModalMode = 'create' | 'edit' | null;
 
 /**
- * List 6 — Projects CRUD (copy of Clients template).
+ * Projects list — filters + server-side name/code search (`q`).
  */
 export default function ProjectsPage() {
   const toast = useToast();
@@ -47,6 +49,8 @@ export default function ProjectsPage() {
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState<StatusFilter>('active');
   const [clientId, setClientId] = useState<string | 'all'>('all');
+  const [nameQuery, setNameQuery] = useState('');
+  const debouncedQ = useDebouncedValue(nameQuery.trim());
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [editing, setEditing] = useState<Project | null>(null);
   const [archiving, setArchiving] = useState<Project | null>(null);
@@ -55,8 +59,12 @@ export default function ProjectsPage() {
   const [members, setMembers] = useState<MemberSummary[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedQ]);
+
   const { data, total, totalPages, pageSize, loading, error, reload } =
-    useProjects({ page, pageSize: 20, status, clientId });
+    useProjects({ page, pageSize: 20, status, clientId, q: debouncedQ });
 
   useEffect(() => {
     let cancelled = false;
@@ -171,6 +179,10 @@ export default function ProjectsPage() {
     }
   }
 
+  const hasSearch = Boolean(debouncedQ);
+  const noFilters =
+    status === 'all' && clientId === 'all' && !hasSearch;
+
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader
@@ -180,6 +192,7 @@ export default function ProjectsPage() {
             ? 'Projects you are assigned to. Open one to see your tasks.'
             : 'Delivery work under each client.'
         }
+        helpKey="projects"
         actions={
           canEdit ? (
             <Button type="button" onClick={openCreate}>
@@ -189,46 +202,54 @@ export default function ProjectsPage() {
         }
       />
 
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <label className="flex items-center gap-2 text-sm text-slate">
-          Status
-          <Select
-            className="w-40"
-            value={status}
-            onChange={(e) => {
-              setPage(1);
-              setStatus(e.target.value as StatusFilter);
-            }}
-          >
-            <option value="all">All</option>
-            <option value="planned">Planned</option>
-            <option value="active">Active</option>
-            <option value="on_hold">On hold</option>
-            <option value="completed">Completed</option>
-            <option value="archived">Archived</option>
-          </Select>
-        </label>
-
-        {!isMember && (canViewClients || canViewMembers) ? (
-          <label className="flex items-center gap-2 text-sm text-slate">
-            Client
+      <div className="mb-4 space-y-3">
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1 text-xs text-slate">
+            Status
             <Select
-              className="min-w-[180px]"
-              value={clientId}
+              className="w-40"
+              value={status}
               onChange={(e) => {
                 setPage(1);
-                setClientId(e.target.value);
+                setStatus(e.target.value as StatusFilter);
               }}
             >
-              <option value="all">All clients</option>
-              {clients.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
+              <option value="all">All</option>
+              <option value="planned">Planned</option>
+              <option value="active">Active</option>
+              <option value="on_hold">On hold</option>
+              <option value="completed">Completed</option>
+              <option value="archived">Archived</option>
             </Select>
           </label>
-        ) : null}
+
+          {!isMember && (canViewClients || canViewMembers) ? (
+            <label className="flex flex-col gap-1 text-xs text-slate">
+              Client
+              <Select
+                className="min-w-[180px]"
+                value={clientId}
+                onChange={(e) => {
+                  setPage(1);
+                  setClientId(e.target.value);
+                }}
+              >
+                <option value="all">All clients</option>
+                {clients.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          ) : null}
+        </div>
+        <SearchField
+          value={nameQuery}
+          onChange={setNameQuery}
+          label="Search"
+          placeholder="Project name or code"
+        />
       </div>
 
       {loading ? (
@@ -248,25 +269,35 @@ export default function ProjectsPage() {
       ) : data.length === 0 ? (
         <EmptyState
           title={
-            status === 'all' && clientId === 'all'
-              ? isMember
-                ? 'No projects assigned to you yet'
-                : 'No projects yet'
-              : 'No projects match'
+            hasSearch
+              ? 'No matching projects'
+              : noFilters
+                ? isMember
+                  ? 'No projects assigned to you yet'
+                  : 'No projects yet'
+                : 'No projects match'
           }
           description={
-            isMember
-              ? status === 'all' && clientId === 'all'
-                ? 'You will see projects here once a task on them is assigned to you.'
-                : 'Nothing matches these filters.'
-              : canEdit
-                ? 'Create a project under a client to track delivery and time.'
-                : 'Nothing matches these filters.'
+            hasSearch
+              ? 'Try another search, or clear the search box.'
+              : isMember
+                ? noFilters
+                  ? 'You will see projects here once a task on them is assigned to you.'
+                  : 'Nothing matches these filters.'
+                : canEdit
+                  ? 'Create a project under a client to track delivery and time.'
+                  : 'Nothing matches these filters.'
           }
           actionLabel={
-            canEdit && clients.length > 0 ? 'New project' : undefined
+            canEdit && clients.length > 0 && !hasSearch
+              ? 'New project'
+              : undefined
           }
-          onAction={canEdit && clients.length > 0 ? openCreate : undefined}
+          onAction={
+            canEdit && clients.length > 0 && !hasSearch
+              ? openCreate
+              : undefined
+          }
         />
       ) : (
         <>

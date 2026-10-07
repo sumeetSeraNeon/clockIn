@@ -13,6 +13,10 @@ import { ListSkeleton } from '@/components/common/Skeleton';
 import { useToast } from '@/components/common/Toast';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
+import {
+  SearchField,
+  matchesSearchQuery,
+} from '@/components/common/SearchField';
 import { useAuth } from '@/lib/auth-context';
 import { api } from '@/lib/api-client';
 import { getErrorMessage } from '@/lib/get-error-message';
@@ -60,6 +64,7 @@ export default function RatesPage() {
   const [clientId, setClientId] = useState<string>('all');
   const [projectId, setProjectId] = useState<string>('all');
   const [userId, setUserId] = useState<string>('all');
+  const [nameQuery, setNameQuery] = useState('');
   const [modalMode, setModalMode] = useState<AddModalMode>(null);
   const [lookupOpen, setLookupOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -81,14 +86,27 @@ export default function RatesPage() {
       current: tab === 'current',
     });
 
-  const pairRows = useMemo(
-    () => pairProjectUserRates(data),
-    [data],
-  );
-  const fallbackRows = useMemo(
-    () => fallbackScopeRates(data),
-    [data],
-  );
+  const pairRows = useMemo(() => {
+    const rows = pairProjectUserRates(data);
+    return rows.filter((r) =>
+      matchesSearchQuery(nameQuery, r.projectName, r.personLabel),
+    );
+  }, [data, nameQuery]);
+  const fallbackRows = useMemo(() => {
+    const rows = fallbackScopeRates(data);
+    if (!nameQuery.trim()) return rows;
+    return rows.filter((r) =>
+      matchesSearchQuery(
+        nameQuery,
+        r.projectName,
+        r.userName,
+        r.userEmail,
+        r.taskName,
+        r.appliesToLabel,
+        r.clientName,
+      ),
+    );
+  }, [data, nameQuery]);
 
   const showPairSection = scope === 'all' || scope === 'project_user';
   const showFallbacks =
@@ -189,6 +207,7 @@ export default function RatesPage() {
         <PageHeader
           title="Rates"
           description="Cost and billable rates for your organisation."
+          helpKey="rates"
         />
         <EmptyState
           title="No access"
@@ -203,6 +222,7 @@ export default function RatesPage() {
       <PageHeader
         title="Rates"
         description={`${orgName} · ${orgCurrency}`}
+        helpKey="rates"
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Button
@@ -353,6 +373,12 @@ export default function RatesPage() {
             </Select>
           </label>
         ) : null}
+
+        <SearchField
+          value={nameQuery}
+          onChange={setNameQuery}
+          placeholder="Project or person"
+        />
       </div>
 
       {loading ? (
@@ -434,7 +460,7 @@ export default function RatesPage() {
       <Modal
         open={modalMode === 'pair'}
         title="Set project rates"
-        description="Cost and bill per hour for one person on one project."
+        description="Pick client, then project, then person — cost and bill per hour."
         onClose={() => !submitting && setModalMode(null)}
       >
         <RatePairForm

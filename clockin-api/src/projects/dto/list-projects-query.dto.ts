@@ -1,5 +1,14 @@
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
+import {
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import {
   DEFAULT_PAGE,
   DEFAULT_PAGE_SIZE,
@@ -35,4 +44,10 @@ export class ListProjectsQueryDto {
   @IsOptional()
   @IsUUID()
   clientId?: string;
+
+  /** Case-insensitive substring match on name or code. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  q?: string;
 }

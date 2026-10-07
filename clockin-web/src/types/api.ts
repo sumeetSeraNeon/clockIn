@@ -2,9 +2,16 @@ export type MeUser = {
   id: string;
   email: string;
   name: string | null;
+  /** IANA timezone from users.timezone (personal Settings). */
+  timezone?: string | null;
   firebaseUid: string | null;
   authProvider: string;
   status: string;
+};
+
+export type UpdateMeInput = {
+  name?: string;
+  timezone?: string | null;
 };
 
 export type MeMembership = {
@@ -340,6 +347,9 @@ export type TimesheetDayLine = {
   lineId: string;
   entryId: string;
   entryDate: string;
+  /** ISO timestamptz from the parent time entry (clock range). */
+  startTime?: string | null;
+  endTime?: string | null;
   durationMinutes: number;
   description: string | null;
   billable: boolean;
@@ -359,6 +369,8 @@ export type TimesheetTaskBreakdown = {
 export type TimesheetProjectBreakdown = {
   projectId: string | null;
   projectName: string;
+  clientId?: string | null;
+  clientName?: string | null;
   durationMinutes: number;
   billableMinutes: number;
   tasks: TimesheetTaskBreakdown[];
@@ -372,6 +384,8 @@ export type TimesheetPendingItem = TimesheetPeriod & {
   sliceId?: string;
   projectId?: string | null;
   projectName?: string;
+  clientId?: string | null;
+  clientName?: string | null;
   durationMinutes: number;
   billableMinutes: number;
   nonBillableMinutes: number;
@@ -380,6 +394,35 @@ export type TimesheetPendingItem = TimesheetPeriod & {
   periodKind?: TimesheetPeriodKind;
   managerMembershipId?: string | null;
   managerName?: string | null;
+};
+
+/** Manager feedback FIX 2 — org-wide approvals log row (admin/owner). */
+export type ApprovalsLogItem = {
+  sliceId: string;
+  periodId: string;
+  status: 'submitted' | 'approved' | 'rejected' | string;
+  projectId: string | null;
+  projectName: string;
+  requesterUserId: string;
+  requesterName: string;
+  requesterEmail: string;
+  approverMembershipId: string | null;
+  approverName: string | null;
+  periodStart: string | null;
+  periodEnd: string | null;
+  durationMinutes: number;
+  submittedAt: string | null;
+  decidedAt: string | null;
+  decision: string | null;
+  reason: string | null;
+};
+
+export type ApprovalsLogResponse = {
+  data: ApprovalsLogItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
 };
 
 export type TimesheetMineResponse = {

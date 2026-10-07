@@ -165,6 +165,14 @@ export class ProjectsService {
       ...(query.clientId ? { clientId: query.clientId } : {}),
     };
 
+    const q = query.q?.trim();
+    if (q) {
+      where.OR = [
+        { name: { contains: q, mode: 'insensitive' } },
+        { code: { contains: q, mode: 'insensitive' } },
+      ];
+    }
+
     try {
       const [data, total] = await this.prisma.$transaction([
         this.prisma.project.findMany({

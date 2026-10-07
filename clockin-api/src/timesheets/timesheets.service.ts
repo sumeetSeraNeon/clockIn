@@ -10,6 +10,8 @@ import type { AuthMembership } from '../auth/auth.types';
 import { scopeFor } from '../auth/permissions';
 import { VisibilityService } from '../auth/visibility.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { ApprovalsLogQueryDto } from './dto/approvals-log-query.dto';
+import { ListPendingQueryDto } from './dto/list-pending-query.dto';
 import { RejectTimesheetDto } from './dto/reject-timesheet.dto';
 import { SubmitTimesheetDto } from './dto/submit-timesheet.dto';
 
@@ -248,20 +250,55 @@ export class TimesheetsService {
   async listPending(
     organisationId: string,
     membership: AuthMembership,
+    query: ListPendingQueryDto = {},
   ) {
     const scope = scopeFor(membership.permissions, 'timesheet', 'approve');
     if (!scope) {
       throw new ForbiddenException('You cannot approve timesheets');
     }
 
+    const where: Prisma.TimesheetPeriodSliceWhereInput = {
+      organisationId,
+      status: 'submitted',
+      timesheetPeriod: { status: 'submitted' },
+    };
+
+    const q = query.q?.trim();
+    if (q) {
+      where.AND = [
+        {
+          OR: [
+            {
+              timesheetPeriod: {
+                user: { name: { contains: q, mode: 'insensitive' } },
+              },
+            },
+            {
+              timesheetPeriod: {
+                user: { email: { contains: q, mode: 'insensitive' } },
+              },
+            },
+            { project: { name: { contains: q, mode: 'insensitive' } } },
+            {
+              project: {
+                client: { name: { contains: q, mode: 'insensitive' } },
+              },
+            },
+          ],
+        },
+      ];
+    }
+
     const submittedSlices = await this.prisma.timesheetPeriodSlice.findMany({
-      where: {
-        organisationId,
-        status: 'submitted',
-        timesheetPeriod: { status: 'submitted' },
-      },
+      where,
       include: {
-        project: { select: { id: true, name: true } },
+        project: {
+          select: {
+            id: true,
+            name: true,
+            client: { select: { id: true, name: true } },
+          },
+        },
         timesheetPeriod: { include: this.periodInclude() },
       },
       orderBy: [
@@ -300,6 +337,10 @@ export class TimesheetsService {
       const projectName =
         slice.project?.name ??
         (slice.projectId ? 'Project' : 'No project');
+      const sliceClientName =
+        slice.project?.client?.name?.trim() ||
+        review.projects[0]?.clientName ||
+        null;
       data.push({
         ...this.toResponse(period),
         id: slice.id,
@@ -307,6 +348,8 @@ export class TimesheetsService {
         sliceId: slice.id,
         projectId: slice.projectId,
         projectName,
+        clientId: slice.project?.client?.id ?? review.projects[0]?.clientId ?? null,
+        clientName: sliceClientName,
         ...review,
         periodKind,
         managerMembershipId: managerContext.managerMembershipId,
@@ -317,6 +360,280 @@ export class TimesheetsService {
     return {
       data,
       total: data.length,
+      view: scope === 'all' ? 'org' : 'managed',
+    };
+  }
+
+  /**
+   * Manager feedback FIX 2 — org-wide log for admin/owner (scope `all`).
+   * Requester → approver, period, hours, status, submitted/decided timestamps.
+   */
+  async listApprovalsLog(
+    organisationId: string,
+    membership: AuthMembership,
+    query: ApprovalsLogQueryDto,
+  ) {
+    const scope = scopeFor(membership.permissions, 'timesheet', 'approve');
+    if (scope !== 'all') {
+      throw new ForbiddenException(
+        'The org-wide approvals log is available to admin and owner only',
+      );
+    }
+
+    const statusFilter = query.status ?? 'all';
+    const page = query.page ?? 1;
+    const pageSize = query.pageSize ?? 50;
+
+    const periodDateFilter: Prisma.TimesheetPeriodWhereInput = {};
+    if (query.dateFrom || query.dateTo) {
+      const from = query.dateFrom
+        ? this.dateOnly(query.dateFrom)
+        : undefined;
+      const to = query.dateTo ? this.dateOnly(query.dateTo) : undefined;
+      if (from && to) {
+        periodDateFilter.OR = [
+          { periodStart: { gte: from, lte: to } },
+          { periodEnd: { gte: from, lte: to } },
+          {
+            AND: [{ periodStart: { lte: from } }, { periodEnd: { gte: to } }],
+          },
+        ];
+      } else if (from) {
+        periodDateFilter.periodEnd = { gte: from };
+      } else if (to) {
+        periodDateFilter.periodStart = { lte: to };
+      }
+    }
+
+    const where: Prisma.TimesheetPeriodSliceWhereInput = {
+      organisationId,
+      status:
+        statusFilter === 'all'
+          ? { in: ['submitted', 'approved', 'rejected'] }
+          : statusFilter,
+      timesheetPeriod: {
+        organisationId,
+        ...(query.userId ? { userId: query.userId } : {}),
+        ...periodDateFilter,
+      },
+    };
+
+    const q = query.q?.trim();
+    if (q) {
+      where.AND = [
+        {
+          OR: [
+            {
+              timesheetPeriod: {
+                user: { name: { contains: q, mode: 'insensitive' } },
+              },
+            },
+            {
+              timesheetPeriod: {
+                user: { email: { contains: q, mode: 'insensitive' } },
+              },
+            },
+            { project: { name: { contains: q, mode: 'insensitive' } } },
+          ],
+        },
+      ];
+    }
+
+    const [total, slices] = await Promise.all([
+      this.prisma.timesheetPeriodSlice.count({ where }),
+      this.prisma.timesheetPeriodSlice.findMany({
+        where,
+        include: {
+          project: {
+            select: {
+              id: true,
+              name: true,
+              ownerId: true,
+              owner: {
+                select: {
+                  id: true,
+                  user: { select: { name: true, email: true } },
+                },
+              },
+            },
+          },
+          timesheetPeriod: {
+            include: {
+              user: { select: { id: true, name: true, email: true } },
+            },
+          },
+        },
+        orderBy: [
+          { timesheetPeriod: { submittedAt: 'desc' } },
+          { decidedAt: 'desc' },
+          { createdAt: 'desc' },
+        ],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+    ]);
+
+    if (slices.length === 0) {
+      return {
+        data: [],
+        total,
+        page,
+        pageSize,
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
+      };
+    }
+
+    const sliceIds = slices.map((s) => s.id);
+    const decisions = await this.prisma.approval.findMany({
+      where: {
+        organisationId,
+        timesheetPeriodSliceId: { in: sliceIds },
+      },
+      orderBy: { decidedAt: 'desc' },
+      select: {
+        timesheetPeriodSliceId: true,
+        decision: true,
+        decidedAt: true,
+        approverId: true,
+        reason: true,
+        approver: {
+          select: {
+            id: true,
+            user: { select: { name: true, email: true } },
+          },
+        },
+      },
+    });
+    const decisionBySlice = new Map<string, (typeof decisions)[number]>();
+    for (const d of decisions) {
+      if (!d.timesheetPeriodSliceId) continue;
+      if (!decisionBySlice.has(d.timesheetPeriodSliceId)) {
+        decisionBySlice.set(d.timesheetPeriodSliceId, d);
+      }
+    }
+
+    const userIds = [
+      ...new Set(slices.map((s) => s.timesheetPeriod.userId)),
+    ];
+    const datedSlices = slices.filter(
+      (s) => s.timesheetPeriod.periodStart && s.timesheetPeriod.periodEnd,
+    );
+    let durationByKey = new Map<string, number>();
+    if (datedSlices.length > 0) {
+      const minDate = datedSlices.reduce(
+        (min, s) =>
+          s.timesheetPeriod.periodStart! < min
+            ? s.timesheetPeriod.periodStart!
+            : min,
+        datedSlices[0]!.timesheetPeriod.periodStart!,
+      );
+      const maxDate = datedSlices.reduce(
+        (max, s) =>
+          s.timesheetPeriod.periodEnd! > max
+            ? s.timesheetPeriod.periodEnd!
+            : max,
+        datedSlices[0]!.timesheetPeriod.periodEnd!,
+      );
+      const lines = await this.prisma.timeLine.findMany({
+        where: {
+          organisationId,
+          status: { in: ['submitted', 'approved', 'rejected'] },
+          timeEntry: {
+            userId: { in: userIds },
+            entryDate: { gte: minDate, lte: maxDate },
+          },
+        },
+        select: {
+          projectId: true,
+          durationMinutes: true,
+          timeEntry: {
+            select: { userId: true, entryDate: true },
+          },
+        },
+      });
+      durationByKey = new Map();
+      for (const slice of datedSlices) {
+        const period = slice.timesheetPeriod;
+        const key = `${period.userId}|${slice.projectId ?? 'null'}|${period.periodStart!.toISOString()}|${period.periodEnd!.toISOString()}`;
+        if (durationByKey.has(key)) continue;
+        let minutes = 0;
+        for (const line of lines) {
+          if (line.timeEntry.userId !== period.userId) continue;
+          if ((line.projectId ?? null) !== (slice.projectId ?? null)) continue;
+          const d = line.timeEntry.entryDate;
+          if (d < period.periodStart! || d > period.periodEnd!) continue;
+          minutes += line.durationMinutes ?? 0;
+        }
+        durationByKey.set(key, minutes);
+      }
+    }
+
+    const managerByUser = new Map<string, string | null>();
+    for (const userId of userIds) {
+      const ctx = await this.managerContextForUser(organisationId, userId);
+      managerByUser.set(userId, ctx.managerName);
+    }
+
+    const data = slices.map((slice) => {
+      const period = slice.timesheetPeriod;
+      const decision = decisionBySlice.get(slice.id);
+      const durationKey =
+        period.periodStart && period.periodEnd
+          ? `${period.userId}|${slice.projectId ?? 'null'}|${period.periodStart.toISOString()}|${period.periodEnd.toISOString()}`
+          : null;
+      const durationMinutes = durationKey
+        ? (durationByKey.get(durationKey) ?? 0)
+        : 0;
+
+      const expectedApprover =
+        slice.project?.owner?.user.name ||
+        slice.project?.owner?.user.email ||
+        managerByUser.get(period.userId) ||
+        null;
+
+      const decidedApproverId = decision?.approverId ?? null;
+      const decidedApproverName = decision?.approver
+        ? decision.approver.user.name ||
+          decision.approver.user.email ||
+          null
+        : null;
+
+      return {
+        sliceId: slice.id,
+        periodId: period.id,
+        status: slice.status,
+        projectId: slice.projectId,
+        projectName: slice.project?.name ?? 'No project',
+        requesterUserId: period.userId,
+        requesterName: period.user.name || period.user.email,
+        requesterEmail: period.user.email,
+        approverMembershipId:
+          decidedApproverId ?? slice.project?.ownerId ?? null,
+        approverName: decidedApproverName ?? expectedApprover,
+        periodStart: period.periodStart
+          ? period.periodStart.toISOString().slice(0, 10)
+          : null,
+        periodEnd: period.periodEnd
+          ? period.periodEnd.toISOString().slice(0, 10)
+          : null,
+        durationMinutes,
+        submittedAt: period.submittedAt
+          ? period.submittedAt.toISOString()
+          : null,
+        decidedAt: (decision?.decidedAt ?? slice.decidedAt)
+          ? (decision?.decidedAt ?? slice.decidedAt)!.toISOString()
+          : null,
+        decision: decision?.decision ?? null,
+        reason: decision?.reason ?? null,
+      };
+    });
+
+    return {
+      data,
+      total,
+      page,
+      pageSize,
+      totalPages: Math.max(1, Math.ceil(total / pageSize)),
     };
   }
 
@@ -1153,11 +1470,17 @@ export class TimesheetsService {
         ? period.periodEnd.toISOString().slice(0, 10)
         : null,
       status: period.status,
-      submittedAt: period.submittedAt,
-      createdAt: period.createdAt,
-      updatedAt: period.updatedAt,
+      submittedAt: period.submittedAt
+        ? period.submittedAt.toISOString()
+        : null,
+      createdAt: period.createdAt.toISOString(),
+      updatedAt: period.updatedAt.toISOString(),
       user: period.user,
-      approvals: period.approvals,
+      approvals: period.approvals.map((a) => ({
+        ...a,
+        decidedAt: a.decidedAt ? a.decidedAt.toISOString() : null,
+        createdAt: a.createdAt.toISOString(),
+      })),
     };
   }
 
@@ -1180,6 +1503,8 @@ export class TimesheetsService {
         projects: [] as Array<{
           projectId: string | null;
           projectName: string;
+          clientId: string | null;
+          clientName: string | null;
           durationMinutes: number;
           billableMinutes: number;
           tasks: Array<{
@@ -1192,6 +1517,8 @@ export class TimesheetsService {
               lineId: string;
               entryId: string;
               entryDate: string;
+              startTime: string | null;
+              endTime: string | null;
               durationMinutes: number;
               description: string | null;
               billable: boolean;
@@ -1213,7 +1540,14 @@ export class TimesheetsService {
           orderBy: { createdAt: 'asc' },
           include: {
             task: { select: { id: true, name: true } },
-            project: { select: { id: true, name: true } },
+            project: {
+              select: {
+                id: true,
+                name: true,
+                clientId: true,
+                client: { select: { id: true, name: true } },
+              },
+            },
           },
         },
       },
@@ -1224,6 +1558,8 @@ export class TimesheetsService {
       lineId: string;
       entryId: string;
       entryDate: string;
+      startTime: string | null;
+      endTime: string | null;
       durationMinutes: number;
       description: string | null;
       billable: boolean;
@@ -1240,6 +1576,8 @@ export class TimesheetsService {
     type ProjectBucket = {
       projectId: string | null;
       projectName: string;
+      clientId: string | null;
+      clientName: string | null;
       durationMinutes: number;
       billableMinutes: number;
       tasks: Map<string, TaskBucket>;
@@ -1270,12 +1608,19 @@ export class TimesheetsService {
         const projectKey = projectId ?? '__none__';
         const projectName =
           line.project?.name ?? (projectId ? 'Project' : 'No project');
+        const clientId =
+          line.project?.client?.id ?? line.project?.clientId ?? null;
+        const clientName =
+          line.project?.client?.name?.trim() ||
+          (clientId ? 'Client' : null);
 
         let project = projects.get(projectKey);
         if (!project) {
           project = {
             projectId,
             projectName,
+            clientId,
+            clientName,
             durationMinutes: 0,
             billableMinutes: 0,
             tasks: new Map(),
@@ -1309,6 +1654,8 @@ export class TimesheetsService {
           lineId: line.id,
           entryId: entry.id,
           entryDate,
+          startTime: entry.startTime?.toISOString() ?? null,
+          endTime: entry.endTime?.toISOString() ?? null,
           durationMinutes: mins,
           description: note || null,
           billable: line.billable,
@@ -1322,6 +1669,8 @@ export class TimesheetsService {
       .map((p) => ({
         projectId: p.projectId,
         projectName: p.projectName,
+        clientId: p.clientId,
+        clientName: p.clientName,
         durationMinutes: p.durationMinutes,
         billableMinutes: p.billableMinutes,
         tasks: [...p.tasks.values()]

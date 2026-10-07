@@ -1,13 +1,9 @@
 'use client';
 
 import { useMemo } from 'react';
-import {
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-} from 'recharts';
+import { ResponsivePie } from '@nivo/pie';
+import { InfoTip } from '@/components/common/InfoTip';
+import { CHART_COLORS, nivoTheme } from '@/lib/nivo-theme';
 import type { ApprovalsReportResponse } from '@/types/api';
 
 type ApprovalsReportPanelProps = {
@@ -45,19 +41,22 @@ export function ApprovalsReportPanel({ report }: ApprovalsReportPanelProps) {
     () =>
       [
         {
-          name: 'Waiting',
+          id: 'Waiting',
+          label: 'Waiting',
           value: report.counts.submitted,
-          fill: '#ba7517',
+          color: CHART_COLORS.warning,
         },
         {
-          name: 'Approved',
+          id: 'Approved',
+          label: 'Approved',
           value: report.counts.approved,
-          fill: '#1d9e75',
+          color: CHART_COLORS.success,
         },
         {
-          name: 'Rejected',
+          id: 'Rejected',
+          label: 'Rejected',
           value: report.counts.rejected,
-          fill: '#ff494a',
+          color: CHART_COLORS.coral,
         },
       ].filter((d) => d.value > 0),
     [report.counts],
@@ -79,31 +78,31 @@ export function ApprovalsReportPanel({ report }: ApprovalsReportPanelProps) {
     <div className="space-y-6">
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="rounded-lg border border-border/80 bg-card px-5 py-5">
-          <h2 className="text-base font-semibold text-ink">Pipeline</h2>
-          <p className="mt-1 text-sm text-slate">
-            Timesheet period slices in range
-          </p>
+          <div className="flex items-center gap-2">
+            <h2 className="text-base font-semibold text-ink">Pipeline</h2>
+            <InfoTip title="Approvals pipeline">
+              <p>
+                Counts of timesheet period slices in the selected range by
+                status: waiting (submitted), approved, or rejected.
+              </p>
+            </InfoTip>
+          </div>
           {funnelData.length === 0 ? (
             <p className="mt-8 text-sm text-slate">No slices in this range.</p>
           ) : (
             <div className="mt-2 h-52">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={funnelData}
-                    dataKey="value"
-                    nameKey="name"
-                    innerRadius={45}
-                    outerRadius={75}
-                    paddingAngle={2}
-                  >
-                    {funnelData.map((entry) => (
-                      <Cell key={entry.name} fill={entry.fill} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
+              <ResponsivePie
+                data={funnelData}
+                theme={nivoTheme}
+                colors={{ datum: 'data.color' }}
+                margin={{ top: 12, right: 12, bottom: 12, left: 12 }}
+                innerRadius={0.55}
+                padAngle={2}
+                cornerRadius={3}
+                enableArcLinkLabels={false}
+                arcLabelsSkipAngle={16}
+                arcLabelsTextColor="#ffffff"
+              />
             </div>
           )}
           <div className="mt-2 flex flex-wrap gap-4 text-sm">
@@ -135,9 +134,17 @@ export function ApprovalsReportPanel({ report }: ApprovalsReportPanelProps) {
         </section>
 
         <section className="rounded-lg border border-border/80 bg-card px-5 py-5">
-          <h2 className="text-base font-semibold text-ink">
-            Waiting backlog age
-          </h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-base font-semibold text-ink">
+              Waiting backlog age
+            </h2>
+            <InfoTip title="Backlog age">
+              <p>
+                How long submitted slices have been waiting for a decision,
+                bucketed by days since submission.
+              </p>
+            </InfoTip>
+          </div>
           <p className="mt-1 text-sm text-slate">
             {waitingCount} slice{waitingCount === 1 ? '' : 's'} still waiting
           </p>
@@ -149,7 +156,10 @@ export function ApprovalsReportPanel({ report }: ApprovalsReportPanelProps) {
                 ['8+ days', aging['8+ days']],
               ] as const
             ).map(([label, count]) => (
-              <li key={label} className="flex items-center justify-between text-sm">
+              <li
+                key={label}
+                className="flex items-center justify-between text-sm"
+              >
                 <span className="text-slate">{label}</span>
                 <span className="font-medium tabular-nums text-navy">
                   {count}

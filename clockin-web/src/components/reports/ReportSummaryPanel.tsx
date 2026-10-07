@@ -1,31 +1,14 @@
 'use client';
 
 import { useMemo } from 'react';
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
+import { ResponsiveBar } from '@nivo/bar';
+import { ResponsivePie } from '@nivo/pie';
 import { Stat } from '@/app/(app)/dashboard/Stat';
+import { InfoTip } from '@/components/common/InfoTip';
 import { formatHoursMinutes } from '@/lib/format-duration';
 import { formatMoney } from '@/lib/format-money';
+import { CHART_COLORS, CHART_PALETTE, nivoTheme } from '@/lib/nivo-theme';
 import type { ReportSummaryResponse } from '@/types/api';
-
-const COLORS = [
-  '#ff494a',
-  '#14142b',
-  '#1d9e75',
-  '#ba7517',
-  '#5f5e5a',
-  '#c0392b',
-];
 
 type ReportSummaryPanelProps = {
   report: ReportSummaryResponse;
@@ -45,19 +28,20 @@ export function ReportSummaryPanel({ report }: ReportSummaryPanelProps) {
   const pendingMinutes = totals.pendingDurationMinutes ?? 0;
 
   const mixData = useMemo(() => {
-    const rows = [
+    return [
       {
-        name: 'Billable',
+        id: 'Billable',
+        label: 'Billable',
         value: totals.billableMinutes,
-        fill: '#ff494a',
+        color: CHART_COLORS.coral,
       },
       {
-        name: 'Non-billable',
+        id: 'Non-billable',
+        label: 'Non-billable',
         value: totals.nonBillableMinutes,
-        fill: '#14142b',
+        color: CHART_COLORS.navy,
       },
     ].filter((r) => r.value > 0);
-    return rows;
   }, [totals.billableMinutes, totals.nonBillableMinutes]);
 
   const groupChartData = useMemo(
@@ -68,32 +52,40 @@ export function ReportSummaryPanel({ report }: ReportSummaryPanelProps) {
         .map((g) => ({
           name: (g.label || 'Unassigned').slice(0, 22),
           hours: Number((g.durationMinutes / 60).toFixed(2)),
-          billableHours: Number((g.billableMinutes / 60).toFixed(2)),
-          revenue: g.revenue != null ? Number(g.revenue) : 0,
         })),
     [groups],
   );
 
   return (
     <div className="space-y-6">
-      <p className="rounded-lg border border-border/80 bg-paper px-4 py-3 text-sm text-slate">
-        {commercial ? (
-          <>
-            Showing{' '}
-            <span className="font-medium text-ink">approved time only</span>.
-            Revenue = approved billable × bill rate; cost = approved hours ×
-            cost rate; margin = revenue − cost. Draft/submitted/rejected are
-            excluded until approved.
-          </>
-        ) : (
-          <>
-            Team performance uses{' '}
-            <span className="font-medium text-ink">approved hours</span> only.
-            Revenue, cost, and margin are hidden — ask an admin/owner for
-            commercial reports.
-          </>
-        )}
-      </p>
+      <div className="flex items-start gap-2">
+        <p className="text-sm text-slate">
+          {commercial
+            ? 'Summary of approved time and money for the selected range.'
+            : 'Summary of approved hours for the selected range.'}
+        </p>
+        <InfoTip title="How this summary works" align="end">
+          {commercial ? (
+            <>
+              <p>
+                Only <strong className="font-medium text-ink">approved</strong>{' '}
+                time counts. Draft, submitted, and rejected lines are excluded.
+              </p>
+              <p>
+                Revenue = approved billable × bill rate. Cost = approved hours ×
+                cost rate. Margin = revenue − cost.
+              </p>
+            </>
+          ) : (
+            <p>
+              Team performance uses{' '}
+              <strong className="font-medium text-ink">approved hours</strong>{' '}
+              only. Revenue, cost, and margin need rate access — ask an
+              admin/owner.
+            </p>
+          )}
+        </InfoTip>
+      </div>
 
       <div
         className={`grid gap-6 rounded-lg border border-border/80 bg-card px-5 py-5 sm:grid-cols-2 sm:px-7 sm:py-7 ${
@@ -186,73 +178,88 @@ export function ReportSummaryPanel({ report }: ReportSummaryPanelProps) {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="rounded-lg border border-border/80 bg-card px-5 py-5">
-          <h2 className="text-base font-semibold tracking-tight text-ink">
-            Billable mix
-          </h2>
-          <p className="mt-1 text-sm text-slate">Approved hours only</p>
+          <div className="flex items-center gap-2">
+            <h2 className="text-base font-semibold tracking-tight text-ink">
+              Billable mix
+            </h2>
+            <InfoTip title="Billable mix">
+              <p>
+                Share of approved hours marked billable vs non-billable in this
+                range.
+              </p>
+            </InfoTip>
+          </div>
           {mixData.length === 0 ? (
             <p className="mt-8 text-sm text-slate">No approved time in range.</p>
           ) : (
             <div className="mt-4 h-56">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={mixData}
-                    dataKey="value"
-                    nameKey="name"
-                    innerRadius={50}
-                    outerRadius={80}
-                    paddingAngle={2}
-                  >
-                    {mixData.map((entry) => (
-                      <Cell key={entry.name} fill={entry.fill} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    formatter={(value: number) =>
-                      formatHoursMinutes(Number(value))
-                    }
-                  />
-                </PieChart>
-              </ResponsiveContainer>
+              <ResponsivePie
+                data={mixData}
+                theme={nivoTheme}
+                colors={{ datum: 'data.color' }}
+                margin={{ top: 12, right: 12, bottom: 12, left: 12 }}
+                innerRadius={0.55}
+                padAngle={2}
+                cornerRadius={3}
+                enableArcLinkLabels={false}
+                arcLabelsSkipAngle={16}
+                arcLabelsTextColor="#ffffff"
+                valueFormat={(v) => formatHoursMinutes(Number(v))}
+              />
             </div>
           )}
         </section>
 
         <section className="rounded-lg border border-border/80 bg-card px-5 py-5">
-          <h2 className="text-base font-semibold tracking-tight text-ink">
-            Hours by {groupBy}
-          </h2>
-          <p className="mt-1 text-sm text-slate">
-            Top groups in range
-            {reconcile
-              ? ` · ${reconcile.lineCount} line${reconcile.lineCount === 1 ? '' : 's'}`
-              : ''}
-          </p>
+          <div className="flex items-center gap-2">
+            <h2 className="text-base font-semibold tracking-tight text-ink">
+              Hours by {groupBy}
+            </h2>
+            <InfoTip title={`Hours by ${groupBy}`}>
+              <p>
+                Top groups by approved hours
+                {reconcile
+                  ? ` · ${reconcile.lineCount} line${reconcile.lineCount === 1 ? '' : 's'}`
+                  : ''}
+                .
+              </p>
+            </InfoTip>
+          </div>
           {groupChartData.length === 0 ? (
             <p className="mt-8 text-sm text-slate">
               No approved time lines in this range.
             </p>
           ) : (
             <div className="mt-4 h-56">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={groupChartData}
-                  layout="vertical"
-                  margin={{ left: 8, right: 12 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                  <XAxis type="number" tick={{ fontSize: 11 }} />
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    width={100}
-                    tick={{ fontSize: 11 }}
-                  />
-                  <Tooltip />
-                  <Bar dataKey="hours" name="Hours" fill="#ff494a" radius={2} />
-                </BarChart>
-              </ResponsiveContainer>
+              <ResponsiveBar
+                data={groupChartData}
+                theme={nivoTheme}
+                keys={['hours']}
+                indexBy="name"
+                layout="horizontal"
+                margin={{ top: 4, right: 16, bottom: 24, left: 100 }}
+                padding={0.28}
+                colors={[CHART_COLORS.coral]}
+                borderRadius={2}
+                enableLabel={false}
+                axisBottom={{
+                  tickSize: 0,
+                  tickPadding: 6,
+                }}
+                axisLeft={{
+                  tickSize: 0,
+                  tickPadding: 8,
+                }}
+                tooltip={({ indexValue, value }) => (
+                  <div className="rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs shadow-sm">
+                    <span className="font-medium text-navy">{indexValue}</span>
+                    {': '}
+                    <span className="tabular-nums text-slate">
+                      {Number(value).toFixed(2)}h
+                    </span>
+                  </div>
+                )}
+              />
             </div>
           )}
         </section>
@@ -280,7 +287,8 @@ export function ReportSummaryPanel({ report }: ReportSummaryPanelProps) {
                     <span
                       className="h-2.5 w-2.5 shrink-0 rounded-full"
                       style={{
-                        backgroundColor: COLORS[index % COLORS.length],
+                        backgroundColor:
+                          CHART_PALETTE[index % CHART_PALETTE.length],
                       }}
                     />
                     <span className="truncate font-medium text-ink">

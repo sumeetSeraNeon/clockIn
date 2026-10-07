@@ -18,6 +18,8 @@ type TimerBarProps = {
   onPreselectConsumed?: () => void;
   starting: boolean;
   stopping: boolean;
+  /** Hard 8h day — disable Start only (Stop stays available). */
+  atDailyCap?: boolean;
   onStart: (values: {
     description: string;
     taskId: string;
@@ -35,6 +37,7 @@ export function TimerBar({
   onPreselectConsumed,
   starting,
   stopping,
+  atDailyCap = false,
   onStart,
   onStop,
 }: TimerBarProps) {
@@ -82,8 +85,8 @@ export function TimerBar({
     <div
       className={
         running
-          ? 'rounded-xl border border-coral/20 bg-coral-tint/50 px-4 py-4 sm:px-5 sm:py-5'
-          : 'rounded-xl border border-border/50 bg-card/80 px-4 py-4 sm:px-5 sm:py-5'
+          ? 'border-b border-coral/25 bg-coral-tint/40 px-1 py-4 sm:px-0'
+          : 'border-b border-border/50 px-1 py-4 sm:px-0'
       }
     >
       <TimerBarFields
@@ -127,7 +130,12 @@ export function TimerBar({
                   type="button"
                   onClick={() => void handleStart()}
                   loading={starting}
-                  disabled={busy}
+                  disabled={busy || atDailyCap}
+                  title={
+                    atDailyCap
+                      ? 'Daily 8h limit reached'
+                      : undefined
+                  }
                   className="min-w-[5.5rem]"
                 >
                   Start

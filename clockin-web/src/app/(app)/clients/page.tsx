@@ -8,6 +8,7 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { Modal } from '@/components/common/Modal';
 import { PageHeader } from '@/components/common/PageHeader';
 import { Pagination } from '@/components/common/Pagination';
+import { SearchField } from '@/components/common/SearchField';
 import { ListSkeleton } from '@/components/common/Skeleton';
 import { useToast } from '@/components/common/Toast';
 import { Button } from '@/components/ui/Button';
@@ -16,6 +17,7 @@ import { api } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { getErrorMessage } from '@/lib/get-error-message';
 import { useClients } from '@/lib/use-clients';
+import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { usePermissions } from '@/lib/use-permissions';
 import type {
   Client,
@@ -30,8 +32,7 @@ type StatusFilter = ClientStatus | 'all';
 type ModalMode = 'create' | 'edit' | null;
 
 /**
- * List 5 — Clients CRUD template.
- * Thin page: wires hook + table + modal/confirm + toasts.
+ * Clients list — status filter + server-side name/code search (`q`).
  */
 export default function ClientsPage() {
   const toast = useToast();
@@ -43,6 +44,8 @@ export default function ClientsPage() {
 
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState<StatusFilter>('active');
+  const [nameQuery, setNameQuery] = useState('');
+  const debouncedQ = useDebouncedValue(nameQuery.trim());
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [editing, setEditing] = useState<Client | null>(null);
   const [archiving, setArchiving] = useState<Client | null>(null);
@@ -50,9 +53,17 @@ export default function ClientsPage() {
   const [archiveLoading, setArchiveLoading] = useState(false);
   const [members, setMembers] = useState<MemberSummary[]>([]);
 
-  const { data, total, totalPages, pageSize, loading, error, reload } =
-    useClients({ page, pageSize: 20, status });
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedQ]);
 
+  const { data, total, totalPages, pageSize, loading, error, reload } =
+    useClients({
+      page,
+      pageSize: 20,
+      status,
+      q: debouncedQ,
+    });
   useEffect(() => {
     if (!canViewMembers) {
       setMembers([]);
@@ -138,11 +149,28 @@ export default function ClientsPage() {
     }
   }
 
+  const hasSearch = Boolean(debouncedQ);
+  const emptyTitle = hasSearch
+    ? 'No matching clients'
+    : status === 'all'
+      ? canEdit
+        ? 'No clients yet'
+        : 'No clients for your work yet'
+      : `No ${status} clients`;
+  const emptyDescription = hasSearch
+    ? 'Try another search, or clear the search box.'
+    : canEdit
+      ? 'Add your first client to start attaching projects and time.'
+      : status === 'all'
+        ? 'Clients appear here when you have tasks on their projects.'
+        : 'Nothing matches this filter.';
+
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader
         title="Clients"
         description="Organisations you deliver work for."
+        helpKey="clients"
         actions={
           canEdit ? (
             <Button type="button" onClick={openCreate}>
@@ -152,23 +180,31 @@ export default function ClientsPage() {
         }
       />
 
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <label className="flex items-center gap-2 text-sm text-slate">
-          Status
-          <Select
-            className="w-40"
-            value={status}
-            onChange={(e) => {
-              setPage(1);
-              setStatus(e.target.value as StatusFilter);
-            }}
-          >
-            <option value="all">All</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-            <option value="archived">Archived</option>
-          </Select>
-        </label>
+      <div className="mb-4 space-y-3">
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1 text-xs text-slate">
+            Status
+            <Select
+              className="w-40"
+              value={status}
+              onChange={(e) => {
+                setPage(1);
+                setStatus(e.target.value as StatusFilter);
+              }}
+            >
+              <option value="all">All</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="archived">Archived</option>
+            </Select>
+          </label>
+        </div>
+        <SearchField
+          value={nameQuery}
+          onChange={setNameQuery}
+          label="Search"
+          placeholder="Client name or code"
+        />
       </div>
 
       {loading ? (
@@ -187,22 +223,14 @@ export default function ClientsPage() {
         </div>
       ) : data.length === 0 ? (
         <EmptyState
-          title={
-            status === 'all'
-              ? canEdit
-                ? 'No clients yet'
-                : 'No clients for your work yet'
-              : `No ${status} clients`
+          title={emptyTitle}
+          description={emptyDescription}
+          actionLabel={
+            canEdit && status !== 'archived' && !hasSearch
+              ? 'New client'
+              : undefined
           }
-          description={
-            canEdit
-              ? 'Add your first client to start attaching projects and time.'
-              : status === 'all'
-                ? 'Clients appear here when you have tasks on their projects.'
-                : 'Nothing matches this filter.'
-          }
-          actionLabel={canEdit && status !== 'archived' ? 'New client' : undefined}
-          onAction={canEdit ? openCreate : undefined}
+          onAction={canEdit && !hasSearch ? openCreate : undefined}
         />
       ) : (
         <>

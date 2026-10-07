@@ -29,6 +29,8 @@ type TaskFormProps = {
   showBillable?: boolean;
   /** FIX 4 — lock to this project (hide project picker; create stays open) */
   fixedProjectId?: string;
+  /** Prefill name on create (inline Add from project Tasks tab). */
+  defaultName?: string;
   onSubmit: (values: CreateTaskInput | UpdateTaskInput) => Promise<void>;
   onCancel: () => void;
 };
@@ -67,6 +69,7 @@ export function TaskForm({
   canSetBillable = false,
   showBillable = false,
   fixedProjectId,
+  defaultName = '',
   onSubmit,
   onCancel,
 }: TaskFormProps) {
@@ -114,11 +117,12 @@ export function TaskForm({
       setForm({
         ...EMPTY,
         projectId,
+        name: defaultName.trim(),
         billable: project?.billableByDefault ?? true,
       });
     }
     setErrors({});
-  }, [mode, initial, projects, fixedProjectId]);
+  }, [mode, initial, projects, fixedProjectId, defaultName]);
 
   // STEP 1 — assignee dropdown = that project's team only
   useEffect(() => {
@@ -211,6 +215,7 @@ export function TaskForm({
           label="Project"
           htmlFor="task-project"
           error={errors.projectId}
+          required
         >
           <Select
             id="task-project"
@@ -231,7 +236,7 @@ export function TaskForm({
         </FormField>
       ) : null}
 
-      <FormField label="Name" htmlFor="task-name" error={errors.name}>
+      <FormField label="Name" htmlFor="task-name" error={errors.name} required>
         <Input
           id="task-name"
           value={form.name}

@@ -1,14 +1,17 @@
 'use client';
 
-import { FormEvent, useEffect, useState, type ReactNode } from 'react';
+import { FormEvent, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { FormField } from '@/components/common/FormField';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { cn } from '@/lib/cn';
 import {
+  clientIdForProject,
+  clientsFromProjects,
   projectIdForTask,
-  projectsFromTasks,
+  projectsForClient,
+  projectsScopedToTasks,
   tasksForProject,
 } from '@/lib/task-project-picker';
 import type {
@@ -522,16 +525,25 @@ export function TimerBarFields({
   showBillable?: boolean;
   actions?: ReactNode;
 }) {
-  const projectOptions = projectsFromTasks(tasks, projects);
+  const scopedProjects = useMemo(
+    () => projectsScopedToTasks(tasks, projects),
+    [tasks, projects],
+  );
   const selectedProjectId = projectIdForTask(tasks, taskId);
+  const selectedClientId = clientIdForProject(scopedProjects, selectedProjectId);
+  const [clientId, setClientId] = useState(selectedClientId);
   const [projectId, setProjectId] = useState(selectedProjectId);
+  const clientOptions = clientsFromProjects(scopedProjects);
+  const projectOptions = projectsForClient(scopedProjects, clientId);
   const taskOptions = tasksForProject(tasks, projectId);
 
   useEffect(() => {
-    if (taskId) {
-      setProjectId(projectIdForTask(tasks, taskId));
-    }
-  }, [taskId, tasks]);
+    if (!taskId) return;
+    const nextProjectId = projectIdForTask(tasks, taskId);
+    const nextClientId = clientIdForProject(scopedProjects, nextProjectId);
+    setProjectId(nextProjectId);
+    setClientId(nextClientId);
+  }, [taskId, tasks, scopedProjects]);
 
   const billable =
     storedBillable !== undefined && storedBillable !== null
@@ -547,42 +559,88 @@ export function TimerBarFields({
         disabled={disabled}
         className="w-full min-w-0"
       />
-      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center">
-        <Select
-          value={projectId}
-          onChange={(e) => {
-            setProjectId(e.target.value);
-            onTaskChange('');
-          }}
-          disabled={disabled}
-          className="min-w-0 w-full sm:flex-1"
-          aria-label="Project"
-        >
-          <option value="">Project…</option>
-          {projectOptions.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
+      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-end">
+        <label className="flex min-w-0 w-full flex-col gap-1 text-xs text-slate sm:flex-1">
+          <span>
+            Client
+            <span className="ml-0.5 text-coral" aria-hidden="true">
+              *
+            </span>
+          </span>
+          <Select
+            value={clientId}
+            onChange={(e) => {
+              setClientId(e.target.value);
+              setProjectId('');
+              onTaskChange('');
+            }}
+            disabled={disabled}
+            className="min-w-0 w-full"
+            aria-label="Client"
+          >
+            <option value="">Select client…</option>
+            {clientOptions.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </Select>
+        </label>
+        <label className="flex min-w-0 w-full flex-col gap-1 text-xs text-slate sm:flex-1">
+          <span>
+            Project
+            <span className="ml-0.5 text-coral" aria-hidden="true">
+              *
+            </span>
+          </span>
+          <Select
+            value={projectId}
+            onChange={(e) => {
+              setProjectId(e.target.value);
+              onTaskChange('');
+            }}
+            disabled={disabled || !clientId}
+            className="min-w-0 w-full"
+            aria-label="Project"
+          >
+            <option value="">
+              {!clientId ? 'Select a client first' : 'Select project…'}
             </option>
-          ))}
-        </Select>
-        <Select
-          value={taskId}
-          onChange={(e) => onTaskChange(e.target.value)}
-          disabled={disabled || !projectId}
-          className="min-w-0 w-full sm:flex-1"
-          aria-label="Task"
-        >
-          <option value="">{!projectId ? 'Pick project' : 'Task…'}</option>
-          {taskOptions.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name}
+            {projectOptions.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+          </Select>
+        </label>
+        <label className="flex min-w-0 w-full flex-col gap-1 text-xs text-slate sm:flex-1">
+          <span>
+            Task
+            <span className="ml-0.5 text-coral" aria-hidden="true">
+              *
+            </span>
+          </span>
+          <Select
+            value={taskId}
+            onChange={(e) => onTaskChange(e.target.value)}
+            disabled={disabled || !projectId}
+            className="min-w-0 w-full"
+            aria-label="Task"
+          >
+            <option value="">
+              {!projectId ? 'Select a project first' : 'Task…'}
             </option>
-          ))}
-        </Select>
+            {taskOptions.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </Select>
+        </label>
         {showBillable ? (
           <p
             className={cn(
-              'shrink-0 text-sm text-slate',
+              'shrink-0 pb-2 text-sm text-slate',
               disabled && 'opacity-60',
             )}
             title={

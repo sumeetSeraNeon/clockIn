@@ -1,16 +1,10 @@
 'use client';
 
 import { useMemo } from 'react';
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
+import { ResponsiveBar } from '@nivo/bar';
+import { InfoTip } from '@/components/common/InfoTip';
 import { formatHoursMinutes } from '@/lib/format-duration';
+import { CHART_COLORS, nivoTheme } from '@/lib/nivo-theme';
 import type { UtilisationReportResponse } from '@/types/api';
 
 type UtilisationPanelProps = {
@@ -26,66 +20,73 @@ export function UtilisationPanel({ report }: UtilisationPanelProps) {
     return [...report.people]
       .map((p) => ({
         name: (p.userName || p.userEmail || 'Person').slice(0, 18),
-        billableUtil: p.billableUtilisationPct ?? 0,
-        trackedUtil: p.trackedUtilisationPct ?? 0,
-        trackedMinutes: p.trackedMinutes,
-        billableMinutes: p.billableMinutes,
-        overload: (p.trackedUtilisationPct ?? 0) > 100,
+        'Billable %': p.billableUtilisationPct ?? 0,
+        'Tracked %': p.trackedUtilisationPct ?? 0,
       }))
-      .sort((a, b) => b.billableUtil - a.billableUtil);
+      .sort((a, b) => b['Billable %'] - a['Billable %']);
   }, [report.people]);
 
   return (
     <section className="space-y-6 rounded-lg border border-border/80 bg-card px-5 py-5 sm:px-6 sm:py-6">
-      <div>
+      <div className="flex items-center gap-2">
         <h2 className="text-base font-semibold tracking-tight text-ink">
           Billable utilisation
         </h2>
-        <p className="mt-1 text-sm text-slate">
-          Billable hours ÷ available hours (working calendar when set, else
-          weekdays × 8h). Approved time only · tracked vs billable shown for
-          split.
-        </p>
+        <InfoTip title="Billable utilisation">
+          <p>
+            Billable hours ÷ available hours (working calendar when set, else
+            weekdays × 8h).
+          </p>
+          <p>
+            Uses <strong className="font-medium text-ink">approved</strong> time
+            only. Tracked % shows total approved hours vs available for the
+            overload split.
+          </p>
+        </InfoTip>
       </div>
 
       {chartData.length === 0 ? (
-        <p className="text-sm text-slate">No people with approved time in range.</p>
+        <p className="text-sm text-slate">
+          No people with approved time in range.
+        </p>
       ) : (
         <>
           <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={chartData}
-                margin={{ top: 8, right: 8, left: 0, bottom: 40 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis
-                  dataKey="name"
-                  angle={-35}
-                  textAnchor="end"
-                  height={60}
-                  tick={{ fontSize: 11 }}
-                />
-                <YAxis
-                  tick={{ fontSize: 11 }}
-                  unit="%"
-                  domain={[0, (dataMax: number) => Math.max(120, dataMax)]}
-                />
-                <Tooltip />
-                <Bar
-                  dataKey="billableUtil"
-                  name="Billable %"
-                  fill="#ff494a"
-                  radius={2}
-                />
-                <Bar
-                  dataKey="trackedUtil"
-                  name="Tracked %"
-                  fill="#5f5e5a"
-                  radius={2}
-                />
-              </BarChart>
-            </ResponsiveContainer>
+            <ResponsiveBar
+              data={chartData}
+              theme={nivoTheme}
+              keys={['Billable %', 'Tracked %']}
+              indexBy="name"
+              groupMode="grouped"
+              margin={{ top: 16, right: 16, bottom: 64, left: 40 }}
+              padding={0.25}
+              colors={[CHART_COLORS.coral, CHART_COLORS.slate]}
+              borderRadius={2}
+              enableLabel={false}
+              axisBottom={{
+                tickRotation: -35,
+                tickSize: 0,
+                tickPadding: 8,
+              }}
+              axisLeft={{
+                tickSize: 0,
+                tickPadding: 6,
+                format: (v) => `${v}%`,
+              }}
+              legends={[
+                {
+                  dataFrom: 'keys',
+                  anchor: 'bottom',
+                  direction: 'row',
+                  translateY: 56,
+                  itemWidth: 100,
+                  itemHeight: 16,
+                  symbolSize: 10,
+                  symbolShape: 'circle',
+                },
+              ]}
+              valueFormat={(v) => `${Number(v).toFixed(0)}%`}
+            />
           </div>
 
           <div className="overflow-x-auto">
@@ -110,10 +111,7 @@ export function UtilisationPanel({ report }: UtilisationPanelProps) {
               </thead>
               <tbody>
                 {report.people.map((row) => (
-                  <tr
-                    key={row.userId}
-                    className="border-b border-navy/10"
-                  >
+                  <tr key={row.userId} className="border-b border-navy/10">
                     <td className="py-2.5 pr-3">
                       <p className="font-medium text-navy">
                         {row.userName || row.userEmail}

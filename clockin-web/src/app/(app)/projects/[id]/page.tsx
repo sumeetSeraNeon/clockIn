@@ -545,8 +545,7 @@ export default function ProjectDetailPage() {
               canEdit={false}
               hideClientColumn
               hideProjectColumn
-              onEdit={() => undefined}
-              onAdvance={() => undefined}
+              onOpen={(t) => router.push(`/tickets/${t.id}`)}
             />
           )}
         </section>

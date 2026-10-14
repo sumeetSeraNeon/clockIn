@@ -1523,6 +1523,8 @@ export class TimesheetsService {
               description: string | null;
               billable: boolean;
               status: string;
+              ticketId: string | null;
+              ticketReference: string | null;
             }>;
           }>;
         }>,
@@ -1540,6 +1542,7 @@ export class TimesheetsService {
           orderBy: { createdAt: 'asc' },
           include: {
             task: { select: { id: true, name: true } },
+            ticket: { select: { id: true, reference: true, status: true } },
             project: {
               select: {
                 id: true,
@@ -1564,6 +1567,8 @@ export class TimesheetsService {
       description: string | null;
       billable: boolean;
       status: string;
+      ticketId: string | null;
+      ticketReference: string | null;
     };
     type TaskBucket = {
       taskId: string | null;
@@ -1660,6 +1665,8 @@ export class TimesheetsService {
           description: note || null,
           billable: line.billable,
           status: line.status,
+          ticketId: line.ticketId ?? line.ticket?.id ?? null,
+          ticketReference: line.ticket?.reference ?? null,
         });
       }
     }

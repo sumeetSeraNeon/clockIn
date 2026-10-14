@@ -17,6 +17,14 @@ export function entryDescription(entry: TimeEntry): string | null {
   return note || null;
 }
 
+/** Ticket reference on the first line, e.g. INC-1042 (FIX 1). */
+export function entryTicketReference(entry: TimeEntry): string | null {
+  const lines = entry.timeLines ?? [];
+  const first = lines.find((l) => l.isFirstLine) ?? lines[0];
+  const ref = first?.ticket?.reference?.trim();
+  return ref || null;
+}
+
 export function isEntryRunning(entry: TimeEntry): boolean {
   return entry.endTime === null && entry.source === 'timer';
 }
@@ -86,18 +94,21 @@ export function entryStatusVariant(
   return 'neutral';
 }
 
-/** Calendar event title — task + note, same wording as Timesheet secondary line */
+/** Calendar event title — task + ticket + note */
 export function formatEntryCalendarTitle(
   entry: TimeEntry,
   taskName?: string | null,
   projectName?: string | null,
 ): string {
+  const ticketRef = entryTicketReference(entry);
   if (isEntryRunning(entry)) {
+    if (taskName && ticketRef) return `${taskName} · ${ticketRef} · Running`;
     return taskName ? `${taskName} · Running` : 'Timer running';
   }
   const note = entryDescription(entry);
-  if (taskName && note) return `${taskName}: ${note}`;
-  if (taskName) return taskName;
+  const head = [taskName, ticketRef].filter(Boolean).join(' · ');
+  if (head && note) return `${head}: ${note}`;
+  if (head) return head;
   if (note) return note;
   if (projectName) return projectName;
   return formatEntryTimeLabel(entry);

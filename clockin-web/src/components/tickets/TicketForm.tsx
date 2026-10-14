@@ -24,6 +24,10 @@ type TicketFormProps = {
   clients: Client[];
   projects: Project[];
   submitting: boolean;
+  /** View-only (members). */
+  readOnly?: boolean;
+  /** Hide Cancel when embedded on detail page (use page Back instead). */
+  hideCancel?: boolean;
   onSubmit: (values: CreateTicketInput | UpdateTicketInput) => Promise<void>;
   onCancel: () => void;
 };
@@ -62,6 +66,8 @@ export function TicketForm({
   clients,
   projects,
   submitting,
+  readOnly = false,
+  hideCancel = false,
   onSubmit,
   onCancel,
 }: TicketFormProps) {
@@ -151,6 +157,7 @@ export function TicketForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      <fieldset disabled={readOnly} className="min-w-0 space-y-4 border-0 p-0">
       <FormField
         label="Client"
         htmlFor="ticket-client"
@@ -321,18 +328,24 @@ export function TicketForm({
         </FormField>
       ) : null}
 
+      </fieldset>
+
       <div className="flex justify-end gap-2 pt-2">
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={onCancel}
-          disabled={submitting}
-        >
-          Cancel
-        </Button>
-        <Button type="submit" loading={submitting} disabled={submitting}>
-          {mode === 'create' ? 'Create ticket' : 'Save changes'}
-        </Button>
+        {!hideCancel ? (
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={onCancel}
+            disabled={submitting}
+          >
+            {readOnly ? 'Close' : 'Cancel'}
+          </Button>
+        ) : null}
+        {readOnly ? null : (
+          <Button type="submit" loading={submitting} disabled={submitting}>
+            {mode === 'create' ? 'Create ticket' : 'Save changes'}
+          </Button>
+        )}
       </div>
     </form>
   );

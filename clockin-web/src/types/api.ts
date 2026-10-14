@@ -278,6 +278,12 @@ export type TimeLineArea = 'functional' | 'technical' | 'integration' | 'pm';
 export type TimeLineTicketType = 'incident' | 'cr' | 'sr';
 export type TimeEntrySource = 'timer' | 'manual' | 'api';
 
+export type TimeLineTicketRef = {
+  id: string;
+  reference: string;
+  status: string;
+};
+
 export type TimeLine = {
   id: string;
   organisationId: string;
@@ -287,6 +293,8 @@ export type TimeLine = {
   clientId: string | null;
   ticketId: string | null;
   ticketType: string | null;
+  /** Nested when API includes ticket (FIX 1). */
+  ticket?: TimeLineTicketRef | null;
   area: string | null;
   crId: string | null;
   crNumber: string | null;
@@ -355,6 +363,9 @@ export type TimesheetDayLine = {
   billable: boolean;
   /** draft | submitted | approved | rejected */
   status?: string;
+  /** Linked ticket on the time line (FIX 1 — Approvals). */
+  ticketId?: string | null;
+  ticketReference?: string | null;
 };
 
 export type TimesheetTaskBreakdown = {
@@ -540,6 +551,26 @@ export type TicketStatus = 'open' | 'in_progress' | 'resolved' | 'closed';
 export type TicketType = 'incident' | 'service_request';
 export type TicketPriority = 'low' | 'medium' | 'high' | 'critical';
 
+/** One time line linked to a ticket (detail only). */
+export type TicketTimeEntry = {
+  lineId: string;
+  entryId: string;
+  userId: string;
+  userName: string;
+  entryDate: string;
+  startTime: string | null;
+  endTime: string | null;
+  durationMinutes: number;
+  taskName: string | null;
+  description: string | null;
+  status: string;
+};
+
+export type TicketMinutesByStatus = {
+  submitted: number;
+  approved: number;
+};
+
 export type Ticket = {
   id: string;
   organisationId: string;
@@ -556,6 +587,11 @@ export type Ticket = {
   resolvedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Approved minutes only (list + detail). */
+  loggedMinutes?: number;
+  /** Detail (GET /tickets/:id) — linked lines only. */
+  minutesByStatus?: TicketMinutesByStatus;
+  timeEntries?: TicketTimeEntry[];
 };
 
 export type CreateTicketInput = {

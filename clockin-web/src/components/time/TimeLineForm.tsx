@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { cn } from '@/lib/cn';
+import { TicketOptionalSelect } from '@/components/time/TicketOptionalSelect';
 import {
   clientIdForProject,
   clientsFromProjects,
@@ -498,12 +499,14 @@ export function TimeLineForm({
   );
 }
 
-/** Compact timer-bar fields (description + task + optional billable label). */
+/** Compact timer-bar fields (Client → Project → Task → Ticket + optional billable). */
 export function TimerBarFields({
   description,
   onDescriptionChange,
   taskId,
   onTaskChange,
+  ticketId = '',
+  onTicketChange,
   tasks,
   projects,
   disabled,
@@ -518,6 +521,8 @@ export function TimerBarFields({
   onDescriptionChange: (v: string) => void;
   taskId: string;
   onTaskChange: (v: string) => void;
+  ticketId?: string;
+  onTicketChange?: (v: string) => void;
   tasks: Task[];
   projects: Project[];
   disabled?: boolean;
@@ -573,6 +578,7 @@ export function TimerBarFields({
               setClientId(e.target.value);
               setProjectId('');
               onTaskChange('');
+              onTicketChange?.('');
             }}
             disabled={disabled}
             className="min-w-0 w-full"
@@ -598,6 +604,7 @@ export function TimerBarFields({
             onChange={(e) => {
               setProjectId(e.target.value);
               onTaskChange('');
+              onTicketChange?.('');
             }}
             disabled={disabled || !clientId}
             className="min-w-0 w-full"
@@ -637,6 +644,16 @@ export function TimerBarFields({
             ))}
           </Select>
         </label>
+        {onTicketChange ? (
+          <TicketOptionalSelect
+            compact
+            id="timer-ticket"
+            projectId={projectId}
+            value={ticketId}
+            onChange={onTicketChange}
+            disabled={disabled}
+          />
+        ) : null}
         {showBillable ? (
           <p
             className={cn(

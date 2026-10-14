@@ -153,6 +153,7 @@ export default function CalendarPage() {
           taskId: values.taskId,
           durationMinutes,
           description: values.description.trim() || undefined,
+          ...(values.ticketId ? { ticketId: values.ticketId } : {}),
         },
       };
       await api<TimeEntry>('/time-entries', { method: 'POST', body });
@@ -193,6 +194,7 @@ export default function CalendarPage() {
           taskId: values.taskId,
           durationMinutes,
           description: values.description.trim() || null,
+          ticketId: values.ticketId || null,
         } satisfies UpdateTimeLineInput,
       });
       toast.success('Entry updated');

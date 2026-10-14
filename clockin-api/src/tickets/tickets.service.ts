@@ -88,7 +88,7 @@ export class TicketsService {
     organisationId: string,
     membership: AuthMembership,
     query: ListTicketsQueryDto,
-  ): Promise<PaginatedResult<Ticket>> {
+  ): Promise<PaginatedResult<Ticket & { loggedMinutes: number }>> {
     const { page, pageSize, skip, take } = resolvePagination(query);
 
     if (query.clientId) {
@@ -143,7 +143,8 @@ export class TicketsService {
         this.prisma.ticket.count({ where }),
       ]);
 
-      return buildPaginatedResult(data, total, page, pageSize);
+      const withLogged = await this.attachLoggedMinutes(organisationId, data);
+      return buildPaginatedResult(withLogged, total, page, pageSize);
     } catch (error) {
       mapPrismaError(error);
     }
@@ -153,7 +154,28 @@ export class TicketsService {
     organisationId: string,
     membership: AuthMembership,
     id: string,
-  ): Promise<Ticket> {
+  ): Promise<
+    Ticket & {
+      loggedMinutes: number;
+      minutesByStatus: {
+        submitted: number;
+        approved: number;
+      };
+      timeEntries: Array<{
+        lineId: string;
+        entryId: string;
+        userId: string;
+        userName: string;
+        entryDate: string;
+        startTime: string | null;
+        endTime: string | null;
+        durationMinutes: number;
+        taskName: string | null;
+        description: string | null;
+        status: string;
+      }>;
+    }
+  > {
     const visibilityWhere = await this.visibility.ticketWhere(
       organisationId,
       membership,
@@ -164,7 +186,16 @@ export class TicketsService {
     if (!ticket) {
       throw new NotFoundException('Ticket not found');
     }
-    return ticket;
+    const [loggedMinutes, activity] = await Promise.all([
+      this.sumLoggedMinutes(organisationId, ticket.id),
+      this.loadTicketTimeActivity(organisationId, ticket.id),
+    ]);
+    return {
+      ...ticket,
+      loggedMinutes,
+      minutesByStatus: activity.minutesByStatus,
+      timeEntries: activity.timeEntries,
+    };
   }
 
   async update(
@@ -298,6 +329,122 @@ export class TicketsService {
         'projectId must belong to your organisation and the same client',
       );
     }
+  }
+
+  /**
+   * Approved minutes only, and only lines where this ticket was selected.
+   */
+  private async sumLoggedMinutes(
+    organisationId: string,
+    ticketId: string,
+  ): Promise<number> {
+    const agg = await this.prisma.timeLine.aggregate({
+      where: { organisationId, ticketId, status: 'approved' },
+      _sum: { durationMinutes: true },
+    });
+    return agg._sum.durationMinutes ?? 0;
+  }
+
+  private async attachLoggedMinutes(
+    organisationId: string,
+    tickets: Ticket[],
+  ): Promise<Array<Ticket & { loggedMinutes: number }>> {
+    if (tickets.length === 0) return [];
+    const sums = await this.prisma.timeLine.groupBy({
+      by: ['ticketId'],
+      where: {
+        organisationId,
+        ticketId: { in: tickets.map((t) => t.id) },
+        status: 'approved',
+      },
+      _sum: { durationMinutes: true },
+    });
+    const byId = new Map(
+      sums
+        .filter((s) => s.ticketId)
+        .map((s) => [s.ticketId as string, s._sum.durationMinutes ?? 0]),
+    );
+    return tickets.map((t) => ({
+      ...t,
+      loggedMinutes: byId.get(t.id) ?? 0,
+    }));
+  }
+
+  /**
+   * Linked lines only — submitted + approved (draft/rejected hidden).
+   */
+  private async loadTicketTimeActivity(
+    organisationId: string,
+    ticketId: string,
+  ): Promise<{
+    minutesByStatus: {
+      submitted: number;
+      approved: number;
+    };
+    timeEntries: Array<{
+      lineId: string;
+      entryId: string;
+      userId: string;
+      userName: string;
+      entryDate: string;
+      startTime: string | null;
+      endTime: string | null;
+      durationMinutes: number;
+      taskName: string | null;
+      description: string | null;
+      status: string;
+    }>;
+  }> {
+    const lines = await this.prisma.timeLine.findMany({
+      where: {
+        organisationId,
+        ticketId,
+        status: { in: ['submitted', 'approved'] },
+      },
+      include: {
+        task: { select: { name: true } },
+        timeEntry: {
+          select: {
+            id: true,
+            userId: true,
+            entryDate: true,
+            startTime: true,
+            endTime: true,
+            user: { select: { id: true, name: true, email: true } },
+          },
+        },
+      },
+      orderBy: [{ createdAt: 'desc' }],
+    });
+
+    const minutesByStatus = {
+      submitted: 0,
+      approved: 0,
+    };
+
+    const timeEntries = lines.map((line) => {
+      const status = line.status || 'submitted';
+      const mins = line.durationMinutes ?? 0;
+      if (status === 'submitted') minutesByStatus.submitted += mins;
+      else if (status === 'approved') minutesByStatus.approved += mins;
+
+      const user = line.timeEntry.user;
+      return {
+        lineId: line.id,
+        entryId: line.timeEntry.id,
+        userId: line.timeEntry.userId,
+        userName: user?.name?.trim() || user?.email || 'Unknown',
+        entryDate: line.timeEntry.entryDate.toISOString().slice(0, 10),
+        startTime: line.timeEntry.startTime?.toISOString() ?? null,
+        endTime: line.timeEntry.endTime?.toISOString() ?? null,
+        durationMinutes: mins,
+        taskName: line.task?.name ?? null,
+        description: line.description?.trim() || null,
+        status,
+      };
+    });
+
+    return { minutesByStatus, timeEntries };
   }
 
   private toAuditJson(ticket: Ticket): Prisma.InputJsonValue {

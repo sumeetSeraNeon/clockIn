@@ -17,6 +17,7 @@ import {
   tasksForProject,
 } from '@/lib/task-project-picker';
 import { formatHoursMinutes } from '@/lib/format-duration';
+import { TicketOptionalSelect } from '@/components/time/TicketOptionalSelect';
 import type { Project, Task, TimeEntry } from '@/types/api';
 import {
   findOverlappingEntry,
@@ -25,6 +26,8 @@ import {
 
 export type AddTimeValues = {
   taskId: string;
+  /** Optional ticket on the time line (FIX 1). Empty = none. */
+  ticketId: string;
   entryDate: string;
   description: string;
   /** duration | range */
@@ -42,6 +45,10 @@ type AddTimeFormProps = {
   submitting: boolean;
   /** Prefill task (e.g. from Tasks → Track). */
   defaultTaskId?: string;
+  /** Prefill project (e.g. from Tickets → Track). */
+  defaultProjectId?: string;
+  /** Prefill ticket (e.g. from Tickets → Track). */
+  defaultTicketId?: string;
   defaultDate?: string;
   /** Prefill start/end from calendar drag (ISO). Forces range mode. */
   defaultRange?: { startTime: string; endTime: string } | null;
@@ -85,6 +92,8 @@ export function AddTimeForm({
   projects = [],
   submitting,
   defaultTaskId = '',
+  defaultProjectId = '',
+  defaultTicketId = '',
   defaultDate,
   defaultRange = null,
   initialEntry = null,
@@ -98,6 +107,7 @@ export function AddTimeForm({
   const [clientId, setClientId] = useState('');
   const [projectId, setProjectId] = useState('');
   const [taskId, setTaskId] = useState(defaultTaskId);
+  const [ticketId, setTicketId] = useState(defaultTicketId);
   const [entryDate, setEntryDate] = useState(
     defaultDate ?? toDateParam(new Date()),
   );
@@ -135,6 +145,7 @@ export function AddTimeForm({
       setTaskId(tid);
       setProjectId(pid);
       setClientId(clientIdForProject(scopedProjects, pid));
+      setTicketId(firstLine.ticketId ?? '');
       setEntryDate(
         initialEntry.entryDate
           ? initialEntry.entryDate.slice(0, 10)
@@ -148,10 +159,12 @@ export function AddTimeForm({
       setEndTime(clockFromIso(initialEntry.endTime) || '10:00');
     } else {
       const tid = defaultTaskId;
-      const pid = projectIdForTask(tasks, tid);
+      const pid =
+        projectIdForTask(tasks, tid) || defaultProjectId || '';
       setTaskId(tid);
       setProjectId(pid);
       setClientId(clientIdForProject(scopedProjects, pid));
+      setTicketId(defaultTicketId);
       setEntryDate(defaultDate ?? toDateParam(new Date()));
       setDescription('');
       if (defaultRange?.startTime && defaultRange?.endTime) {
@@ -179,6 +192,8 @@ export function AddTimeForm({
     initialEntry,
     firstLine,
     defaultTaskId,
+    defaultProjectId,
+    defaultTicketId,
     defaultDate,
     defaultRange,
     tasks,
@@ -225,6 +240,7 @@ export function AddTimeForm({
 
     const draftValues: AddTimeValues = {
       taskId,
+      ticketId,
       entryDate,
       description,
       mode,
@@ -274,7 +290,7 @@ export function AddTimeForm({
 
   return (
     <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
-      {/* Tab order: client → project → task → times → description → save */}
+      {/* Tab order: client → project → task → ticket → times → description → save */}
       <FormField label="Client" htmlFor="add-time-client" required>
         <Select
           id="add-time-client"
@@ -283,6 +299,7 @@ export function AddTimeForm({
             setClientId(e.target.value);
             setProjectId('');
             setTaskId('');
+            setTicketId('');
           }}
           disabled={submitting}
         >
@@ -302,6 +319,7 @@ export function AddTimeForm({
           onChange={(e) => {
             setProjectId(e.target.value);
             setTaskId('');
+            setTicketId('');
           }}
           disabled={submitting || !clientId}
         >
@@ -333,6 +351,14 @@ export function AddTimeForm({
           ))}
         </Select>
       </FormField>
+
+      <TicketOptionalSelect
+        id="add-time-ticket"
+        projectId={projectId}
+        value={ticketId}
+        onChange={setTicketId}
+        disabled={submitting}
+      />
 
       <div className="flex flex-wrap gap-3 text-sm">
         <label className="flex items-center gap-2 text-slate">

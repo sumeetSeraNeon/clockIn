@@ -23,6 +23,7 @@ type TimerBarProps = {
   onStart: (values: {
     description: string;
     taskId: string;
+    ticketId?: string;
   }) => Promise<void>;
   onStop: () => Promise<void>;
 };
@@ -43,6 +44,7 @@ export function TimerBar({
 }: TimerBarProps) {
   const [description, setDescription] = useState('');
   const [taskId, setTaskId] = useState('');
+  const [ticketId, setTicketId] = useState('');
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -65,6 +67,7 @@ export function TimerBar({
       const line = running.timeLines?.[0];
       setDescription(line?.description ?? '');
       setTaskId(line?.taskId ?? '');
+      setTicketId(line?.ticketId ?? '');
     }
   }, [running]);
 
@@ -78,7 +81,11 @@ export function TimerBar({
   const busy = starting || stopping;
 
   async function handleStart() {
-    await onStart({ description, taskId });
+    await onStart({
+      description,
+      taskId,
+      ticketId: ticketId || undefined,
+    });
   }
 
   return (
@@ -93,7 +100,12 @@ export function TimerBar({
         description={description}
         onDescriptionChange={setDescription}
         taskId={taskId}
-        onTaskChange={setTaskId}
+        onTaskChange={(next) => {
+          setTaskId(next);
+          setTicketId('');
+        }}
+        ticketId={ticketId}
+        onTicketChange={setTicketId}
         tasks={tasks}
         projects={projects}
         disabled={!canEdit || Boolean(running) || busy}

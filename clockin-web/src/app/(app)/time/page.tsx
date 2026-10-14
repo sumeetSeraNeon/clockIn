@@ -48,7 +48,13 @@ import type {
 } from '@/types/api';
 
 type ModalKind =
-  | { type: 'add-time'; taskId?: string; entryDate?: string }
+  | {
+      type: 'add-time';
+      taskId?: string;
+      entryDate?: string;
+      ticketId?: string;
+      projectId?: string;
+    }
   | { type: 'edit-entry'; entry: TimeEntry }
   | null;
 
@@ -155,10 +161,17 @@ function TimePageInner() {
   useEffect(() => {
     const add = searchParams.get('add');
     const taskId = searchParams.get('taskId') ?? undefined;
-    if (!taskId && add !== '1') return;
+    const ticketId = searchParams.get('ticketId') ?? undefined;
+    const projectId = searchParams.get('projectId') ?? undefined;
+    if (!taskId && add !== '1' && !ticketId) return;
 
-    if (add === '1' && canMutateTime) {
-      setModal({ type: 'add-time', taskId });
+    if ((add === '1' || ticketId) && canMutateTime) {
+      setModal({
+        type: 'add-time',
+        taskId,
+        ticketId,
+        projectId,
+      });
       router.replace('/time', { scroll: false });
       return;
     }
@@ -330,7 +343,11 @@ function TimePageInner() {
     }
   }
 
-  async function handleStart(values: { description: string; taskId: string }) {
+  async function handleStart(values: {
+    description: string;
+    taskId: string;
+    ticketId?: string;
+  }) {
     if (running) {
       toast.error('Stop the current timer first');
       return;
@@ -354,6 +371,7 @@ function TimePageInner() {
           durationMinutes: 1,
           description: values.description.trim() || undefined,
           taskId: values.taskId,
+          ...(values.ticketId ? { ticketId: values.ticketId } : {}),
         },
       };
       await api<TimeEntry>('/time-entries', { method: 'POST', body });
@@ -428,6 +446,7 @@ function TimePageInner() {
           taskId: values.taskId,
           durationMinutes,
           description: values.description.trim() || undefined,
+          ...(values.ticketId ? { ticketId: values.ticketId } : {}),
         },
       };
       await api<TimeEntry>('/time-entries', { method: 'POST', body });
@@ -470,6 +489,7 @@ function TimePageInner() {
           taskId: values.taskId,
           durationMinutes,
           description: values.description.trim() || null,
+          ticketId: values.ticketId || null,
         } satisfies UpdateTimeLineInput,
       });
       toast.success('Entry updated');
@@ -818,6 +838,8 @@ function TimePageInner() {
             tasks={tasks}
             projects={projects}
             defaultTaskId={modal.taskId}
+            defaultProjectId={modal.projectId}
+            defaultTicketId={modal.ticketId}
             defaultDate={modal.entryDate ?? today}
             existingEntries={[...periodEntries, ...todayEntries]}
             submitting={submitting}

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { TicketForm } from '@/components/tickets/TicketForm';
 import { TicketsTable } from '@/components/tickets/TicketsTable';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
@@ -34,13 +35,13 @@ import { TICKET_NEXT_STATUS } from '@/types/api';
 type StatusFilter = TicketStatus | 'all';
 type TypeFilter = TicketType | 'all';
 type PriorityFilter = TicketPriority | 'all';
-type ModalMode = 'create' | 'edit' | null;
 
 /**
  * Tickets list — filters + server-side reference/title search (`q`).
  * FINAL FIX 9 — ticket:edit gates New / Edit / Start (members view-only).
  */
 export default function TicketsPage() {
+  const router = useRouter();
   const toast = useToast();
   const { can } = usePermissions();
   const canEdit = can('ticket', 'edit');
@@ -53,8 +54,7 @@ export default function TicketsPage() {
   const [priority, setPriority] = useState<PriorityFilter>('all');
   const [nameQuery, setNameQuery] = useState('');
   const debouncedQ = useDebouncedValue(nameQuery.trim());
-  const [modalMode, setModalMode] = useState<ModalMode>(null);
-  const [editing, setEditing] = useState<Ticket | null>(null);
+  const [creating, setCreating] = useState(false);
   const [advancing, setAdvancing] = useState<Ticket | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [advanceLoading, setAdvanceLoading] = useState(false);
@@ -128,39 +128,32 @@ export default function TicketsPage() {
   }, [projects]);
 
   const openCreate = useCallback(() => {
-    setEditing(null);
-    setModalMode('create');
+    setCreating(true);
   }, []);
 
-  const openEdit = useCallback((ticket: Ticket) => {
-    setEditing(ticket);
-    setModalMode('edit');
-  }, []);
+  const openTicket = useCallback(
+    (ticket: Ticket) => {
+      router.push(`/tickets/${ticket.id}`);
+    },
+    [router],
+  );
 
   const closeModal = useCallback(() => {
     if (submitting) return;
-    setModalMode(null);
-    setEditing(null);
+    setCreating(false);
   }, [submitting]);
 
-  async function handleSubmit(
-    values: CreateTicketInput | UpdateTicketInput,
-  ) {
+  async function handleSubmit(values: CreateTicketInput | UpdateTicketInput) {
     setSubmitting(true);
     try {
-      if (modalMode === 'create') {
-        await api<Ticket>('/tickets', { method: 'POST', body: values });
-        toast.success('Ticket created');
-      } else if (modalMode === 'edit' && editing) {
-        await api<Ticket>(`/tickets/${editing.id}`, {
-          method: 'PATCH',
-          body: values,
-        });
-        toast.success('Ticket updated');
-      }
-      setModalMode(null);
-      setEditing(null);
+      const created = await api<Ticket>('/tickets', {
+        method: 'POST',
+        body: values as CreateTicketInput,
+      });
+      toast.success('Ticket created');
+      setCreating(false);
       reload();
+      router.push(`/tickets/${created.id}`);
     } catch (err) {
       toast.error(getErrorMessage(err, 'Could not save ticket'));
     } finally {
@@ -361,7 +354,7 @@ export default function TicketsPage() {
             clientsById={clientsById}
             projectsById={projectsById}
             canEdit={canEdit}
-            onEdit={openEdit}
+            onOpen={openTicket}
             onAdvance={setAdvancing}
           />
           <Pagination
@@ -375,18 +368,13 @@ export default function TicketsPage() {
       )}
 
       <Modal
-        open={modalMode !== null && canEdit}
-        title={modalMode === 'create' ? 'New ticket' : 'Edit ticket'}
-        description={
-          modalMode === 'create'
-            ? 'Reference is unique per organisation. Status starts as open.'
-            : 'Status can only move forward: open → in progress → resolved → closed.'
-        }
+        open={creating && canEdit}
+        title="New ticket"
+        description="Reference is unique per organisation. Status starts as open."
         onClose={closeModal}
       >
         <TicketForm
-          mode={modalMode === 'edit' ? 'edit' : 'create'}
-          initial={editing}
+          mode="create"
           clients={clients}
           projects={projects}
           submitting={submitting}

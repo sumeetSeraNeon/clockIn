@@ -5,6 +5,7 @@ import {
   DataTable,
   type DataTableColumn,
 } from '@/components/common/DataTable';
+import { formatHoursMinutes } from '@/lib/format-duration';
 import type { Client, Project, Ticket, TicketStatus } from '@/types/api';
 import { TICKET_NEXT_STATUS } from '@/types/api';
 
@@ -16,8 +17,9 @@ type TicketsTableProps = {
   /** When true (project detail), omit redundant client/project columns. */
   hideClientColumn?: boolean;
   hideProjectColumn?: boolean;
-  onEdit: (ticket: Ticket) => void;
-  onAdvance: (ticket: Ticket) => void;
+  /** Open ticket detail page. */
+  onOpen?: (ticket: Ticket) => void;
+  onAdvance?: (ticket: Ticket) => void;
 };
 
 function label(value: string) {
@@ -38,7 +40,7 @@ export function TicketsTable({
   canEdit,
   hideClientColumn = false,
   hideProjectColumn = false,
-  onEdit,
+  onOpen,
   onAdvance,
 }: TicketsTableProps) {
   const columns: DataTableColumn<Ticket>[] = [
@@ -47,10 +49,27 @@ export function TicketsTable({
       header: 'Ticket',
       cell: (row) => (
         <div className="min-w-0">
-          <p className="truncate font-medium text-ink">{row.reference}</p>
-          <p className="truncate text-xs text-slate">
-            {row.title || label(row.ticketType)}
-          </p>
+          {onOpen ? (
+            <button
+              type="button"
+              className="block min-w-0 text-left"
+              onClick={() => onOpen(row)}
+            >
+              <p className="truncate font-medium text-ink hover:text-coral">
+                {row.reference}
+              </p>
+              <p className="truncate text-xs text-slate">
+                {row.title || label(row.ticketType)}
+              </p>
+            </button>
+          ) : (
+            <>
+              <p className="truncate font-medium text-ink">{row.reference}</p>
+              <p className="truncate text-xs text-slate">
+                {row.title || label(row.ticketType)}
+              </p>
+            </>
+          )}
         </div>
       ),
     },
@@ -91,6 +110,18 @@ export function TicketsTable({
       ),
     },
     {
+      id: 'logged',
+      header: 'Approved',
+      cell: (row) => (
+        <span
+          className="tabular-nums text-sm text-navy"
+          title="Approved time linked to this ticket only"
+        >
+          {formatHoursMinutes(row.loggedMinutes ?? 0)}
+        </span>
+      ),
+    },
+    {
       id: 'priority',
       header: 'Priority',
       cell: (row) =>
@@ -120,7 +151,7 @@ export function TicketsTable({
     },
   );
 
-  if (canEdit) {
+  if (onOpen || (canEdit && onAdvance)) {
     columns.push({
       id: 'actions',
       header: '',
@@ -131,7 +162,7 @@ export function TicketsTable({
           TICKET_NEXT_STATUS[(row.status as TicketStatus) || 'open'];
         return (
           <div className="flex justify-end gap-2">
-            {next ? (
+            {canEdit && onAdvance && next ? (
               <Button
                 type="button"
                 variant="ghost"
@@ -141,14 +172,16 @@ export function TicketsTable({
                 {advanceLabel(next)}
               </Button>
             ) : null}
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => onEdit(row)}
-            >
-              Edit
-            </Button>
+            {onOpen ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => onOpen(row)}
+              >
+                Open
+              </Button>
+            ) : null}
           </div>
         );
       },

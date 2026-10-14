@@ -9,6 +9,7 @@ import {
   entryDurationMinutes,
   entryStatusLabel,
   entryStatusVariant,
+  entryTicketReference,
   formatEntryTimeLabel,
   isEntryLocked,
   isEntryRunning,
@@ -254,6 +255,7 @@ export function TimesheetPanel({
                 const locked = isEntryLocked(entry);
                 const running = isEntryRunning(entry);
                 const note = entryDescription(entry);
+                const ticketRef = entryTicketReference(entry);
                 const dateLabel = entry.entryDate.slice(0, 10);
 
                 return (
@@ -268,6 +270,9 @@ export function TimesheetPanel({
                         <span className="tabular-nums text-sm font-medium text-ink">
                           {formatEntryTimeLabel(entry)}
                         </span>
+                        {ticketRef ? (
+                          <Badge variant="neutral">{ticketRef}</Badge>
+                        ) : null}
                         {mode === 'week' ? (
                           <span className="text-xs text-slate">
                             {dateLabel}

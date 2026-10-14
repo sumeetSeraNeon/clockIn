@@ -642,6 +642,9 @@ export default function ApprovalsPage() {
                                             Task
                                           </th>
                                           <th className={cn(TH, 'text-coral-dark/80')}>
+                                            Ticket
+                                          </th>
+                                          <th className={cn(TH, 'text-coral-dark/80')}>
                                             Date
                                           </th>
                                           <th className={cn(TH, 'text-coral-dark/80')}>
@@ -666,6 +669,9 @@ export default function ApprovalsPage() {
                                             const lineBusy =
                                               actingKey ===
                                               `line:${day.lineId}`;
+                                            const ticketRef =
+                                              day.ticketReference?.trim() ||
+                                              null;
                                             return (
                                               <tr
                                                 key={day.lineId}
@@ -678,6 +684,17 @@ export default function ApprovalsPage() {
                                                   >
                                                     {task.taskName}
                                                   </Badge>
+                                                </td>
+                                                <td className={TD}>
+                                                  {ticketRef ? (
+                                                    <Badge variant="neutral">
+                                                      {ticketRef}
+                                                    </Badge>
+                                                  ) : (
+                                                    <span className="text-slate">
+                                                      —
+                                                    </span>
+                                                  )}
                                                 </td>
                                                 <td
                                                   className={cn(
@@ -949,7 +966,11 @@ export default function ApprovalsPage() {
         }
         description={
           rejectTarget?.kind === 'line'
-            ? 'This line goes back to the member so they can edit and resubmit. A reason is required.'
+            ? `This line goes back to the member so they can edit and resubmit${
+                rejectTarget.line.ticketReference
+                  ? ` (${rejectTarget.line.ticketReference})`
+                  : ''
+              }. A reason is required.`
             : 'Every waiting line on this project slice will be rejected. The member can edit and resubmit. A reason is required.'
         }
         confirmLabel="Reject"
@@ -978,7 +999,15 @@ export default function ApprovalsPage() {
         title="Approve this time?"
         description={
           approveTarget?.kind === 'line'
-            ? `Approve ${formatDayLineTimeLabel(approveTarget.line)} on ${formatDay(approveTarget.line.entryDate)}${approveTarget.line.description ? ` — “${approveTarget.line.description}”` : ''}. This locks the line for the member.`
+            ? `Approve ${formatDayLineTimeLabel(approveTarget.line)} on ${formatDay(approveTarget.line.entryDate)}${
+                approveTarget.line.ticketReference
+                  ? ` · ${approveTarget.line.ticketReference}`
+                  : ''
+              }${
+                approveTarget.line.description
+                  ? ` — “${approveTarget.line.description}”`
+                  : ''
+              }. This locks the line for the member.`
             : ''
         }
         confirmLabel="Approve"

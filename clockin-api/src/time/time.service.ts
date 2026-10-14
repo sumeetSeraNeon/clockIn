@@ -27,7 +27,19 @@ import { UpdateTimeLineDto } from './dto/update-time-line.dto';
 const ENTRY_ENTITY = 'time_entry';
 const LINE_ENTITY = 'time_line';
 
-type EntryWithLines = TimeEntry & { timeLines: TimeLine[] };
+/** Include ticket reference on lines for Timesheet / Calendar display. */
+const TIME_LINES_INCLUDE = {
+  orderBy: { createdAt: 'asc' as const },
+  include: {
+    ticket: { select: { id: true, reference: true, status: true } },
+  },
+};
+
+type TimeLineWithTicket = TimeLine & {
+  ticket: { id: string; reference: string; status: string } | null;
+};
+
+type EntryWithLines = TimeEntry & { timeLines: TimeLineWithTicket[] };
 
 type ResolvedLineFields = {
   taskId: string | null;
@@ -166,7 +178,7 @@ export class TimeService {
               },
             },
           },
-          include: { timeLines: { orderBy: { createdAt: 'asc' } } },
+          include: { timeLines: TIME_LINES_INCLUDE },
         });
         return created;
       });
@@ -571,7 +583,7 @@ export class TimeService {
       const [data, total] = await this.prisma.$transaction([
         this.prisma.timeEntry.findMany({
           where,
-          include: { timeLines: { orderBy: { createdAt: 'asc' } } },
+          include: { timeLines: TIME_LINES_INCLUDE },
           orderBy: [{ entryDate: 'desc' }, { createdAt: 'desc' }],
           skip,
           take,
@@ -601,7 +613,7 @@ export class TimeService {
     );
     const entry = await this.prisma.timeEntry.findFirst({
       where: { id, organisationId, ...visibilityWhere, userId },
-      include: { timeLines: { orderBy: { createdAt: 'asc' } } },
+      include: { timeLines: TIME_LINES_INCLUDE },
     });
     if (!entry) {
       throw new NotFoundException('Time entry not found');
@@ -767,7 +779,11 @@ export class TimeService {
       await this.assertCrInOrg(organisationId, mergedCrId);
     }
     if (dto.ticketId) {
-      await this.assertTicketInOrg(organisationId, dto.ticketId);
+      await this.assertTicketForProject(
+        organisationId,
+        dto.ticketId,
+        projectId,
+      );
     }
 
     const nextDuration =
@@ -942,10 +958,6 @@ export class TimeService {
       await this.assertCrInOrg(organisationId, dto.crId);
     }
 
-    if (dto.ticketId) {
-      await this.assertTicketInOrg(organisationId, dto.ticketId);
-    }
-
     let taskId: string | null = dto.taskId ?? null;
     let projectId: string | null = dto.projectId ?? null;
     let clientId: string | null = dto.clientId ?? null;
@@ -962,6 +974,14 @@ export class TimeService {
       if (dto.clientId) {
         await this.assertClientInOrg(organisationId, dto.clientId);
       }
+    }
+
+    if (dto.ticketId) {
+      await this.assertTicketForProject(
+        organisationId,
+        dto.ticketId,
+        projectId,
+      );
     }
 
     // FIX 5 — inherit billable from task → project; ignore client-sent flag
@@ -1066,7 +1086,7 @@ export class TimeService {
         organisationId,
         ...(scope === 'all' ? {} : { userId }),
       },
-      include: { timeLines: { orderBy: { createdAt: 'asc' } } },
+      include: { timeLines: TIME_LINES_INCLUDE },
     });
 
     if (!entry) {
@@ -1288,17 +1308,27 @@ export class TimeService {
     }
   }
 
-  private async assertTicketInOrg(
+  /**
+   * Ticket must be in-org and belong to the line's project (FIX 1).
+   * Tickets without a project cannot be linked to project time.
+   */
+  private async assertTicketForProject(
     organisationId: string,
     ticketId: string,
+    projectId: string | null,
   ): Promise<void> {
     const ticket = await this.prisma.ticket.findFirst({
       where: { id: ticketId, organisationId },
-      select: { id: true },
+      select: { id: true, projectId: true },
     });
     if (!ticket) {
       throw new BadRequestException(
         'ticketId must belong to your organisation',
+      );
+    }
+    if (!projectId || ticket.projectId !== projectId) {
+      throw new BadRequestException(
+        'ticketId must belong to the selected project',
       );
     }
   }
@@ -1337,6 +1367,7 @@ export class TimeService {
       taskId: line.taskId,
       projectId: line.projectId,
       clientId: line.clientId,
+      ticketId: line.ticketId,
       ticketType: line.ticketType,
       crId: line.crId,
       crNumber: line.crNumber,

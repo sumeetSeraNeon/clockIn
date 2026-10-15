@@ -11,6 +11,7 @@ import { Pagination } from '@/components/common/Pagination';
 import { SearchField } from '@/components/common/SearchField';
 import { ListSkeleton } from '@/components/common/Skeleton';
 import { useToast } from '@/components/common/Toast';
+import { ImportModal } from '@/components/import/ImportModal';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
 import { api } from '@/lib/api-client';
@@ -49,6 +50,7 @@ export default function ClientsPage() {
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [editing, setEditing] = useState<Client | null>(null);
   const [archiving, setArchiving] = useState<Client | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [archiveLoading, setArchiveLoading] = useState(false);
   const [members, setMembers] = useState<MemberSummary[]>([]);
@@ -173,9 +175,18 @@ export default function ClientsPage() {
         helpKey="clients"
         actions={
           canEdit ? (
-            <Button type="button" onClick={openCreate}>
-              New client
-            </Button>
+            <>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setImportOpen(true)}
+              >
+                Import
+              </Button>
+              <Button type="button" onClick={openCreate}>
+                New client
+              </Button>
+            </>
           ) : null
         }
       />
@@ -271,6 +282,13 @@ export default function ClientsPage() {
           onCancel={closeModal}
         />
       </Modal>
+
+      <ImportModal
+        open={importOpen && canEdit}
+        kind="clients"
+        onClose={() => setImportOpen(false)}
+        onImported={reload}
+      />
 
       <ConfirmDialog
         open={Boolean(archiving)}

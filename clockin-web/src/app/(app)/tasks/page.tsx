@@ -12,6 +12,7 @@ import { Pagination } from '@/components/common/Pagination';
 import { SearchField } from '@/components/common/SearchField';
 import { ListSkeleton } from '@/components/common/Skeleton';
 import { useToast } from '@/components/common/Toast';
+import { ImportModal } from '@/components/import/ImportModal';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
 import { api } from '@/lib/api-client';
@@ -58,6 +59,7 @@ export default function TasksPage() {
   const [activityTask, setActivityTask] = useState<Task | null>(null);
   const [archiving, setArchiving] = useState<Task | null>(null);
   const [markingDone, setMarkingDone] = useState<Task | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [archiveLoading, setArchiveLoading] = useState(false);
   const [markDoneLoading, setMarkDoneLoading] = useState(false);
@@ -221,9 +223,18 @@ export default function TasksPage() {
         helpKey="tasks"
         actions={
           canEdit ? (
-            <Button type="button" onClick={openCreate}>
-              New task
-            </Button>
+            <>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setImportOpen(true)}
+              >
+                Import
+              </Button>
+              <Button type="button" onClick={openCreate}>
+                New task
+              </Button>
+            </>
           ) : null
         }
       />
@@ -395,6 +406,13 @@ export default function TasksPage() {
           onCancel={closeModal}
         />
       </Modal>
+
+      <ImportModal
+        open={importOpen && canEdit}
+        kind="tasks"
+        onClose={() => setImportOpen(false)}
+        onImported={reload}
+      />
 
       <ConfirmDialog
         open={Boolean(markingDone)}

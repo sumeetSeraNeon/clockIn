@@ -6,6 +6,7 @@ import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
 import { ClientsModule } from './clients/clients.module';
 import { FirebaseModule } from './firebase/firebase.module';
+import { ImportsModule } from './imports/imports.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { MembersModule } from './members/members.module';
 import { OrganisationsModule } from './organisations/organisations.module';
@@ -38,6 +39,7 @@ import { TimesheetsModule } from './timesheets/timesheets.module';
     RatesModule,
     ReportsModule,
     RolesModule,
+    ImportsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

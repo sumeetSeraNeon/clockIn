@@ -883,3 +883,79 @@ export type CreateRatePairResult = {
   marginPercent: string | null;
   currency: string;
 };
+
+/** FIX 2 — CSV/Excel import preview + commit */
+export type ImportRowStatus = 'create' | 'skip' | 'error' | 'excluded';
+
+export type ImportSummary = {
+  create: number;
+  skip: number;
+  error: number;
+  excluded: number;
+};
+
+export type ImportClientLookup = { id: string; name: string };
+
+export type ImportProjectLookup = {
+  id: string;
+  name: string;
+  clientId: string;
+  clientName: string;
+};
+
+export type ClientImportRow = {
+  rowKey: string;
+  clientName: string;
+  excluded?: boolean;
+  status: ImportRowStatus;
+  reason?: string;
+  matchedClientId?: string | null;
+};
+
+export type ProjectImportRow = {
+  rowKey: string;
+  clientName: string;
+  projectName: string;
+  clientId?: string | null;
+  createClient?: boolean;
+  excluded?: boolean;
+  status: ImportRowStatus;
+  reason?: string;
+  matchedClientId?: string | null;
+  matchedProjectId?: string | null;
+};
+
+export type TaskImportRow = {
+  rowKey: string;
+  taskName: string;
+  projectName: string;
+  clientName: string;
+  clientId?: string | null;
+  projectId?: string | null;
+  createClient?: boolean;
+  createProject?: boolean;
+  excluded?: boolean;
+  status: ImportRowStatus;
+  reason?: string;
+  matchedClientId?: string | null;
+  matchedProjectId?: string | null;
+  matchedTaskId?: string | null;
+};
+
+export type ImportPreviewResponse<T> = {
+  rows: T[];
+  summary: ImportSummary;
+  lookups: {
+    clients: ImportClientLookup[];
+    projects?: ImportProjectLookup[];
+  };
+  canCreateClient?: boolean;
+  canCreateProject?: boolean;
+};
+
+export type ImportCommitResult = {
+  created: number;
+  skipped: number;
+  errors: number;
+  message: string;
+};

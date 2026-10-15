@@ -3,6 +3,8 @@
 import { useEffect, type ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 
+type ModalSize = 'md' | 'lg' | 'xl' | '2xl';
+
 type ModalProps = {
   open: boolean;
   title: string;
@@ -11,6 +13,16 @@ type ModalProps = {
   children?: ReactNode;
   footer?: ReactNode;
   className?: string;
+  /** md = forms; lg = clients; xl = projects; 2xl = tasks import. */
+  size?: ModalSize;
+};
+
+const sizeClass: Record<ModalSize, string> = {
+  md: 'w-full max-w-lg',
+  lg: 'w-full max-w-xl',
+  xl: 'w-full max-w-4xl',
+  /** Tasks need Status + Client + Project + Task + two link columns. */
+  '2xl': 'w-full max-w-6xl',
 };
 
 /** Quiet centered modal for create/edit forms. */
@@ -22,6 +34,7 @@ export function Modal({
   children,
   footer,
   className,
+  size = 'md',
 }: ModalProps) {
   useEffect(() => {
     if (!open) return;
@@ -55,11 +68,12 @@ export function Modal({
         aria-labelledby="modal-title"
         aria-describedby={descriptionId}
         className={cn(
-          'relative z-10 flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-card shadow-[0_16px_48px_rgba(26,26,26,0.12)] sm:rounded-2xl',
+          'relative z-10 flex max-h-[90vh] flex-col overflow-hidden rounded-t-2xl bg-card shadow-[0_16px_48px_rgba(26,26,26,0.12)] sm:rounded-2xl',
+          sizeClass[size],
           className,
         )}
       >
-        <div className="border-b border-border/70 px-6 py-5">
+        <div className="shrink-0 border-b border-border/70 px-6 py-5">
           <h2
             id="modal-title"
             className="text-lg font-semibold tracking-tight text-ink"
@@ -73,10 +87,10 @@ export function Modal({
           ) : null}
         </div>
         {children ? (
-          <div className="overflow-y-auto px-6 py-5">{children}</div>
+          <div className="min-h-0 overflow-y-auto px-6 py-5">{children}</div>
         ) : null}
         {footer ? (
-          <div className="flex justify-end gap-2 border-t border-border/70 px-6 py-4">
+          <div className="flex shrink-0 justify-end gap-2 border-t border-border/70 px-6 py-4">
             {footer}
           </div>
         ) : null}

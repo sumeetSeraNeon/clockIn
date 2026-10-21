@@ -36,6 +36,8 @@ model Organisation {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
   memberships            Membership[]
+  departments            Department[]
+  departmentMembers      DepartmentMember[]
   roles                  Role[]
   clients                Client[]
   projects               Project[]
@@ -137,6 +139,7 @@ model Membership {
   reports      Membership[] @relation("MembershipManager")
 
   membershipRoles MembershipRole[]
+  departmentMemberships DepartmentMember[]
 
   ownedClients            Client[]        @relation("ClientOwner")
   ownedProjects           Project[]       @relation("ProjectOwner")
@@ -153,6 +156,43 @@ model Membership {
   @@index([organisationId])
   @@index([userId])
   @@map("memberships")
+}
+
+/// A named group of people (Clockify group). Used for reporting, not project access.
+model Department {
+  id             String   @id @default(uuid())
+  organisationId String   @map("organisation_id")
+  name           String
+  /// active | archived
+  status         String   @default("active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation Organisation       @relation(fields: [organisationId], references: [id])
+  members      DepartmentMember[]
+
+  @@unique([organisationId, name])
+  @@index([organisationId])
+  @@index([status])
+  @@map("departments")
+}
+
+/// Person ↔ department. One membership can belong to many departments.
+model DepartmentMember {
+  id             String   @id @default(uuid())
+  organisationId String   @map("organisation_id")
+  departmentId   String   @map("department_id")
+  membershipId   String   @map("membership_id")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  department   Department   @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  membership   Membership   @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@unique([departmentId, membershipId])
+  @@index([organisationId])
+  @@index([membershipId])
+  @@map("department_members")
 }
 
 model Role {

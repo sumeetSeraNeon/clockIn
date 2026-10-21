@@ -3,15 +3,16 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { FormField } from '@/components/common/FormField';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import type {
+  DepartmentSummary,
   Member,
   MembershipStatus,
   OrgRole,
   UpdateMemberInput,
   UpdateMemberRolesInput,
 } from '@/types/api';
+import { api } from '@/lib/api-client';
 
 export type MemberFormSubmit = {
   member: UpdateMemberInput;
@@ -28,7 +29,7 @@ type MemberFormProps = {
 };
 
 type FormState = {
-  department: string;
+  departmentIds: string[];
   managerId: string;
   status: MembershipStatus;
   roleIds: string[];
@@ -47,15 +48,30 @@ export function MemberForm({
   onCancel,
 }: MemberFormProps) {
   const [form, setForm] = useState<FormState>({
-    department: '',
+    departmentIds: [],
     managerId: '',
     status: 'active',
     roleIds: [],
   });
+  const [departments, setDepartments] = useState<DepartmentSummary[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api<{ data: DepartmentSummary[] }>('/departments?status=active')
+      .then((res) => {
+        if (!cancelled) setDepartments(res.data ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setDepartments([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     setForm({
-      department: initial.department ?? '',
+      departmentIds: initial.departments?.map((d) => d.id) ?? [],
       managerId: initial.managerId ?? '',
       status: (initial.status as MembershipStatus) || 'active',
       roleIds: initial.roles.map((r) => r.id),
@@ -77,7 +93,7 @@ export function MemberForm({
       .filter((id) => !nextRoleIds.has(id));
 
     const member: UpdateMemberInput = {
-      department: form.department.trim() || null,
+      departmentIds: form.departmentIds,
       managerId: form.managerId || null,
       status: form.status,
     };
@@ -105,13 +121,32 @@ export function MemberForm({
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <FormField label="Department" htmlFor="member-department">
-          <Input
-            id="member-department"
-            value={form.department}
-            onChange={(e) => setField('department', e.target.value)}
-            placeholder="Delivery"
-          />
+        <FormField label="Departments" htmlFor="member-departments">
+          <div id="member-departments" className="flex flex-col gap-2">
+            {departments.length === 0 ? (
+              <p className="text-sm text-slate">No departments yet.</p>
+            ) : (
+              departments.map((department) => (
+                <label
+                  key={department.id}
+                  className="flex items-center gap-2 text-sm text-ink"
+                >
+                  <input
+                    type="checkbox"
+                    checked={form.departmentIds.includes(department.id)}
+                    onChange={() =>
+                      setField(
+                        'departmentIds',
+                        toggleId(form.departmentIds, department.id),
+                      )
+                    }
+                    className="h-4 w-4 rounded border-border accent-coral"
+                  />
+                  {department.name}
+                </label>
+              ))
+            )}
+          </div>
         </FormField>
         <FormField label="Status" htmlFor="member-status">
           <Select

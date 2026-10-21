@@ -682,6 +682,7 @@ export type Member = {
   userId: string;
   memberType: string;
   department: string | null;
+  departments?: { id: string; name: string }[];
   managerId: string | null;
   status: string;
   createdAt: string;
@@ -704,7 +705,7 @@ export type InviteMemberInput = {
   email: string;
   name?: string;
   memberType?: MemberType;
-  department?: string;
+  departmentIds?: string[];
   managerId?: string;
   roleIds?: string[];
 };
@@ -722,7 +723,7 @@ export type RequestAccessResponse = {
 };
 
 export type UpdateMemberInput = {
-  department?: string | null;
+  departmentIds?: string[];
   managerId?: string | null;
   status?: MembershipStatus;
 };
@@ -730,6 +731,49 @@ export type UpdateMemberInput = {
 export type UpdateMemberRolesInput = {
   addRoleIds?: string[];
   removeRoleIds?: string[];
+};
+
+export type DepartmentSummary = {
+  id: string;
+  organisationId: string;
+  name: string;
+  status: string;
+  memberCount: number;
+};
+
+export type DepartmentDetail = {
+  id: string;
+  name: string;
+  status: string;
+  members: {
+    membershipId: string;
+    status: string;
+    user: { id: string; email: string; name: string | null; status: string };
+  }[];
+};
+
+export type DepartmentRoster = {
+  department: { id: string; name: string };
+  dateFrom: string;
+  dateTo: string;
+  projects: {
+    id: string;
+    name: string;
+    clientName: string | null;
+    hours: number;
+  }[];
+  people: {
+    membershipId: string;
+    userId: string;
+    name: string | null;
+    email: string;
+    projects: {
+      id: string;
+      name: string;
+      clientName: string | null;
+      hours: number;
+    }[];
+  }[];
 };
 
 export type ProjectStatus =

@@ -5,7 +5,9 @@ import { FormField } from '@/components/common/FormField';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { api } from '@/lib/api-client';
 import type {
+  DepartmentSummary,
   InviteMemberInput,
   Member,
   MemberType,
@@ -24,7 +26,7 @@ type FormState = {
   email: string;
   name: string;
   memberType: MemberType;
-  department: string;
+  departmentIds: string[];
   managerId: string;
   roleIds: string[];
 };
@@ -33,7 +35,7 @@ const EMPTY: FormState = {
   email: '',
   name: '',
   memberType: 'staff',
-  department: '',
+  departmentIds: [],
   managerId: '',
   roleIds: [],
 };
@@ -53,6 +55,21 @@ export function InviteMemberForm({
   const memberRoles = useMemo(() => inviteableRoles(roles), [roles]);
   const [form, setForm] = useState<FormState>(EMPTY);
   const [errors, setErrors] = useState<{ email?: string }>({});
+  const [departments, setDepartments] = useState<DepartmentSummary[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api<{ data: DepartmentSummary[] }>('/departments?status=active')
+      .then((res) => {
+        if (!cancelled) setDepartments(res.data ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setDepartments([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const defaultRole = memberRoles[0];
@@ -82,7 +99,7 @@ export function InviteMemberForm({
       email,
       name: form.name.trim() || undefined,
       memberType: form.memberType,
-      department: form.department.trim() || undefined,
+      departmentIds: form.departmentIds,
       managerId: form.managerId || undefined,
       roleIds: memberRoleId ? [memberRoleId] : undefined,
     };
@@ -126,13 +143,34 @@ export function InviteMemberForm({
             <option value="client_contact">Client contact</option>
           </Select>
         </FormField>
-        <FormField label="Department" htmlFor="invite-department">
-          <Input
-            id="invite-department"
-            value={form.department}
-            onChange={(e) => setField('department', e.target.value)}
-            placeholder="Delivery"
-          />
+        <FormField label="Departments" htmlFor="invite-departments">
+          <div id="invite-departments" className="flex max-h-36 flex-col gap-2 overflow-auto">
+            {departments.length === 0 ? (
+              <p className="text-sm text-slate">No departments yet.</p>
+            ) : (
+              departments.map((department) => (
+                <label
+                  key={department.id}
+                  className="flex items-center gap-2 text-sm text-ink"
+                >
+                  <input
+                    type="checkbox"
+                    checked={form.departmentIds.includes(department.id)}
+                    onChange={() =>
+                      setField(
+                        'departmentIds',
+                        form.departmentIds.includes(department.id)
+                          ? form.departmentIds.filter((id) => id !== department.id)
+                          : [...form.departmentIds, department.id],
+                      )
+                    }
+                    className="h-4 w-4 rounded border-border accent-coral"
+                  />
+                  {department.name}
+                </label>
+              ))
+            )}
+          </div>
         </FormField>
       </div>
 

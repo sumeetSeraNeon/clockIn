@@ -88,6 +88,12 @@ export const APP_NAV: AppNavItem[] = [
     permission: { resource: 'member', action: 'view' },
   },
   {
+    href: '/departments',
+    label: 'Departments',
+    Icon: IconTeam,
+    permission: { resource: 'member', action: 'view' },
+  },
+  {
     href: '/rates',
     label: 'Rates',
     Icon: IconRates,

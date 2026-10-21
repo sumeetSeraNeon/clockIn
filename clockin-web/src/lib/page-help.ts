@@ -13,6 +13,7 @@ export type PageHelpKey =
   | 'tasks'
   | 'tickets'
   | 'team'
+  | 'departments'
   | 'rates'
   | 'reports'
   | 'settings';
@@ -95,6 +96,14 @@ export const PAGE_HELP: Record<PageHelpKey, PageHelp> = {
       'You cannot deactivate yourself. Removing someone lets you invite that email again.',
     ],
   },
+  departments: {
+    title: 'Departments',
+    paragraphs: [
+      'Departments group people for reporting. One person can be in several departments.',
+      'They do not grant project access. Projects show up because those people are already on the project team.',
+      'Archive a department when you no longer want it in reports. The line manager stays on Team.',
+    ],
+  },
   rates: {
     title: 'Rates',
     paragraphs: [
@@ -108,7 +117,7 @@ export const PAGE_HELP: Record<PageHelpKey, PageHelp> = {
     paragraphs: [
       'Hours, billable mix, budget burn, utilisation, and (when you have rate access) money views.',
       'Revenue and profitability use approved time. Export CSV for the current filters.',
-      'Pick a date range and use the tabs to switch report types.',
+      'Pick a date range, a department, or a person, then use the tabs to switch report types.',
     ],
   },
   settings: {

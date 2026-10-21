@@ -73,7 +73,9 @@ const ALL_TABLES = [
   'clients',
   'permissions',
   'membership_roles',
+  'department_members',
   'memberships',
+  'departments',
   'roles',
   'users',
   'organisations',
@@ -187,6 +189,21 @@ async function main() {
       memberType: 'staff',
       department: 'Leadership',
       status: 'active',
+    },
+  });
+
+  const leadership = await prisma.department.create({
+    data: {
+      organisationId: org.id,
+      name: 'Leadership',
+      status: 'active',
+    },
+  });
+  await prisma.departmentMember.create({
+    data: {
+      organisationId: org.id,
+      departmentId: leadership.id,
+      membershipId: ownerMembership.id,
     },
   });
 

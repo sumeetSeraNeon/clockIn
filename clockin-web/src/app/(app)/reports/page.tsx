@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { ApprovalsReportPanel } from '@/components/reports/ApprovalsReportPanel';
+import { DepartmentRosterPanel } from '@/components/reports/DepartmentRosterPanel';
 import { BudgetReportPanel } from '@/components/reports/BudgetReportPanel';
 import { ReportDetailedTable } from '@/components/reports/ReportDetailedTable';
 import { ReportSummaryPanel } from '@/components/reports/ReportSummaryPanel';
@@ -34,6 +35,7 @@ import type {
   Project,
   ReportGroupBy,
   Task,
+  DepartmentSummary,
 } from '@/types/api';
 
 type Tab = 'summary' | 'detailed' | 'utilisation' | 'budget' | 'approvals';
@@ -47,6 +49,7 @@ function defaultFilters(): ReportFiltersState {
     clientId: 'all',
     projectId: 'all',
     userId: 'all',
+    departmentId: 'all',
     taskId: 'all',
     billable: 'all',
     entryStatus: 'approved',
@@ -72,6 +75,7 @@ export default function ReportsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
+  const [departments, setDepartments] = useState<DepartmentSummary[]>([]);
 
   const summary = useReportSummary(
     filters,
@@ -111,11 +115,15 @@ export default function ReportsPage() {
           );
           membersData = membersRes.data ?? [];
         }
+        const departmentsRes = await api<{ data: DepartmentSummary[] }>(
+          '/departments?status=active',
+        );
         if (!cancelled) {
           setClients(clientsRes.data ?? []);
           setProjects(projectsRes.data ?? []);
           setTasks(tasksRes.data ?? []);
           setMembers(membersData);
+          setDepartments(departmentsRes.data ?? []);
         }
       } catch {
         if (!cancelled) {
@@ -407,6 +415,22 @@ export default function ReportsPage() {
         </label>
 
         <label className="flex flex-col gap-1 text-xs text-slate">
+          Department
+          <Select
+            className="min-w-[160px]"
+            value={filters.departmentId}
+            onChange={(e) => patchFilters({ departmentId: e.target.value })}
+          >
+            <option value="all">All departments</option>
+            {departments.map((department) => (
+              <option key={department.id} value={department.id}>
+                {department.name}
+              </option>
+            ))}
+          </Select>
+        </label>
+
+        <label className="flex flex-col gap-1 text-xs text-slate">
           Person
           <Select
             className="min-w-[160px]"
@@ -512,6 +536,14 @@ export default function ReportsPage() {
           This week
         </Button>
       </div>
+
+      {filters.departmentId !== 'all' ? (
+        <DepartmentRosterPanel
+          departmentId={filters.departmentId}
+          dateFrom={filters.dateFrom}
+          dateTo={filters.dateTo}
+        />
+      ) : null}
 
       {loading ? (
         <ListSkeleton rows={6} />

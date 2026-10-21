@@ -19,6 +19,7 @@ export type ReportFiltersState = {
   clientId: string | 'all';
   projectId: string | 'all';
   userId: string | 'all';
+  departmentId: string | 'all';
   taskId: string | 'all';
   billable: 'all' | 'true' | 'false';
   /** Budget report: approved | pending | all */
@@ -37,6 +38,9 @@ function appendCommon(
   if (filters.clientId !== 'all') params.set('clientId', filters.clientId);
   if (filters.projectId !== 'all') params.set('projectId', filters.projectId);
   if (filters.userId !== 'all') params.set('userId', filters.userId);
+  if (filters.departmentId !== 'all') {
+    params.set('departmentId', filters.departmentId);
+  }
   if (opts?.includeTask && filters.taskId !== 'all') {
     params.set('taskId', filters.taskId);
   }
@@ -92,6 +96,7 @@ export function useReportSummary(filters: ReportFiltersState, enabled: boolean) 
     filters.clientId,
     filters.projectId,
     filters.userId,
+    filters.departmentId,
     filters.taskId,
     reloadKey,
   ]);
@@ -163,6 +168,7 @@ export function useReportDetailed(
     filters.clientId,
     filters.projectId,
     filters.userId,
+    filters.departmentId,
     filters.taskId,
     filters.billable,
     page,
@@ -200,6 +206,9 @@ export function useReportBudget(
         if (filters.projectId !== 'all') {
           params.set('projectId', filters.projectId);
         }
+        if (filters.departmentId !== 'all') {
+          params.set('departmentId', filters.departmentId);
+        }
         const result = await api<BudgetReportResponse>(
           `/reports/budget?${params.toString()}`,
         );
@@ -225,6 +234,7 @@ export function useReportBudget(
     filters.dateFrom,
     filters.dateTo,
     filters.projectId,
+    filters.departmentId,
     filters.entryStatus,
     reloadKey,
   ]);
@@ -262,6 +272,9 @@ export function useReportApprovals(
         if (filters.userId !== 'all') {
           params.set('userId', filters.userId);
         }
+        if (filters.departmentId !== 'all') {
+          params.set('departmentId', filters.departmentId);
+        }
         const result = await api<ApprovalsReportResponse>(
           `/reports/approvals?${params.toString()}`,
         );
@@ -290,6 +303,7 @@ export function useReportApprovals(
     filters.dateTo,
     filters.projectId,
     filters.userId,
+    filters.departmentId,
     filters.approvalStatus,
     reloadKey,
   ]);
@@ -348,6 +362,7 @@ export function useReportUtilisation(
     filters.clientId,
     filters.projectId,
     filters.userId,
+    filters.departmentId,
     reloadKey,
   ]);
 

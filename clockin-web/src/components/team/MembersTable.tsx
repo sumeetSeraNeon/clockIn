@@ -81,7 +81,9 @@ export function MembersTable({
       id: 'department',
       header: 'Department',
       cell: (row) => (
-        <span className="truncate text-slate">{row.department || '—'}</span>
+        <span className="truncate text-slate">
+          {row.departments?.map((d) => d.name).join(', ') || row.department || '—'}
+        </span>
       ),
     },
     {

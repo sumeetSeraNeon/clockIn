@@ -11,6 +11,7 @@ import {
 import { mapPrismaError } from '../common/prisma-errors';
 import { PrismaService } from '../prisma/prisma.service';
 import { RatesService } from '../rates/rates.service';
+import { DepartmentsService } from '../departments/departments.service';
 import {
   ReportApprovalsQueryDto,
   ReportBudgetQueryDto,
@@ -82,6 +83,7 @@ export class ReportsService {
     private readonly prisma: PrismaService,
     private readonly rates: RatesService,
     private readonly visibility: VisibilityService,
+    private readonly departments: DepartmentsService,
   ) {}
 
   async summary(
@@ -95,12 +97,17 @@ export class ReportsService {
     const commercial = can(membership.permissions, 'rate', 'view');
 
     // FINAL FIX 7 — revenue / billable rollups use approved time only
+    const userIds = await this.scopedUserIds(
+      organisationId,
+      query.departmentId,
+      query.userId,
+    );
     const lines = await this.fetchLines(organisationId, membership, userId, {
       dateFrom: query.dateFrom,
       dateTo: query.dateTo,
       clientId: query.clientId,
       projectId: query.projectId,
-      userId: query.userId,
+      userIds,
       taskId: query.taskId,
       entryStatus: 'approved',
     });
@@ -114,7 +121,7 @@ export class ReportsService {
         dateTo: query.dateTo,
         clientId: query.clientId,
         projectId: query.projectId,
-        userId: query.userId,
+        userIds,
         taskId: query.taskId,
       },
     );
@@ -336,11 +343,24 @@ export class ReportsService {
     const { page, pageSize, skip, take } = resolvePagination(query);
     const commercial = can(membership.permissions, 'rate', 'view');
 
+    const userIds = await this.scopedUserIds(
+      organisationId,
+      query.departmentId,
+      query.userId,
+    );
     const where = await this.lineWhere(
       organisationId,
       membership,
       userId,
-      query,
+      {
+        dateFrom: query.dateFrom,
+        dateTo: query.dateTo,
+        clientId: query.clientId,
+        projectId: query.projectId,
+        userIds,
+        taskId: query.taskId,
+        billable: query.billable,
+      },
     );
 
     try {
@@ -447,6 +467,10 @@ export class ReportsService {
     const projectIds = projects.map((p) => p.id);
     const actualByProject = new Map<string, number>();
     const actualByTask = new Map<string, number>();
+    const departmentUserIds = await this.scopedUserIds(
+      organisationId,
+      query.departmentId,
+    );
 
     if (projectIds.length > 0) {
       let statusFilter: Prisma.StringFilter | string | undefined;
@@ -468,6 +492,9 @@ export class ReportsService {
               gte: new Date(query.dateFrom),
               lte: new Date(query.dateTo),
             },
+            ...(departmentUserIds
+              ? { userId: { in: departmentUserIds } }
+              : {}),
             ...(statusFilter !== undefined ? { status: statusFilter } : {}),
           },
         },
@@ -587,12 +614,17 @@ export class ReportsService {
   ) {
     this.assertDateRange(query.dateFrom, query.dateTo);
 
+    const userIds = await this.scopedUserIds(
+      organisationId,
+      query.departmentId,
+      query.userId,
+    );
     const lines = await this.fetchLines(organisationId, membership, userId, {
       dateFrom: query.dateFrom,
       dateTo: query.dateTo,
       clientId: query.clientId,
       projectId: query.projectId,
-      userId: query.userId,
+      userIds,
       entryStatus: 'approved',
     });
 
@@ -715,6 +747,11 @@ export class ReportsService {
     const visibleProjectIds = new Set(visibleProjects.map((p) => p.id));
     const canSeeAllProjects = Object.keys(projectVis).length === 0;
 
+    const approvalUserIds = await this.scopedUserIds(
+      organisationId,
+      query.departmentId,
+      query.userId,
+    );
     const slices = await this.prisma.timesheetPeriodSlice.findMany({
       where: {
         organisationId,
@@ -722,7 +759,7 @@ export class ReportsService {
         ...(query.projectId ? { projectId: query.projectId } : {}),
         timesheetPeriod: {
           organisationId,
-          ...(query.userId ? { userId: query.userId } : {}),
+          ...(approvalUserIds ? { userId: { in: approvalUserIds } } : {}),
           OR: [
             {
               periodStart: {
@@ -828,6 +865,24 @@ export class ReportsService {
     };
   }
 
+  /**
+   * When a department is selected, limit report rows to its active people.
+   * An explicit person filter is intersected with that set.
+   */
+  private async scopedUserIds(
+    organisationId: string,
+    departmentId?: string,
+    userId?: string,
+  ): Promise<string[] | undefined> {
+    if (!departmentId) return userId ? [userId] : undefined;
+    const ids = await this.departments.userIdsInDepartment(
+      organisationId,
+      departmentId,
+    );
+    if (!userId) return ids;
+    return ids.includes(userId) ? [userId] : [];
+  }
+
   private async fetchLines(
     organisationId: string,
     membership: AuthMembership,
@@ -838,6 +893,7 @@ export class ReportsService {
       clientId?: string;
       projectId?: string;
       userId?: string;
+      userIds?: string[];
       taskId?: string;
       billable?: boolean;
       /** FINAL FIX 7 — default approved for report rollups */
@@ -870,6 +926,7 @@ export class ReportsService {
       clientId?: string;
       projectId?: string;
       userId?: string;
+      userIds?: string[];
       taskId?: string;
       billable?: boolean;
       entryStatus?: 'approved' | 'pending' | 'all';
@@ -908,7 +965,11 @@ export class ReportsService {
               gte: new Date(filters.dateFrom),
               lte: new Date(filters.dateTo),
             },
-            ...(filters.userId ? { userId: filters.userId } : {}),
+            ...(filters.userIds
+              ? { userId: { in: filters.userIds } }
+              : filters.userId
+                ? { userId: filters.userId }
+                : {}),
             ...(statusFilter !== undefined ? { status: statusFilter } : {}),
           },
         },
@@ -927,6 +988,7 @@ export class ReportsService {
       clientId?: string;
       projectId?: string;
       userId?: string;
+      userIds?: string[];
       taskId?: string;
     },
   ): Promise<{ durationMinutes: number; billableMinutes: number }> {

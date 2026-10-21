@@ -42,6 +42,10 @@ export class ReportSummaryQueryDto {
 
   @IsOptional()
   @IsUUID()
+  departmentId?: string;
+
+  @IsOptional()
+  @IsUUID()
   taskId?: string;
 }
 
@@ -79,6 +83,10 @@ export class ReportDetailedQueryDto {
 
   @IsOptional()
   @IsUUID()
+  departmentId?: string;
+
+  @IsOptional()
+  @IsUUID()
   taskId?: string;
 
   @IsOptional()
@@ -97,6 +105,10 @@ export class ReportBudgetQueryDto {
   @IsOptional()
   @IsUUID()
   projectId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  departmentId?: string;
 
   @IsOptional()
   @IsIn(['approved', 'pending', 'all'])
@@ -121,6 +133,10 @@ export class ReportApprovalsQueryDto {
   @IsOptional()
   @IsUUID()
   userId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  departmentId?: string;
 }
 
 /** STEP 3 — billable utilisation per person */
@@ -142,4 +158,8 @@ export class ReportUtilisationQueryDto {
   @IsOptional()
   @IsUUID()
   userId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  departmentId?: string;
 }

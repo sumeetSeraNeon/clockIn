@@ -40,6 +40,11 @@ const memberInclude = {
       role: { select: { id: true, name: true, isSystem: true } },
     },
   },
+  departmentMemberships: {
+    include: {
+      department: { select: { id: true, name: true, status: true } },
+    },
+  },
 } satisfies Prisma.MembershipInclude;
 
 type MemberRecord = Prisma.MembershipGetPayload<{
@@ -52,6 +57,7 @@ export type MemberResponse = {
   userId: string;
   memberType: string;
   department: string | null;
+  departments: { id: string; name: string }[];
   managerId: string | null;
   status: string;
   createdAt: Date;
@@ -196,10 +202,6 @@ export class MembersService {
               data: {
                 status: 'active',
                 memberType: dto.memberType ?? existingMembership.memberType,
-                department:
-                  dto.department !== undefined
-                    ? dto.department
-                    : existingMembership.department,
                 managerId:
                   dto.managerId !== undefined
                     ? dto.managerId
@@ -225,6 +227,15 @@ export class MembersService {
               }
             }
 
+            if (dto.departmentIds) {
+              await this.replaceDepartmentLinks(
+                tx,
+                organisationId,
+                existingMembership.id,
+                dto.departmentIds,
+              );
+            }
+
             return tx.membership.findFirstOrThrow({
               where: { id: existingMembership.id },
               include: memberInclude,
@@ -240,7 +251,6 @@ export class MembersService {
             organisationId,
             userId: user.id,
             memberType: dto.memberType ?? 'staff',
-            department: dto.department,
             managerId: dto.managerId,
             status: 'active',
             ...(dto.roleIds?.length
@@ -253,6 +263,19 @@ export class MembersService {
           },
           include: memberInclude,
         });
+
+        if (dto.departmentIds?.length) {
+          await this.replaceDepartmentLinks(
+            tx,
+            organisationId,
+            created.id,
+            dto.departmentIds,
+          );
+          return tx.membership.findFirstOrThrow({
+            where: { id: created.id },
+            include: memberInclude,
+          });
+        }
 
         return created;
       });
@@ -387,22 +410,33 @@ export class MembersService {
     }
 
     try {
-      const result = await this.prisma.membership.updateMany({
-        where: { id: existing.id, organisationId },
-        data: {
-          ...(dto.department !== undefined
-            ? { department: dto.department }
-            : {}),
-          ...(dto.managerId !== undefined ? { managerId: dto.managerId } : {}),
-          ...(dto.status !== undefined ? { status: dto.status } : {}),
-        },
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const result = await tx.membership.updateMany({
+          where: { id: existing.id, organisationId },
+          data: {
+            ...(dto.managerId !== undefined ? { managerId: dto.managerId } : {}),
+            ...(dto.status !== undefined ? { status: dto.status } : {}),
+          },
+        });
+
+        if (result.count === 0) {
+          throw new NotFoundException('Member not found');
+        }
+
+        if (dto.departmentIds) {
+          await this.replaceDepartmentLinks(
+            tx,
+            organisationId,
+            existing.id,
+            dto.departmentIds,
+          );
+        }
+
+        return tx.membership.findFirstOrThrow({
+          where: { id: existing.id },
+          include: memberInclude,
+        });
       });
-
-      if (result.count === 0) {
-        throw new NotFoundException('Member not found');
-      }
-
-      const updated = await this.findOwnedOrThrow(organisationId, id);
 
       await this.audit.writeAudit({
         organisationId,
@@ -754,12 +788,14 @@ export class MembersService {
   }
 
   private toResponse(row: MemberRecord): MemberResponse {
+    const departments = this.departmentList(row);
     return {
       id: row.id,
       organisationId: row.organisationId,
       userId: row.userId,
       memberType: row.memberType,
-      department: row.department,
+      department: departments.map((d) => d.name).join(', ') || null,
+      departments,
       managerId: row.managerId,
       status: row.status,
       createdAt: row.createdAt,
@@ -773,14 +809,63 @@ export class MembersService {
     };
   }
 
+  private departmentList(row: MemberRecord): { id: string; name: string }[] {
+    return row.departmentMemberships
+      .filter((link) => link.department.status === 'active')
+      .map((link) => ({
+        id: link.department.id,
+        name: link.department.name,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  private async replaceDepartmentLinks(
+    tx: Prisma.TransactionClient,
+    organisationId: string,
+    membershipId: string,
+    departmentIds: string[],
+  ): Promise<void> {
+    if (departmentIds.length) {
+      const found = await tx.department.findMany({
+        where: {
+          organisationId,
+          id: { in: departmentIds },
+          status: 'active',
+        },
+        select: { id: true },
+      });
+      if (found.length !== departmentIds.length) {
+        throw new BadRequestException(
+          'One or more departments are not active in your organisation',
+        );
+      }
+    }
+
+    await tx.departmentMember.deleteMany({
+      where: { organisationId, membershipId },
+    });
+
+    if (departmentIds.length) {
+      await tx.departmentMember.createMany({
+        data: departmentIds.map((departmentId) => ({
+          organisationId,
+          departmentId,
+          membershipId,
+        })),
+      });
+    }
+  }
+
   private toAuditJson(row: MemberRecord): Prisma.InputJsonValue {
+    const departments = this.departmentList(row);
     return {
       id: row.id,
       organisationId: row.organisationId,
       userId: row.userId,
       email: row.user.email,
       memberType: row.memberType,
-      department: row.department,
+      department: departments.map((d) => d.name).join(', ') || null,
+      departmentIds: departments.map((d) => d.id),
       managerId: row.managerId,
       status: row.status,
       roles: row.membershipRoles.map((mr) => mr.role.name),

@@ -255,6 +255,12 @@ async function main() {
     },
   });
 
+  await linkSeedDepartment(prisma, org.id, 'Leadership', [
+    ownerMembership.id,
+    adminMembership.id,
+  ]);
+  await linkSeedDepartment(prisma, org.id, 'Delivery', [memberMembership.id]);
+
   const roleRows: { key: SystemRoleName; name: SystemRoleName }[] = [
     { key: 'owner', name: 'owner' },
     { key: 'admin', name: 'admin' },
@@ -720,6 +726,37 @@ async function main() {
     throw new Error(
       `Expected exactly 3 users after seed, found ${userCount}. migrate reset required.`,
     );
+  }
+}
+
+async function linkSeedDepartment(
+  client: PrismaClient,
+  organisationId: string,
+  name: string,
+  membershipIds: string[],
+) {
+  const existing = await client.department.findFirst({
+    where: {
+      organisationId,
+      name: { equals: name, mode: 'insensitive' },
+    },
+  });
+  const department =
+    existing ??
+    (await client.department.create({
+      data: { organisationId, name, status: 'active' },
+    }));
+  for (const membershipId of membershipIds) {
+    await client.departmentMember.upsert({
+      where: {
+        departmentId_membershipId: {
+          departmentId: department.id,
+          membershipId,
+        },
+      },
+      update: {},
+      create: { organisationId, departmentId: department.id, membershipId },
+    });
   }
 }
 

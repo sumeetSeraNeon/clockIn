@@ -5,6 +5,7 @@ import { AppService } from './app.service';
 import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
 import { ClientsModule } from './clients/clients.module';
+import { DepartmentsModule } from './departments/departments.module';
 import { FirebaseModule } from './firebase/firebase.module';
 import { ImportsModule } from './imports/imports.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -34,6 +35,7 @@ import { TimesheetsModule } from './timesheets/timesheets.module';
     TasksModule,
     TicketsModule,
     MembersModule,
+    DepartmentsModule,
     TimeModule,
     TimesheetsModule,
     RatesModule,

@@ -186,6 +186,8 @@ async function main() {
     },
   });
 
+  await linkSeedDepartment(prisma, org.id, 'Leadership', [ownerMembership.id]);
+
   await prisma.membershipRole.deleteMany({
     where: { membershipId: ownerMembership.id },
   });
@@ -205,6 +207,37 @@ async function main() {
     clients: await prisma.client.count(),
     projects: await prisma.project.count(),
   });
+}
+
+async function linkSeedDepartment(
+  client: PrismaClient,
+  organisationId: string,
+  name: string,
+  membershipIds: string[],
+) {
+  const existing = await client.department.findFirst({
+    where: {
+      organisationId,
+      name: { equals: name, mode: 'insensitive' },
+    },
+  });
+  const department =
+    existing ??
+    (await client.department.create({
+      data: { organisationId, name, status: 'active' },
+    }));
+  for (const membershipId of membershipIds) {
+    await client.departmentMember.upsert({
+      where: {
+        departmentId_membershipId: {
+          departmentId: department.id,
+          membershipId,
+        },
+      },
+      update: {},
+      create: { organisationId, departmentId: department.id, membershipId },
+    });
+  }
 }
 
 main()

@@ -26,10 +26,12 @@ export class InviteMemberDto {
   @IsIn(MEMBER_TYPES)
   memberType?: (typeof MEMBER_TYPES)[number];
 
+  /** Departments this person belongs to (active departments in this org). */
   @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  department?: string;
+  @IsArray()
+  @ArrayUnique()
+  @IsUUID('4', { each: true })
+  departmentIds?: string[];
 
   /** Manager membership id in the same org */
   @IsOptional()

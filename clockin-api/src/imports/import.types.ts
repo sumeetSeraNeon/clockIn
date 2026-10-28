@@ -2,10 +2,16 @@
 
 export const IMPORT_MAX_ROWS = 2000;
 
-export type ImportRowStatus = 'create' | 'skip' | 'error' | 'excluded';
+export type ImportRowStatus =
+  | 'create'
+  | 'update'
+  | 'skip'
+  | 'error'
+  | 'excluded';
 
 export type ImportSummary = {
   create: number;
+  update: number;
   skip: number;
   error: number;
   excluded: number;
@@ -70,15 +76,69 @@ export type TaskImportRowResult = TaskImportRowInput & {
   matchedTaskId?: string | null;
 };
 
+export type TicketImportRowInput = {
+  rowKey: string;
+  clientName: string;
+  reference: string;
+  title: string;
+  status: string;
+  priority?: string | null;
+  ticketType: string;
+  agentName?: string | null;
+  groupName?: string | null;
+  openedAt?: string | null;
+  dueAt?: string | null;
+  resolvedAt?: string | null;
+  closedAt?: string | null;
+  initialResponseAt?: string | null;
+  firstResponseDuration?: string | null;
+  resolutionDuration?: string | null;
+  tags?: string | null;
+  internalAgentName?: string | null;
+  ticketPriority?: string | null;
+  workstream?: string | null;
+  contactName?: string | null;
+  contactEmail?: string | null;
+  /** Always text — never a float from Excel. */
+  contactExternalId?: string | null;
+  source?: string | null;
+  /** Override client match when preview picks a different client. */
+  clientId?: string | null;
+  excluded?: boolean;
+};
+
+export type TicketImportRowResult = TicketImportRowInput & {
+  status: ImportRowStatus;
+  reason?: string;
+  matchedClientId?: string | null;
+  matchedTicketId?: string | null;
+  matchedDepartmentId?: string | null;
+  parsed?: {
+    ticketType: string;
+    status: string;
+    priority: string | null;
+    ticketPriority: string | null;
+    openedAt: string | null;
+    dueAt: string | null;
+    resolvedAt: string | null;
+    closedAt: string | null;
+    initialResponseAt: string | null;
+    firstResponseSeconds: number | null;
+    resolutionSeconds: number | null;
+    internalAgentName: string | null;
+  };
+};
+
 export type ImportCommitResult = {
   created: number;
+  updated?: number;
   skipped: number;
   errors: number;
   message: string;
 };
 
 export function emptySummary(): ImportSummary {
-  return { create: 0, skip: 0, error: 0, excluded: 0 };
+  return { create: 0, update: 0, skip: 0, error: 0, excluded: 0 };
 }
 
 export function summarizeRows(

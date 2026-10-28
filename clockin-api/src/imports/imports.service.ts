@@ -20,11 +20,27 @@ import {
   type ProjectImportRowResult,
   type TaskImportRowInput,
   type TaskImportRowResult,
+  type TicketImportRowInput,
+  type TicketImportRowResult,
   IMPORT_MAX_ROWS,
   nameKey,
   normName,
   summarizeRows,
 } from './import.types';
+import {
+  blankToNull,
+  contactExternalIdText,
+  normalizeInternalAgent,
+  parseDurationSeconds,
+  parseUkDateTime,
+} from './ticket-import-parse';
+import {
+  normalizeTicketPriorityCode,
+  normalizeTicketPriorityLabel,
+  normalizeTicketStatusLabel,
+  normalizeTicketTypeLabel,
+} from '../tickets/ticket.constants';
+import { AuditService } from '../audit/audit.service';
 
 type NameMatch<T> =
   | { kind: 'none' }
@@ -39,6 +55,7 @@ export class ImportsService {
     private readonly clientsService: ClientsService,
     private readonly projectsService: ProjectsService,
     private readonly tasksService: TasksService,
+    private readonly audit: AuditService,
   ) {}
 
   async previewClients(
@@ -980,6 +997,403 @@ export class ImportsService {
       }));
   }
 
+  async previewTickets(
+    organisationId: string,
+    membership: AuthMembership,
+    rows: TicketImportRowInput[],
+  ) {
+    this.assertRowCount(rows);
+    this.assertCanEditTickets(membership);
+    const [clients, tickets, departments] = await Promise.all([
+      this.loadClients(organisationId, membership),
+      this.loadTicketsByReference(organisationId),
+      this.loadDepartments(organisationId),
+    ]);
+    const resultRows = this.validateTicketRows(
+      rows,
+      clients,
+      tickets,
+      departments,
+    );
+    return {
+      rows: resultRows,
+      summary: summarizeRows(resultRows),
+      lookups: { clients: this.toClientLookups(clients) },
+    };
+  }
+
+  async commitTickets(
+    organisationId: string,
+    membership: AuthMembership,
+    rows: TicketImportRowInput[],
+  ): Promise<ImportCommitResult> {
+    this.assertRowCount(rows);
+    this.assertCanEditTickets(membership);
+
+    let created = 0;
+    let updated = 0;
+    let skipped = 0;
+    let errors = 0;
+
+    // Fresh lookups each commit pass
+    const clients = await this.loadClients(organisationId, membership);
+    let tickets = await this.loadTicketsByReference(organisationId);
+    const departments = await this.loadDepartments(organisationId);
+
+    const validated = this.validateTicketRows(
+      rows,
+      clients,
+      tickets,
+      departments,
+    );
+
+    for (const row of validated) {
+      if (row.excluded || row.status === 'excluded') {
+        skipped += 1;
+        continue;
+      }
+      if (row.status === 'skip') {
+        skipped += 1;
+        continue;
+      }
+      if (row.status === 'error' || !row.parsed || !row.matchedClientId) {
+        errors += 1;
+        continue;
+      }
+
+      const contactName =
+        blankToNull(row.contactName) || blankToNull(row.agentName);
+      const data = {
+        clientId: row.matchedClientId,
+        departmentId: row.matchedDepartmentId ?? null,
+        reference: normName(row.reference),
+        ticketType: row.parsed.ticketType,
+        title: blankToNull(row.title),
+        status: row.parsed.status,
+        priority: row.parsed.priority,
+        ticketPriority: row.parsed.ticketPriority,
+        raisedBy: contactName,
+        agentName: blankToNull(row.agentName),
+        internalAgentName: row.parsed.internalAgentName,
+        contactName,
+        contactEmail: blankToNull(row.contactEmail),
+        contactExternalId: contactExternalIdText(row.contactExternalId),
+        source: blankToNull(row.source),
+        tags: blankToNull(row.tags),
+        workstream: blankToNull(row.workstream),
+        openedAt: row.parsed.openedAt
+          ? new Date(row.parsed.openedAt)
+          : null,
+        dueAt: row.parsed.dueAt ? new Date(row.parsed.dueAt) : null,
+        resolvedAt: row.parsed.resolvedAt
+          ? new Date(row.parsed.resolvedAt)
+          : null,
+        closedAt: row.parsed.closedAt
+          ? new Date(row.parsed.closedAt)
+          : null,
+        initialResponseAt: row.parsed.initialResponseAt
+          ? new Date(row.parsed.initialResponseAt)
+          : null,
+        firstResponseSeconds: row.parsed.firstResponseSeconds,
+        resolutionSeconds: row.parsed.resolutionSeconds,
+      };
+
+      if (row.status === 'update' && row.matchedTicketId) {
+        const existing = await this.prisma.ticket.findFirst({
+          where: { id: row.matchedTicketId, organisationId },
+        });
+        if (!existing) {
+          errors += 1;
+          continue;
+        }
+        const saved = await this.prisma.ticket.update({
+          where: { id: existing.id },
+          data: {
+            ...data,
+            // Keep project if already assigned
+            projectId: existing.projectId,
+            resolvedAt:
+              data.resolvedAt ??
+              (data.status === 'resolved' && !existing.resolvedAt
+                ? new Date()
+                : existing.resolvedAt),
+            closedAt:
+              data.closedAt ??
+              (data.status === 'closed' && !existing.closedAt
+                ? new Date()
+                : existing.closedAt),
+          },
+        });
+        await this.audit.writeAudit({
+          organisationId,
+          actorMembershipId: membership.id,
+          entityType: 'ticket',
+          entityId: saved.id,
+          action: 'update',
+          oldValue: { reference: existing.reference, status: existing.status },
+          newValue: { reference: saved.reference, status: saved.status },
+        });
+        updated += 1;
+        tickets.set(nameKey(saved.reference), {
+          id: saved.id,
+          reference: saved.reference,
+        });
+        continue;
+      }
+
+      const saved = await this.prisma.ticket.create({
+        data: {
+          organisationId,
+          ...data,
+          openedAt: data.openedAt ?? new Date(),
+          resolvedAt:
+            data.resolvedAt ??
+            (data.status === 'resolved' ? new Date() : null),
+          closedAt:
+            data.closedAt ?? (data.status === 'closed' ? new Date() : null),
+        },
+      });
+      await this.audit.writeAudit({
+        organisationId,
+        actorMembershipId: membership.id,
+        entityType: 'ticket',
+        entityId: saved.id,
+        action: 'create',
+        newValue: { reference: saved.reference, status: saved.status },
+      });
+      created += 1;
+      tickets.set(nameKey(saved.reference), {
+        id: saved.id,
+        reference: saved.reference,
+      });
+    }
+
+    return this.commitMessage(created, skipped, errors, updated);
+  }
+
+  private validateTicketRows(
+    rows: TicketImportRowInput[],
+    clients: { id: string; name: string }[],
+    tickets: Map<string, { id: string; reference: string }>,
+    departments: { id: string; name: string }[],
+  ): TicketImportRowResult[] {
+    const clientsByKey = new Map(
+      clients.map((c) => [nameKey(c.name), c] as const),
+    );
+    const departmentsByKey = new Map(
+      departments.map((d) => [nameKey(d.name), d] as const),
+    );
+
+    return rows.map((row) => {
+      if (row.excluded) {
+        return { ...row, status: 'excluded' as const };
+      }
+
+      const reference = normName(row.reference);
+      const title = normName(row.title);
+      const clientName =
+        normName(row.clientName) || normName(row.tags ?? '') || '';
+
+      if (!reference) {
+        return {
+          ...row,
+          status: 'error' as const,
+          reason: 'Ticket ID is required',
+        };
+      }
+      if (!title) {
+        return {
+          ...row,
+          status: 'error' as const,
+          reason: 'Subject is required',
+        };
+      }
+      if (!clientName && !row.clientId) {
+        return {
+          ...row,
+          status: 'error' as const,
+          reason: 'Client (or Tags) is required',
+        };
+      }
+
+      let matchedClient =
+        row.clientId != null
+          ? clients.find((c) => c.id === row.clientId) ?? null
+          : null;
+      if (!matchedClient && clientName) {
+        matchedClient = clientsByKey.get(nameKey(clientName)) ?? null;
+      }
+      if (!matchedClient) {
+        return {
+          ...row,
+          clientName,
+          status: 'error' as const,
+          reason: `Client "${clientName || row.clientName}" not found in ClockIn`,
+        };
+      }
+
+      const ticketType = normalizeTicketTypeLabel(row.ticketType);
+      if (!ticketType) {
+        return {
+          ...row,
+          clientName,
+          status: 'error' as const,
+          reason: `Unknown Type "${row.ticketType}"`,
+          matchedClientId: matchedClient.id,
+        };
+      }
+
+      const status = normalizeTicketStatusLabel(row.status);
+      if (!status) {
+        return {
+          ...row,
+          clientName,
+          status: 'error' as const,
+          reason: `Unknown Status "${row.status}"`,
+          matchedClientId: matchedClient.id,
+        };
+      }
+
+      const priority = row.priority
+        ? normalizeTicketPriorityLabel(row.priority)
+        : null;
+      if (row.priority?.trim() && !priority) {
+        return {
+          ...row,
+          clientName,
+          status: 'error' as const,
+          reason: `Unknown Priority "${row.priority}"`,
+          matchedClientId: matchedClient.id,
+        };
+      }
+
+      const ticketPriority = row.ticketPriority
+        ? normalizeTicketPriorityCode(row.ticketPriority)
+        : null;
+      if (row.ticketPriority?.trim() && !ticketPriority) {
+        return {
+          ...row,
+          clientName,
+          status: 'error' as const,
+          reason: `Unknown Ticket Priority "${row.ticketPriority}"`,
+          matchedClientId: matchedClient.id,
+        };
+      }
+
+      const dateFields: Array<[string, string | null | undefined]> = [
+        ['Created time', row.openedAt],
+        ['Due by Time', row.dueAt],
+        ['Resolved time', row.resolvedAt],
+        ['Closed time', row.closedAt],
+        ['Initial response time', row.initialResponseAt],
+      ];
+      const parsedDates: Record<string, string | null> = {};
+      for (const [label, raw] of dateFields) {
+        if (!raw?.trim()) {
+          parsedDates[label] = null;
+          continue;
+        }
+        const d = parseUkDateTime(raw);
+        if (!d) {
+          return {
+            ...row,
+            clientName,
+            status: 'error' as const,
+            reason: `Could not read ${label}: "${raw}"`,
+            matchedClientId: matchedClient.id,
+          };
+        }
+        parsedDates[label] = d.toISOString();
+      }
+
+      const firstResponseSeconds = row.firstResponseDuration?.trim()
+        ? parseDurationSeconds(row.firstResponseDuration)
+        : null;
+      if (
+        row.firstResponseDuration?.trim() &&
+        firstResponseSeconds === null
+      ) {
+        return {
+          ...row,
+          clientName,
+          status: 'error' as const,
+          reason: `Could not read First response time: "${row.firstResponseDuration}"`,
+          matchedClientId: matchedClient.id,
+        };
+      }
+
+      const resolutionSeconds = row.resolutionDuration?.trim()
+        ? parseDurationSeconds(row.resolutionDuration)
+        : null;
+      if (row.resolutionDuration?.trim() && resolutionSeconds === null) {
+        return {
+          ...row,
+          clientName,
+          status: 'error' as const,
+          reason: `Could not read Resolution time: "${row.resolutionDuration}"`,
+          matchedClientId: matchedClient.id,
+        };
+      }
+
+      const groupName = normName(row.groupName);
+      let matchedDepartment: { id: string; name: string } | null = null;
+      if (groupName) {
+        matchedDepartment = departmentsByKey.get(nameKey(groupName)) ?? null;
+        if (!matchedDepartment) {
+          return {
+            ...row,
+            clientName,
+            status: 'error' as const,
+            reason: `Department "${groupName}" not found`,
+            matchedClientId: matchedClient.id,
+          };
+        }
+      }
+
+      const existingTicket = tickets.get(nameKey(reference)) ?? null;
+
+      return {
+        ...row,
+        clientName,
+        reference,
+        title,
+        status: existingTicket ? ('update' as const) : ('create' as const),
+        matchedClientId: matchedClient.id,
+        matchedTicketId: existingTicket?.id ?? null,
+        matchedDepartmentId: matchedDepartment?.id ?? null,
+        parsed: {
+          ticketType,
+          status,
+          priority,
+          ticketPriority,
+          openedAt: parsedDates['Created time'] ?? null,
+          dueAt: parsedDates['Due by Time'] ?? null,
+          resolvedAt: parsedDates['Resolved time'] ?? null,
+          closedAt: parsedDates['Closed time'] ?? null,
+          initialResponseAt: parsedDates['Initial response time'] ?? null,
+          firstResponseSeconds,
+          resolutionSeconds,
+          internalAgentName: normalizeInternalAgent(row.internalAgentName),
+        },
+      };
+    });
+  }
+
+  private async loadTicketsByReference(organisationId: string) {
+    const rows = await this.prisma.ticket.findMany({
+      where: { organisationId },
+      select: { id: true, reference: true },
+    });
+    return new Map(rows.map((r) => [nameKey(r.reference), r] as const));
+  }
+
+  private async loadDepartments(organisationId: string) {
+    return this.prisma.department.findMany({
+      where: { organisationId, status: 'active' },
+      select: { id: true, name: true },
+    });
+  }
+
   // ─── guards / helpers ─────────────────────────────────────────────────────
 
   private assertRowCount(rows: unknown[]): void {
@@ -1011,15 +1425,25 @@ export class ImportsService {
     }
   }
 
+  private assertCanEditTickets(membership: AuthMembership): void {
+    if (!can(membership.permissions, 'ticket', 'edit')) {
+      throw new ForbiddenException('You cannot import tickets');
+    }
+  }
+
   private commitMessage(
     created: number,
     skipped: number,
     errors: number,
+    updated = 0,
   ): ImportCommitResult {
-    const parts = [`${created} created`, `${skipped} skipped`];
+    const parts = [`${created} created`];
+    if (updated > 0) parts.push(`${updated} updated`);
+    parts.push(`${skipped} skipped`);
     if (errors > 0) parts.push(`${errors} errored`);
     return {
       created,
+      updated,
       skipped,
       errors,
       message: parts.join(', '),

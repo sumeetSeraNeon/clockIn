@@ -3,7 +3,7 @@
 import { useEffect, type ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 
-type ModalSize = 'md' | 'lg' | 'xl' | '2xl';
+type ModalSize = 'md' | 'lg' | 'xl' | '2xl' | 'full';
 
 type ModalProps = {
   open: boolean;
@@ -13,7 +13,7 @@ type ModalProps = {
   children?: ReactNode;
   footer?: ReactNode;
   className?: string;
-  /** md = forms; lg = clients; xl = projects; 2xl = tasks import. */
+  /** md = forms; lg = clients; xl = projects; 2xl = tasks; full = ticket import. */
   size?: ModalSize;
 };
 
@@ -23,6 +23,8 @@ const sizeClass: Record<ModalSize, string> = {
   xl: 'w-full max-w-4xl',
   /** Tasks need Status + Client + Project + Task + two link columns. */
   '2xl': 'w-full max-w-6xl',
+  /** Freshdesk ticket import — many columns. */
+  full: 'w-[min(100vw-1.5rem,96rem)] max-w-[96rem]',
 };
 
 /** Quiet centered modal for create/edit forms. */

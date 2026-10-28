@@ -17,6 +17,10 @@ import {
   TaskImportCommitDto,
   TaskImportPreviewDto,
 } from './dto/task-import.dto';
+import {
+  TicketImportCommitDto,
+  TicketImportPreviewDto,
+} from './dto/ticket-import.dto';
 import { ImportsService } from './imports.service';
 
 @Controller('imports')
@@ -102,6 +106,34 @@ export class ImportsController {
     @Body() dto: TaskImportCommitDto,
   ) {
     return this.importsService.commitTasks(
+      organisationId,
+      membership,
+      dto.rows,
+    );
+  }
+
+  @Post('tickets/preview')
+  @RequirePermission('ticket', 'edit')
+  previewTickets(
+    @CurrentOrg() organisationId: string,
+    @CurrentMembership() membership: AuthMembership,
+    @Body() dto: TicketImportPreviewDto,
+  ) {
+    return this.importsService.previewTickets(
+      organisationId,
+      membership,
+      dto.rows,
+    );
+  }
+
+  @Post('tickets/commit')
+  @RequirePermission('ticket', 'edit')
+  commitTickets(
+    @CurrentOrg() organisationId: string,
+    @CurrentMembership() membership: AuthMembership,
+    @Body() dto: TicketImportCommitDto,
+  ) {
+    return this.importsService.commitTickets(
       organisationId,
       membership,
       dto.rows,

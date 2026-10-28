@@ -47,6 +47,8 @@ type AddTimeFormProps = {
   defaultTaskId?: string;
   /** Prefill project (e.g. from Tickets → Track). */
   defaultProjectId?: string;
+  /** Prefill client (e.g. from Tickets → Track). */
+  defaultClientId?: string;
   /** Prefill ticket (e.g. from Tickets → Track). */
   defaultTicketId?: string;
   defaultDate?: string;
@@ -93,6 +95,7 @@ export function AddTimeForm({
   submitting,
   defaultTaskId = '',
   defaultProjectId = '',
+  defaultClientId = '',
   defaultTicketId = '',
   defaultDate,
   defaultRange = null,
@@ -104,8 +107,8 @@ export function AddTimeForm({
 }: AddTimeFormProps) {
   const firstLine = initialEntry?.timeLines?.[0];
 
-  const [clientId, setClientId] = useState('');
-  const [projectId, setProjectId] = useState('');
+  const [clientId, setClientId] = useState(defaultClientId);
+  const [projectId, setProjectId] = useState(defaultProjectId);
   const [taskId, setTaskId] = useState(defaultTaskId);
   const [ticketId, setTicketId] = useState(defaultTicketId);
   const [entryDate, setEntryDate] = useState(
@@ -119,10 +122,18 @@ export function AddTimeForm({
   const [endTime, setEndTime] = useState('10:00');
   const [error, setError] = useState<string | null>(null);
 
-  const scopedProjects = useMemo(
-    () => projectsScopedToTasks(tasks, projects),
-    [tasks, projects],
-  );
+  const scopedProjects = useMemo(() => {
+    const base = projectsScopedToTasks(tasks, projects);
+    // Track from ticket: include the ticket's project even if it has no open tasks yet.
+    if (
+      defaultProjectId &&
+      !base.some((p) => p.id === defaultProjectId)
+    ) {
+      const extra = projects.find((p) => p.id === defaultProjectId);
+      if (extra) return [...base, extra];
+    }
+    return base;
+  }, [tasks, projects, defaultProjectId]);
   const clientOptions = useMemo(
     () => clientsFromProjects(scopedProjects),
     [scopedProjects],
@@ -158,12 +169,17 @@ export function AddTimeForm({
       setStartTime(clockFromIso(initialEntry.startTime) || '09:00');
       setEndTime(clockFromIso(initialEntry.endTime) || '10:00');
     } else {
+      // Order: client → project → task → ticket (so ticket select keeps its value).
       const tid = defaultTaskId;
       const pid =
         projectIdForTask(tasks, tid) || defaultProjectId || '';
-      setTaskId(tid);
+      const cid =
+        defaultClientId ||
+        clientIdForProject(scopedProjects, pid) ||
+        '';
+      setClientId(cid);
       setProjectId(pid);
-      setClientId(clientIdForProject(scopedProjects, pid));
+      setTaskId(tid);
       setTicketId(defaultTicketId);
       setEntryDate(defaultDate ?? toDateParam(new Date()));
       setDescription('');
@@ -193,6 +209,7 @@ export function AddTimeForm({
     firstLine,
     defaultTaskId,
     defaultProjectId,
+    defaultClientId,
     defaultTicketId,
     defaultDate,
     defaultRange,

@@ -4,6 +4,7 @@ import {
   IconCalendar,
   IconClients,
   IconDashboard,
+  IconDepartments,
   IconProjects,
   IconRates,
   IconReports,
@@ -90,7 +91,7 @@ export const APP_NAV: AppNavItem[] = [
   {
     href: '/departments',
     label: 'Departments',
-    Icon: IconTeam,
+    Icon: IconDepartments,
     permission: { resource: 'member', action: 'view' },
   },
   {

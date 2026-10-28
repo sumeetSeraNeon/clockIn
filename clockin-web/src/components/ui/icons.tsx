@@ -79,14 +79,11 @@ export function IconProjects({ className }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" className={iconClass(className)} aria-hidden>
       <path
-        d="M4 8.5h16M4 12.5h16M4 16.5h10"
+        d="M3.75 8.5V18a1.75 1.75 0 0 0 1.75 1.75h13a1.75 1.75 0 0 0 1.75-1.75V10.25A1.75 1.75 0 0 0 18.5 8.5H11.4L9.65 6.4A1.75 1.75 0 0 0 8.3 5.75H5.5A1.75 1.75 0 0 0 3.75 7.5v1Z"
         stroke="currentColor"
         strokeWidth="1.6"
-        strokeLinecap="round"
+        strokeLinejoin="round"
       />
-      <circle cx="7" cy="8.5" r="1.1" fill="currentColor" />
-      <circle cx="7" cy="12.5" r="1.1" fill="currentColor" />
-      <circle cx="7" cy="16.5" r="1.1" fill="currentColor" />
     </svg>
   );
 }
@@ -106,6 +103,29 @@ export function IconTasks({ className }: IconProps) {
         strokeWidth="1.6"
         strokeLinecap="round"
         strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+export function IconDepartments({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={iconClass(className)} aria-hidden>
+      <path
+        d="M4.5 19.5V6.75A1.75 1.75 0 0 1 6.25 5h4.5v14.5H6.25A1.75 1.75 0 0 1 4.5 19.5Z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+      />
+      <path
+        d="M10.75 9.5h6.5A1.75 1.75 0 0 1 19 11.25v8.25H10.75"
+        stroke="currentColor"
+        strokeWidth="1.6"
+      />
+      <path
+        d="M7 8.5h1.5M7 11.5h1.5M7 14.5h1.5M13.5 12.5h2.5M13.5 15.5h2.5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
       />
     </svg>
   );

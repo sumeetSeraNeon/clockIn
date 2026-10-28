@@ -39,6 +39,13 @@ export class TicketsController {
     return this.ticketsService.create(organisationId, membership.id, dto);
   }
 
+  /** Active departments for ticket Group dropdown (Freshdesk Group = Department). */
+  @Get('departments')
+  @RequirePermission('ticket', 'view')
+  listDepartments(@CurrentOrg() organisationId: string) {
+    return this.ticketsService.listDepartments(organisationId);
+  }
+
   @Get()
   @RequirePermission('ticket', 'view')
   findAll(

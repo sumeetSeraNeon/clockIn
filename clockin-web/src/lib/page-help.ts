@@ -83,9 +83,9 @@ export const PAGE_HELP: Record<PageHelpKey, PageHelp> = {
   tickets: {
     title: 'Tickets',
     paragraphs: [
-      'Tickets are incidents and service requests linked to a client (and optionally a project).',
-      'Status only moves forward: open → in progress → resolved → closed. Search by reference or title.',
-      'Members can view tickets on their projects; creating and advancing needs ticket edit access.',
+      'Tickets are work items linked to a client (and optionally a project and department).',
+      'Import an Excel export to create or update by Ticket ID. Group must match an existing Department. Assign a project afterwards so project teams can see and log time.',
+      'Statuses and types include Incident, Change, Waiting on Customer, and so on. Members only see tickets on their projects.',
     ],
   },
   team: {

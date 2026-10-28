@@ -54,6 +54,7 @@ type ModalKind =
       entryDate?: string;
       ticketId?: string;
       projectId?: string;
+      clientId?: string;
     }
   | { type: 'edit-entry'; entry: TimeEntry }
   | null;
@@ -163,6 +164,7 @@ function TimePageInner() {
     const taskId = searchParams.get('taskId') ?? undefined;
     const ticketId = searchParams.get('ticketId') ?? undefined;
     const projectId = searchParams.get('projectId') ?? undefined;
+    const clientId = searchParams.get('clientId') ?? undefined;
     if (!taskId && add !== '1' && !ticketId) return;
 
     if ((add === '1' || ticketId) && canMutateTime) {
@@ -171,6 +173,7 @@ function TimePageInner() {
         taskId,
         ticketId,
         projectId,
+        clientId,
       });
       router.replace('/time', { scroll: false });
       return;
@@ -839,6 +842,7 @@ function TimePageInner() {
             projects={projects}
             defaultTaskId={modal.taskId}
             defaultProjectId={modal.projectId}
+            defaultClientId={modal.clientId}
             defaultTicketId={modal.ticketId}
             defaultDate={modal.entryDate ?? today}
             existingEntries={[...periodEntries, ...todayEntries]}

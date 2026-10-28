@@ -77,6 +77,37 @@ body {
   background-color: color-mix(in srgb, var(--slate) 50%, transparent);
 }
 
+/* Import preview — obvious thin scrollbar (horizontal + vertical) */
+.import-scroll {
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--coral) 55%, var(--navy))
+    color-mix(in srgb, var(--navy) 8%, transparent);
+}
+
+.import-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.import-scroll::-webkit-scrollbar-track {
+  background: color-mix(in srgb, var(--navy) 6%, transparent);
+  border-radius: 999px;
+}
+
+.import-scroll::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--coral) 50%, var(--navy));
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.import-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--coral) 70%, var(--navy));
+}
+
 /* Quiet focus: skip mouse-only focus rings; keep :focus-visible for keyboard */
 :focus:not(:focus-visible) {
   outline: none;

@@ -17,16 +17,17 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { ListTicketsQueryDto } from './dto/list-tickets-query.dto';
 import { UpdateTicketDto } from './dto/update-ticket.dto';
+import { TICKET_STATUSES } from './ticket.constants';
 
 const ENTITY_TYPE = 'ticket';
 
-/** Forward-only status flow from the API task plan. */
-const ALLOWED_TRANSITIONS: Record<string, string[]> = {
-  open: ['in_progress'],
-  in_progress: ['resolved'],
-  resolved: ['closed'],
-  closed: [],
-};
+const ticketInclude = {
+  department: { select: { id: true, name: true, status: true } },
+} satisfies Prisma.TicketInclude;
+
+type TicketWithDepartment = Prisma.TicketGetPayload<{
+  include: typeof ticketInclude;
+}>;
 
 @Injectable()
 export class TicketsService {
@@ -36,11 +37,21 @@ export class TicketsService {
     private readonly visibility: VisibilityService,
   ) {}
 
+  /** Active departments for Freshdesk Group dropdown on tickets. */
+  async listDepartments(organisationId: string) {
+    const rows = await this.prisma.department.findMany({
+      where: { organisationId, status: 'active' },
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true, status: true },
+    });
+    return { data: rows };
+  }
+
   async create(
     organisationId: string,
     actorMembershipId: string,
     dto: CreateTicketDto,
-  ): Promise<Ticket> {
+  ): Promise<TicketWithDepartment> {
     await this.assertClientInOrg(organisationId, dto.clientId);
 
     if (dto.projectId) {
@@ -50,6 +61,15 @@ export class TicketsService {
         dto.clientId,
       );
     }
+    if (dto.departmentId) {
+      await this.assertDepartmentInOrg(organisationId, dto.departmentId);
+    }
+
+    const status = dto.status ?? 'open';
+    this.assertAllowedStatus(status);
+
+    const openedAt = dto.openedAt ? new Date(dto.openedAt) : new Date();
+    const contactName = dto.contactName?.trim() || dto.raisedBy?.trim() || null;
 
     try {
       const ticket = await this.prisma.ticket.create({
@@ -57,15 +77,42 @@ export class TicketsService {
           organisationId,
           clientId: dto.clientId,
           projectId: dto.projectId,
+          departmentId: dto.departmentId,
           reference: dto.reference.trim(),
           ticketType: dto.ticketType,
           title: dto.title,
           description: dto.description,
-          status: 'open',
+          status,
           priority: dto.priority,
-          raisedBy: dto.raisedBy,
-          openedAt: new Date(),
+          ticketPriority: dto.ticketPriority,
+          raisedBy: dto.raisedBy?.trim() || contactName,
+          agentName: dto.agentName?.trim() || null,
+          internalAgentName: dto.internalAgentName?.trim() || null,
+          contactName,
+          contactEmail: dto.contactEmail?.trim() || null,
+          contactExternalId: dto.contactExternalId?.trim() || null,
+          source: dto.source?.trim() || null,
+          tags: dto.tags?.trim() || null,
+          workstream: dto.workstream?.trim() || null,
+          openedAt,
+          dueAt: dto.dueAt ? new Date(dto.dueAt) : null,
+          resolvedAt: dto.resolvedAt
+            ? new Date(dto.resolvedAt)
+            : status === 'resolved'
+              ? new Date()
+              : null,
+          closedAt: dto.closedAt
+            ? new Date(dto.closedAt)
+            : status === 'closed'
+              ? new Date()
+              : null,
+          initialResponseAt: dto.initialResponseAt
+            ? new Date(dto.initialResponseAt)
+            : null,
+          firstResponseSeconds: dto.firstResponseSeconds ?? null,
+          resolutionSeconds: dto.resolutionSeconds ?? null,
         },
+        include: ticketInclude,
       });
 
       await this.audit.writeAudit({
@@ -88,7 +135,7 @@ export class TicketsService {
     organisationId: string,
     membership: AuthMembership,
     query: ListTicketsQueryDto,
-  ): Promise<PaginatedResult<Ticket & { loggedMinutes: number }>> {
+  ): Promise<PaginatedResult<TicketWithDepartment & { loggedMinutes: number }>> {
     const { page, pageSize, skip, take } = resolvePagination(query);
 
     if (query.clientId) {
@@ -114,12 +161,12 @@ export class TicketsService {
       ...visibilityWhere,
       ...(query.clientId ? { clientId: query.clientId } : {}),
       ...(query.projectId ? { projectId: query.projectId } : {}),
+      ...(query.departmentId ? { departmentId: query.departmentId } : {}),
       ...(query.status ? { status: query.status } : {}),
       ...(query.ticketType ? { ticketType: query.ticketType } : {}),
       ...(query.priority ? { priority: query.priority } : {}),
     };
 
-    // Use AND so we do not overwrite visibilityWhere.OR (managed scope).
     const q = query.q?.trim();
     if (q) {
       where.AND = [
@@ -139,6 +186,7 @@ export class TicketsService {
           orderBy: { createdAt: 'desc' },
           skip,
           take,
+          include: ticketInclude,
         }),
         this.prisma.ticket.count({ where }),
       ]);
@@ -155,7 +203,7 @@ export class TicketsService {
     membership: AuthMembership,
     id: string,
   ): Promise<
-    Ticket & {
+    TicketWithDepartment & {
       loggedMinutes: number;
       minutesByStatus: {
         submitted: number;
@@ -182,6 +230,7 @@ export class TicketsService {
     );
     const ticket = await this.prisma.ticket.findFirst({
       where: { id, organisationId, ...visibilityWhere },
+      include: ticketInclude,
     });
     if (!ticket) {
       throw new NotFoundException('Ticket not found');
@@ -203,11 +252,11 @@ export class TicketsService {
     actorMembershipId: string,
     id: string,
     dto: UpdateTicketDto,
-  ): Promise<Ticket> {
+  ): Promise<TicketWithDepartment> {
     const existing = await this.findOwnedOrThrow(organisationId, id);
 
-    if (dto.status && dto.status !== existing.status) {
-      this.assertStatusTransition(existing.status, dto.status);
+    if (dto.status) {
+      this.assertAllowedStatus(dto.status);
     }
 
     const nextClientId = dto.clientId ?? existing.clientId;
@@ -224,20 +273,69 @@ export class TicketsService {
       );
     }
 
+    if (dto.departmentId) {
+      await this.assertDepartmentInOrg(organisationId, dto.departmentId);
+    }
+
     const data: Prisma.TicketUpdateManyMutationInput = {
       ...(dto.clientId !== undefined ? { clientId: dto.clientId } : {}),
       ...(dto.projectId !== undefined ? { projectId: dto.projectId } : {}),
+      ...(dto.departmentId !== undefined
+        ? { departmentId: dto.departmentId }
+        : {}),
+      ...(dto.ticketType !== undefined ? { ticketType: dto.ticketType } : {}),
       ...(dto.title !== undefined ? { title: dto.title } : {}),
       ...(dto.description !== undefined
         ? { description: dto.description }
         : {}),
       ...(dto.status !== undefined ? { status: dto.status } : {}),
       ...(dto.priority !== undefined ? { priority: dto.priority } : {}),
+      ...(dto.ticketPriority !== undefined
+        ? { ticketPriority: dto.ticketPriority }
+        : {}),
       ...(dto.raisedBy !== undefined ? { raisedBy: dto.raisedBy } : {}),
+      ...(dto.agentName !== undefined ? { agentName: dto.agentName } : {}),
+      ...(dto.internalAgentName !== undefined
+        ? { internalAgentName: dto.internalAgentName }
+        : {}),
+      ...(dto.contactName !== undefined
+        ? { contactName: dto.contactName }
+        : {}),
+      ...(dto.contactEmail !== undefined
+        ? { contactEmail: dto.contactEmail }
+        : {}),
+      ...(dto.contactExternalId !== undefined
+        ? { contactExternalId: dto.contactExternalId }
+        : {}),
+      ...(dto.source !== undefined ? { source: dto.source } : {}),
+      ...(dto.tags !== undefined ? { tags: dto.tags } : {}),
+      ...(dto.workstream !== undefined ? { workstream: dto.workstream } : {}),
+      ...(dto.dueAt !== undefined
+        ? { dueAt: dto.dueAt ? new Date(dto.dueAt) : null }
+        : {}),
+      ...(dto.closedAt !== undefined
+        ? { closedAt: dto.closedAt ? new Date(dto.closedAt) : null }
+        : {}),
+      ...(dto.initialResponseAt !== undefined
+        ? {
+            initialResponseAt: dto.initialResponseAt
+              ? new Date(dto.initialResponseAt)
+              : null,
+          }
+        : {}),
+      ...(dto.firstResponseSeconds !== undefined
+        ? { firstResponseSeconds: dto.firstResponseSeconds }
+        : {}),
+      ...(dto.resolutionSeconds !== undefined
+        ? { resolutionSeconds: dto.resolutionSeconds }
+        : {}),
     };
 
     if (dto.status === 'resolved' && !existing.resolvedAt) {
       data.resolvedAt = new Date();
+    }
+    if (dto.status === 'closed' && !existing.closedAt) {
+      data.closedAt = new Date();
     }
 
     try {
@@ -274,21 +372,19 @@ export class TicketsService {
     }
   }
 
-  private assertStatusTransition(from: string, to: string): void {
-    const allowed = ALLOWED_TRANSITIONS[from] ?? [];
-    if (!allowed.includes(to)) {
-      throw new BadRequestException(
-        `Invalid status transition: ${from} → ${to}. Allowed: open → in_progress → resolved → closed`,
-      );
+  private assertAllowedStatus(status: string): void {
+    if (!(TICKET_STATUSES as readonly string[]).includes(status)) {
+      throw new BadRequestException(`Invalid ticket status: ${status}`);
     }
   }
 
   private async findOwnedOrThrow(
     organisationId: string,
     id: string,
-  ): Promise<Ticket> {
+  ): Promise<TicketWithDepartment> {
     const ticket = await this.prisma.ticket.findFirst({
       where: { id, organisationId },
+      include: ticketInclude,
     });
 
     if (!ticket) {
@@ -331,9 +427,21 @@ export class TicketsService {
     }
   }
 
-  /**
-   * Approved minutes only, and only lines where this ticket was selected.
-   */
+  private async assertDepartmentInOrg(
+    organisationId: string,
+    departmentId: string,
+  ): Promise<void> {
+    const department = await this.prisma.department.findFirst({
+      where: { id: departmentId, organisationId, status: 'active' },
+      select: { id: true },
+    });
+    if (!department) {
+      throw new BadRequestException(
+        'departmentId must be an active department in your organisation',
+      );
+    }
+  }
+
   private async sumLoggedMinutes(
     organisationId: string,
     ticketId: string,
@@ -345,10 +453,10 @@ export class TicketsService {
     return agg._sum.durationMinutes ?? 0;
   }
 
-  private async attachLoggedMinutes(
+  private async attachLoggedMinutes<T extends Ticket>(
     organisationId: string,
-    tickets: Ticket[],
-  ): Promise<Array<Ticket & { loggedMinutes: number }>> {
+    tickets: T[],
+  ): Promise<Array<T & { loggedMinutes: number }>> {
     if (tickets.length === 0) return [];
     const sums = await this.prisma.timeLine.groupBy({
       by: ['ticketId'],
@@ -370,9 +478,6 @@ export class TicketsService {
     }));
   }
 
-  /**
-   * Linked lines only — submitted + approved (draft/rejected hidden).
-   */
   private async loadTicketTimeActivity(
     organisationId: string,
     ticketId: string,
@@ -453,14 +558,21 @@ export class TicketsService {
       organisationId: ticket.organisationId,
       clientId: ticket.clientId,
       projectId: ticket.projectId,
+      departmentId: ticket.departmentId,
       reference: ticket.reference,
       ticketType: ticket.ticketType,
       title: ticket.title,
       status: ticket.status,
       priority: ticket.priority,
+      ticketPriority: ticket.ticketPriority,
       raisedBy: ticket.raisedBy,
+      agentName: ticket.agentName,
+      contactName: ticket.contactName,
+      contactEmail: ticket.contactEmail,
       openedAt: ticket.openedAt?.toISOString() ?? null,
+      dueAt: ticket.dueAt?.toISOString() ?? null,
       resolvedAt: ticket.resolvedAt?.toISOString() ?? null,
+      closedAt: ticket.closedAt?.toISOString() ?? null,
     };
   }
 }

@@ -1,34 +1,46 @@
 # Tickets module
 
-Org-scoped tickets (incidents / service requests). No hard-delete — lifecycle is
-status transitions only.
+Org-scoped tickets (Freshdesk-shaped: incidents, changes, service requests, etc.).
+No hard-delete — status is set freely among the allowed list. Excel import
+creates or updates by Ticket ID (`reference`).
 
 ## Endpoints
 
 | Method | Path | Notes |
 |---|---|---|
 | POST | `/api/tickets` | requires `clientId`, `reference`, `ticketType` |
-| GET | `/api/tickets` | `?page&pageSize&clientId&status&ticketType&priority` |
-| GET | `/api/tickets/:id` | 404 if missing or other org |
-| PATCH | `/api/tickets/:id` | fields + status transitions |
+| GET | `/api/tickets` | `?page&pageSize&clientId&projectId&departmentId&status&ticketType&priority&q` |
+| GET | `/api/tickets/departments` | active departments for Group dropdown (`ticket:view`) |
+| GET | `/api/tickets/:id` | detail + approved minutes + submitted/approved time lines |
+| PATCH | `/api/tickets/:id` | fields + any allowed status |
+| POST | `/api/imports/tickets/preview` | Freshdesk Excel row preview (`ticket:edit`) |
+| POST | `/api/imports/tickets/commit` | create / update by reference |
 
-### Status flow (forward only)
+### Types
 
-`open` → `in_progress` → `resolved` → `closed`
+`incident` | `change` | `question` | `service_request` | `problem`
 
-Illegal jumps return **400**. Moving to `resolved` sets `resolvedAt` if empty.
+### Statuses (agent labels)
 
-### Types / priorities
+`open` | `pending` | `resolved` | `closed` | `waiting_on_customer` |
+`waiting_on_third_party` | `legacy_ticket` | `ready_for_prod_deploy` |
+`assigned_to_ai_agent`
 
-- `ticketType`: `incident` | `service_request`
-- `priority`: `low` | `medium` | `high` | `critical`
-- `reference` is unique per organisation
+Any status may be set. Moving to `resolved` / `closed` fills timestamps if empty.
 
-Optional `projectId` must belong to the same org **and** the ticket's client.
+### Priorities
 
-## Smoke test
+- `priority`: `low` | `medium` | `high` | `critical` (Urgent → critical)
+- `ticketPriority`: `p1` | `p2` | `p3` | `p4`
 
-```powershell
-npm.cmd run start:dev
-node scripts/test-tickets.mjs owner@clockin.local sera123
-```
+### Groups (= Departments)
+
+Freshdesk **Group** is a ClockIn **Department**. Tickets store `departmentId`.
+Import matches Group by department name (case-insensitive). Missing department →
+preview/commit **error** for that row (departments are not auto-created from the ticket file).
+
+### Import
+
+Client must already exist (matched by Client column, or Tags if Client blank).
+Ticket ID → `reference`. Re-import updates. Project is left empty unless already set.
+Group must match an existing department when present.

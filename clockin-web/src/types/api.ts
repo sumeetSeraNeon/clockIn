@@ -547,9 +547,66 @@ export type UpdateTaskInput = {
   billable?: boolean;
 };
 
-export type TicketStatus = 'open' | 'in_progress' | 'resolved' | 'closed';
-export type TicketType = 'incident' | 'service_request';
+export type TicketStatus =
+  | 'open'
+  | 'pending'
+  | 'resolved'
+  | 'closed'
+  | 'waiting_on_customer'
+  | 'waiting_on_third_party'
+  | 'legacy_ticket'
+  | 'ready_for_prod_deploy'
+  | 'assigned_to_ai_agent';
+
+export type TicketType =
+  | 'incident'
+  | 'change'
+  | 'question'
+  | 'service_request'
+  | 'problem';
+
 export type TicketPriority = 'low' | 'medium' | 'high' | 'critical';
+export type TicketPriorityCode = 'p1' | 'p2' | 'p3' | 'p4';
+
+export const TICKET_STATUSES: TicketStatus[] = [
+  'open',
+  'pending',
+  'resolved',
+  'closed',
+  'waiting_on_customer',
+  'waiting_on_third_party',
+  'legacy_ticket',
+  'ready_for_prod_deploy',
+  'assigned_to_ai_agent',
+];
+
+export const TICKET_TYPES: TicketType[] = [
+  'incident',
+  'change',
+  'question',
+  'service_request',
+  'problem',
+];
+
+export const TICKET_STATUS_LABELS: Record<TicketStatus, string> = {
+  open: 'Open',
+  pending: 'Pending',
+  resolved: 'Resolved',
+  closed: 'Closed',
+  waiting_on_customer: 'Waiting on Customer',
+  waiting_on_third_party: 'Waiting on Third Party',
+  legacy_ticket: 'Legacy Ticket',
+  ready_for_prod_deploy: 'Ready for PROD Deploy',
+  assigned_to_ai_agent: 'Assigned to AI Agent',
+};
+
+export const TICKET_TYPE_LABELS: Record<TicketType, string> = {
+  incident: 'Incident',
+  change: 'Change',
+  question: 'Question',
+  service_request: 'Service Request',
+  problem: 'Problem',
+};
 
 /** One time line linked to a ticket (detail only). */
 export type TicketTimeEntry = {
@@ -571,22 +628,45 @@ export type TicketMinutesByStatus = {
   approved: number;
 };
 
+/** Freshdesk Group = Department (id + name for ticket dropdowns). */
+export type TicketDepartmentOption = {
+  id: string;
+  name: string;
+  status: string;
+};
+
 export type Ticket = {
   id: string;
   organisationId: string;
   clientId: string;
   projectId: string | null;
+  departmentId?: string | null;
   reference: string;
   ticketType: string;
   title: string | null;
   description: string | null;
   status: string;
   priority: string | null;
+  ticketPriority?: string | null;
   raisedBy: string | null;
+  agentName?: string | null;
+  internalAgentName?: string | null;
+  contactName?: string | null;
+  contactEmail?: string | null;
+  contactExternalId?: string | null;
+  source?: string | null;
+  tags?: string | null;
+  workstream?: string | null;
   openedAt: string | null;
+  dueAt?: string | null;
   resolvedAt: string | null;
+  closedAt?: string | null;
+  initialResponseAt?: string | null;
+  firstResponseSeconds?: number | null;
+  resolutionSeconds?: number | null;
   createdAt: string;
   updatedAt: string;
+  department?: TicketDepartmentOption | null;
   /** Approved minutes only (list + detail). */
   loggedMinutes?: number;
   /** Detail (GET /tickets/:id) — linked lines only. */
@@ -594,31 +674,78 @@ export type Ticket = {
   timeEntries?: TicketTimeEntry[];
 };
 
+export const TICKET_PRIORITY_CODES: TicketPriorityCode[] = [
+  'p1',
+  'p2',
+  'p3',
+  'p4',
+];
+
+export const TICKET_PRIORITY_CODE_LABELS: Record<TicketPriorityCode, string> = {
+  p1: 'P1',
+  p2: 'P2',
+  p3: 'P3',
+  p4: 'P4',
+};
+
+export const TICKET_PRIORITY_LABELS: Record<TicketPriority, string> = {
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  critical: 'Critical',
+};
+
 export type CreateTicketInput = {
   clientId: string;
   projectId?: string;
+  departmentId?: string;
   reference: string;
   ticketType: TicketType;
   title?: string;
   description?: string;
+  status?: TicketStatus;
   priority?: TicketPriority;
+  ticketPriority?: TicketPriorityCode;
   raisedBy?: string;
+  agentName?: string;
+  internalAgentName?: string;
+  contactName?: string;
+  contactEmail?: string;
+  contactExternalId?: string;
+  source?: string;
+  tags?: string;
+  workstream?: string;
+  dueAt?: string;
 };
 
 export type UpdateTicketInput = {
   clientId?: string;
   projectId?: string | null;
+  departmentId?: string | null;
+  ticketType?: TicketType;
   title?: string;
   description?: string;
   status?: TicketStatus;
   priority?: TicketPriority | null;
+  ticketPriority?: TicketPriorityCode | null;
   raisedBy?: string | null;
+  agentName?: string | null;
+  internalAgentName?: string | null;
+  contactName?: string | null;
+  contactEmail?: string | null;
+  contactExternalId?: string | null;
+  source?: string | null;
+  tags?: string | null;
+  workstream?: string | null;
+  dueAt?: string | null;
 };
 
-/** Forward-only: open → in_progress → resolved → closed */
-export const TICKET_NEXT_STATUS: Record<TicketStatus, TicketStatus | null> = {
-  open: 'in_progress',
-  in_progress: 'resolved',
+/** @deprecated Prefer picking any status from TICKET_STATUSES. Kept for compile safety. */
+export const TICKET_NEXT_STATUS: Partial<
+  Record<TicketStatus, TicketStatus | null>
+> = {
+  open: 'pending',
+  pending: 'resolved',
   resolved: 'closed',
   closed: null,
 };
@@ -929,10 +1056,16 @@ export type CreateRatePairResult = {
 };
 
 /** FIX 2 — CSV/Excel import preview + commit */
-export type ImportRowStatus = 'create' | 'skip' | 'error' | 'excluded';
+export type ImportRowStatus =
+  | 'create'
+  | 'update'
+  | 'skip'
+  | 'error'
+  | 'excluded';
 
 export type ImportSummary = {
   create: number;
+  update: number;
   skip: number;
   error: number;
   excluded: number;
@@ -986,6 +1119,39 @@ export type TaskImportRow = {
   matchedTaskId?: string | null;
 };
 
+export type TicketImportRow = {
+  rowKey: string;
+  clientName: string;
+  reference: string;
+  title: string;
+  status: ImportRowStatus;
+  ticketType: string;
+  priority?: string | null;
+  agentName?: string | null;
+  groupName?: string | null;
+  openedAt?: string | null;
+  dueAt?: string | null;
+  resolvedAt?: string | null;
+  closedAt?: string | null;
+  initialResponseAt?: string | null;
+  firstResponseDuration?: string | null;
+  resolutionDuration?: string | null;
+  tags?: string | null;
+  internalAgentName?: string | null;
+  ticketPriority?: string | null;
+  workstream?: string | null;
+  contactName?: string | null;
+  contactEmail?: string | null;
+  contactExternalId?: string | null;
+  source?: string | null;
+  clientId?: string | null;
+  excluded?: boolean;
+  reason?: string;
+  matchedClientId?: string | null;
+  matchedTicketId?: string | null;
+  matchedDepartmentId?: string | null;
+};
+
 export type ImportPreviewResponse<T> = {
   rows: T[];
   summary: ImportSummary;
@@ -999,6 +1165,7 @@ export type ImportPreviewResponse<T> = {
 
 export type ImportCommitResult = {
   created: number;
+  updated?: number;
   skipped: number;
   errors: number;
   message: string;

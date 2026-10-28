@@ -2,12 +2,17 @@ import type { Ticket } from '@/types/api';
 
 const STATUS_RANK: Record<string, number> = {
   open: 0,
-  in_progress: 1,
-  resolved: 2,
-  closed: 3,
+  pending: 1,
+  waiting_on_customer: 2,
+  waiting_on_third_party: 3,
+  assigned_to_ai_agent: 4,
+  ready_for_prod_deploy: 5,
+  resolved: 6,
+  closed: 7,
+  legacy_ticket: 8,
 };
 
-/** Open / in-progress first, then reference A–Z. */
+/** Open / pending first, then reference A–Z. */
 export function sortTicketsForPicker(tickets: Ticket[]): Ticket[] {
   return [...tickets].sort((a, b) => {
     const ra = STATUS_RANK[a.status] ?? 9;

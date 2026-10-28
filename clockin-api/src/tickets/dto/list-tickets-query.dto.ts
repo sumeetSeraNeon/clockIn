@@ -14,10 +14,11 @@ import {
   DEFAULT_PAGE_SIZE,
   MAX_PAGE_SIZE,
 } from '../../common/pagination';
-
-const TICKET_STATUSES = ['open', 'in_progress', 'resolved', 'closed'] as const;
-const TICKET_TYPES = ['incident', 'service_request'] as const;
-const TICKET_PRIORITIES = ['low', 'medium', 'high', 'critical'] as const;
+import {
+  TICKET_PRIORITIES,
+  TICKET_STATUSES,
+  TICKET_TYPES,
+} from '../ticket.constants';
 
 export class ListTicketsQueryDto {
   @IsOptional()
@@ -37,10 +38,14 @@ export class ListTicketsQueryDto {
   @IsUUID()
   clientId?: string;
 
-  /** FIX 3 — project detail Tickets tab */
+  /** Project detail Tickets tab */
   @IsOptional()
   @IsUUID()
   projectId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  departmentId?: string;
 
   @IsOptional()
   @IsIn(TICKET_STATUSES)

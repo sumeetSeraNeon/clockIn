@@ -507,6 +507,8 @@ async function main() {
     });
   }
 
+  await seedFreshdeskDepartments(prisma, org.id);
+
   const ticket = await prisma.ticket.upsert({
     where: { id: '00000000-0000-4000-8000-000000000081' },
     update: {
@@ -726,6 +728,48 @@ async function main() {
     throw new Error(
       `Expected exactly 3 users after seed, found ${userCount}. migrate reset required.`,
     );
+  }
+}
+
+/** Freshdesk Group names — seeded as departments (same entity). */
+const SEED_FRESHDESK_DEPARTMENTS = [
+  'Account Managers',
+  'RBKC EPM',
+  'RBKC Finance',
+  'RBKC HCM',
+  'RBKC Payroll',
+  'RBKC Procurement',
+  'RBKC Support',
+  'RBKC Technical',
+  'SHBC AI',
+  'SHBC EPM',
+  'SHBC Finance',
+  'SHBC HR',
+  'SHBC Integrations',
+  'SHBC OBMC',
+  'SHBC Payroll',
+  'SHBC Procurement',
+  'SHBC Reports',
+  'SHBC RnA',
+  'SHBC Technical',
+];
+
+async function seedFreshdeskDepartments(
+  client: PrismaClient,
+  organisationId: string,
+) {
+  for (const name of SEED_FRESHDESK_DEPARTMENTS) {
+    const existing = await client.department.findFirst({
+      where: {
+        organisationId,
+        name: { equals: name, mode: 'insensitive' },
+      },
+    });
+    if (!existing) {
+      await client.department.create({
+        data: { organisationId, name, status: 'active' },
+      });
+    }
   }
 }
 

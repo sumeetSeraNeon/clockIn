@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { EmptyState } from '@/components/common/EmptyState';
 import { ListSkeleton } from '@/components/common/Skeleton';
 import { useToast } from '@/components/common/Toast';
@@ -21,15 +20,22 @@ import type {
   Paginated,
   Project,
   Ticket,
+  TicketDepartmentOption,
   TicketStatus,
   UpdateTicketInput,
 } from '@/types/api';
-import { TICKET_NEXT_STATUS } from '@/types/api';
+import {
+  TICKET_PRIORITY_CODE_LABELS,
+  TICKET_STATUS_LABELS,
+  type TicketPriorityCode,
+} from '@/types/api';
 
 type TicketTab = 'overview' | 'time';
 
 function statusLabel(status: string) {
-  return status.replace(/_/g, ' ');
+  return (
+    TICKET_STATUS_LABELS[status as TicketStatus] ?? status.replace(/_/g, ' ')
+  );
 }
 
 function formatEntryDay(iso: string) {
@@ -50,7 +56,7 @@ function lineStatusVariant(
 }
 
 /**
- * Ticket detail — project-style header + Overview / Time tabs.
+ * Ticket detail — Overview / Time tabs.
  * Time tab shows submitted + approved only (never draft).
  */
 export default function TicketDetailPage() {
@@ -67,11 +73,10 @@ export default function TicketDetailPage() {
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [departments, setDepartments] = useState<TicketDepartmentOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [advancing, setAdvancing] = useState(false);
-  const [advanceLoading, setAdvanceLoading] = useState(false);
 
   const load = useCallback(async () => {
     if (!ticketId) return;
@@ -81,7 +86,7 @@ export default function TicketDetailPage() {
       const detail = await api<Ticket>(`/tickets/${ticketId}`);
       setTicket(detail);
 
-      const [clientsRes, projectsRes] = await Promise.all([
+      const [clientsRes, projectsRes, departmentsRes] = await Promise.all([
         canViewClients || canEdit
           ? api<Paginated<Client>>('/clients?pageSize=100&status=active').catch(
               () => ({ data: [] as Client[] }),
@@ -90,9 +95,13 @@ export default function TicketDetailPage() {
         api<Paginated<Project>>('/projects?pageSize=100&status=active').catch(
           () => ({ data: [] as Project[] }),
         ),
+        api<{ data: TicketDepartmentOption[] }>('/tickets/departments').catch(
+          () => ({ data: [] as TicketDepartmentOption[] }),
+        ),
       ]);
       setClients(clientsRes.data ?? []);
       setProjects(projectsRes.data ?? []);
+      setDepartments(departmentsRes.data ?? []);
     } catch (err) {
       setTicket(null);
       setError(getErrorMessage(err, 'Could not load ticket'));
@@ -118,9 +127,6 @@ export default function TicketDetailPage() {
   const pendingMinutes = ticket?.minutesByStatus?.submitted ?? 0;
   const approvedMinutes = ticket?.loggedMinutes ?? 0;
   const timeEntries = ticket?.timeEntries ?? [];
-  const nextStatus = ticket
-    ? TICKET_NEXT_STATUS[(ticket.status as TicketStatus) || 'open']
-    : null;
 
   async function handleSave(values: UpdateTicketInput) {
     if (!ticket) return;
@@ -140,28 +146,20 @@ export default function TicketDetailPage() {
     }
   }
 
-  async function handleAdvance() {
-    if (!ticket || !nextStatus) return;
-    setAdvanceLoading(true);
-    try {
-      await api<Ticket>(`/tickets/${ticket.id}`, {
-        method: 'PATCH',
-        body: { status: nextStatus } satisfies UpdateTicketInput,
-      });
-      toast.success(`Ticket ${statusLabel(nextStatus)}`);
-      setAdvancing(false);
-      await load();
-    } catch (err) {
-      toast.error(getErrorMessage(err, 'Could not update status'));
-    } finally {
-      setAdvanceLoading(false);
-    }
-  }
-
   function handleTrack() {
     if (!ticket) return;
-    const qs = new URLSearchParams({ add: '1', ticketId: ticket.id });
-    if (ticket.projectId) qs.set('projectId', ticket.projectId);
+    if (!ticket.projectId) {
+      toast.error(
+        'Assign a project on this ticket before adding time.',
+      );
+      return;
+    }
+    const qs = new URLSearchParams({
+      add: '1',
+      ticketId: ticket.id,
+      projectId: ticket.projectId,
+      clientId: ticket.clientId,
+    });
     router.push(`/time?${qs.toString()}`);
   }
 
@@ -215,43 +213,48 @@ export default function TicketDetailPage() {
             <IconChevronLeft className="h-4 w-4" />
             Tickets
           </Button>
-          <h1 className="text-2xl font-semibold tracking-tight text-navy">
-            {ticket.reference}
-          </h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-2xl font-semibold tracking-tight text-navy">
+              {ticket.reference}
+            </h1>
+            <Badge variant="neutral">{statusLabel(ticket.status)}</Badge>
+            {ticket.ticketPriority ? (
+              <Badge variant="neutral">
+                {TICKET_PRIORITY_CODE_LABELS[
+                  ticket.ticketPriority as TicketPriorityCode
+                ] ?? ticket.ticketPriority.toUpperCase()}
+              </Badge>
+            ) : null}
+          </div>
           {ticket.title ? (
-            <p className="mt-0.5 text-sm text-slate">{ticket.title}</p>
+            <p className="mt-1 text-sm text-slate">{ticket.title}</p>
           ) : null}
-          <p className="mt-1 text-xs text-slate">
-            {[
-              statusLabel(ticket.status),
-              clientName,
-              projectName,
-              `Approved ${formatHoursMinutes(approvedMinutes)}`,
-              pendingMinutes > 0
-                ? `Pending ${formatHoursMinutes(pendingMinutes)}`
-                : null,
-            ]
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {[clientName, projectName, ticket.department?.name]
               .filter(Boolean)
-              .join(' · ')}
-          </p>
+              .map((label) => (
+                <span
+                  key={String(label)}
+                  className="inline-flex rounded-md border border-navy/10 bg-navy/[0.03] px-2 py-0.5 text-xs text-navy"
+                >
+                  {label}
+                </span>
+              ))}
+          </div>
+          {ticket.dueAt ? (
+            <p className="mt-2 text-xs text-slate">
+              Due{' '}
+              {new Date(ticket.dueAt).toLocaleString(undefined, {
+                dateStyle: 'medium',
+                timeStyle: 'short',
+              })}
+            </p>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
-          {canEdit && nextStatus ? (
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => setAdvancing(true)}
-            >
-              {nextStatus === 'in_progress'
-                ? 'Start'
-                : nextStatus === 'resolved'
-                  ? 'Resolve'
-                  : 'Close'}
-            </Button>
-          ) : null}
           {canTrackTime ? (
             <Button type="button" onClick={handleTrack}>
-              Track
+              Add time
             </Button>
           ) : null}
         </div>
@@ -276,10 +279,10 @@ export default function TicketDetailPage() {
       </div>
 
       {tab === 'overview' ? (
-        <section className="max-w-xl space-y-3">
+        <section className="max-w-4xl space-y-3">
           <p className="text-sm text-slate">
             {canEdit
-              ? 'Update ticket details. Status only moves forward.'
+              ? 'Update core details, people, and extra fields.'
               : 'Ticket details (view only).'}
           </p>
           <TicketForm
@@ -287,6 +290,7 @@ export default function TicketDetailPage() {
             initial={ticket}
             clients={clients}
             projects={projects}
+            departments={departments}
             submitting={submitting}
             readOnly={!canEdit}
             hideCancel
@@ -322,10 +326,10 @@ export default function TicketDetailPage() {
               title="No submitted time yet"
               description={
                 canTrackTime
-                  ? 'Use Track to log time against this ticket, then submit from Timesheet.'
+                  ? 'Use Add time to log hours against this ticket, then submit from Timesheet.'
                   : 'Time appears here after it is submitted for approval.'
               }
-              actionLabel={canTrackTime ? 'Track' : undefined}
+              actionLabel={canTrackTime ? 'Add time' : undefined}
               onAction={canTrackTime ? handleTrack : undefined}
             />
           ) : (
@@ -373,34 +377,6 @@ export default function TicketDetailPage() {
           )}
         </section>
       ) : null}
-
-      <ConfirmDialog
-        open={advancing && Boolean(nextStatus)}
-        title={
-          nextStatus === 'in_progress'
-            ? 'Start ticket?'
-            : nextStatus === 'resolved'
-              ? 'Resolve ticket?'
-              : 'Close ticket?'
-        }
-        description={
-          nextStatus
-            ? `${ticket.reference} will move from ${statusLabel(ticket.status)} to ${statusLabel(nextStatus)}. Status only moves forward.`
-            : ''
-        }
-        confirmLabel={
-          nextStatus === 'in_progress'
-            ? 'Start'
-            : nextStatus === 'resolved'
-              ? 'Resolve'
-              : 'Close'
-        }
-        loading={advanceLoading}
-        onConfirm={() => void handleAdvance()}
-        onCancel={() => {
-          if (!advanceLoading) setAdvancing(false);
-        }}
-      />
     </div>
   );
 }

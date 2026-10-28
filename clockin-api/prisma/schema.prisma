@@ -170,6 +170,7 @@ model Department {
 
   organisation Organisation       @relation(fields: [organisationId], references: [id])
   members      DepartmentMember[]
+  tickets      Ticket[]
 
   @@unique([organisationId, name])
   @@index([organisationId])
@@ -376,32 +377,51 @@ model Task {
   @@map("tasks")
 }
 
-/// A client-raised work item (incident or service request). Time logs against it.
+/// A client-raised work item (Freshdesk ticket). Time logs against it.
+/// Freshdesk Group maps to ClockIn Department (`departmentId`).
 model Ticket {
   id             String    @id @default(uuid())
   organisationId String    @map("organisation_id")
   clientId       String    @map("client_id")
   projectId      String?   @map("project_id")
-  /// Human reference e.g. INC-1042, SR-88
+  /// Freshdesk Group → Department
+  departmentId   String?   @map("department_id")
+  /// Human reference e.g. INC-1042, or Freshdesk Ticket ID 1103
   reference      String
-  /// incident | service_request
+  /// incident | change | question | service_request | problem
   ticketType     String    @map("ticket_type")
   title          String?
   description    String?   @db.Text
-  /// open | in_progress | resolved | closed
+  /// open | pending | resolved | closed | waiting_on_customer | waiting_on_third_party | legacy_ticket | ready_for_prod_deploy | assigned_to_ai_agent
   status         String    @default("open")
   /// low | medium | high | critical
   priority       String?
-  /// Client contact who raised it
+  /// p1 | p2 | p3 | p4 (Freshdesk Ticket Priority)
+  ticketPriority String?   @map("ticket_priority")
+  /// Client contact who raised it (legacy / display)
   raisedBy       String?   @map("raised_by")
-  openedAt       DateTime? @map("opened_at") @db.Timestamptz
-  resolvedAt     DateTime? @map("resolved_at") @db.Timestamptz
+  agentName           String? @map("agent_name")
+  internalAgentName   String? @map("internal_agent_name")
+  contactName         String? @map("contact_name")
+  contactEmail        String? @map("contact_email")
+  contactExternalId   String? @map("contact_external_id")
+  source              String?
+  tags                String?
+  workstream          String?
+  openedAt            DateTime? @map("opened_at") @db.Timestamptz
+  dueAt               DateTime? @map("due_at") @db.Timestamptz
+  resolvedAt          DateTime? @map("resolved_at") @db.Timestamptz
+  closedAt            DateTime? @map("closed_at") @db.Timestamptz
+  initialResponseAt   DateTime? @map("initial_response_at") @db.Timestamptz
+  firstResponseSeconds Int?     @map("first_response_seconds")
+  resolutionSeconds    Int?     @map("resolution_seconds")
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
   organisation Organisation @relation(fields: [organisationId], references: [id])
   client       Client       @relation(fields: [clientId], references: [id])
   project      Project?     @relation(fields: [projectId], references: [id])
+  department   Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
 
   timeLines TimeLine[]
 
@@ -409,6 +429,8 @@ model Ticket {
   @@index([organisationId])
   @@index([clientId])
   @@index([projectId])
+  @@index([departmentId])
+  @@index([status])
   @@map("tickets")
 }
 

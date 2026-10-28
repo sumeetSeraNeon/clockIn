@@ -6,8 +6,17 @@ import {
   type DataTableColumn,
 } from '@/components/common/DataTable';
 import { formatHoursMinutes } from '@/lib/format-duration';
-import type { Client, Project, Ticket, TicketStatus } from '@/types/api';
-import { TICKET_NEXT_STATUS } from '@/types/api';
+import type { Client, Project, Ticket } from '@/types/api';
+import {
+  TICKET_PRIORITY_CODE_LABELS,
+  TICKET_PRIORITY_LABELS,
+  TICKET_STATUS_LABELS,
+  TICKET_TYPE_LABELS,
+  type TicketPriority,
+  type TicketPriorityCode,
+  type TicketStatus,
+  type TicketType,
+} from '@/types/api';
 
 type TicketsTableProps = {
   tickets: Ticket[];
@@ -19,29 +28,26 @@ type TicketsTableProps = {
   hideProjectColumn?: boolean;
   /** Open ticket detail page. */
   onOpen?: (ticket: Ticket) => void;
-  onAdvance?: (ticket: Ticket) => void;
 };
 
-function label(value: string) {
-  return value.replace(/_/g, ' ');
+function typeLabel(value: string) {
+  return TICKET_TYPE_LABELS[value as TicketType] ?? value.replace(/_/g, ' ');
 }
 
-function advanceLabel(next: TicketStatus) {
-  if (next === 'in_progress') return 'Start';
-  if (next === 'resolved') return 'Resolve';
-  if (next === 'closed') return 'Close';
-  return 'Advance';
+function statusLabel(value: string) {
+  return (
+    TICKET_STATUS_LABELS[value as TicketStatus] ?? value.replace(/_/g, ' ')
+  );
 }
 
 export function TicketsTable({
   tickets,
   clientsById,
   projectsById,
-  canEdit,
+  canEdit: _canEdit,
   hideClientColumn = false,
   hideProjectColumn = false,
   onOpen,
-  onAdvance,
 }: TicketsTableProps) {
   const columns: DataTableColumn<Ticket>[] = [
     {
@@ -59,14 +65,14 @@ export function TicketsTable({
                 {row.reference}
               </p>
               <p className="truncate text-xs text-slate">
-                {row.title || label(row.ticketType)}
+                {row.title || typeLabel(row.ticketType)}
               </p>
             </button>
           ) : (
             <>
               <p className="truncate font-medium text-ink">{row.reference}</p>
               <p className="truncate text-xs text-slate">
-                {row.title || label(row.ticketType)}
+                {row.title || typeLabel(row.ticketType)}
               </p>
             </>
           )}
@@ -106,7 +112,25 @@ export function TicketsTable({
       id: 'type',
       header: 'Type',
       cell: (row) => (
-        <span className="text-sm text-slate">{label(row.ticketType)}</span>
+        <span className="text-sm text-slate">{typeLabel(row.ticketType)}</span>
+      ),
+    },
+    {
+      id: 'agent',
+      header: 'Agent',
+      cell: (row) => (
+        <span className="truncate text-sm text-slate">
+          {row.agentName?.trim() || '—'}
+        </span>
+      ),
+    },
+    {
+      id: 'group',
+      header: 'Group',
+      cell: (row) => (
+        <span className="truncate text-sm text-slate">
+          {row.department?.name || '—'}
+        </span>
       ),
     },
     {
@@ -122,11 +146,28 @@ export function TicketsTable({
       ),
     },
     {
+      id: 'ticketPriority',
+      header: 'P',
+      cell: (row) =>
+        row.ticketPriority ? (
+          <span className="text-sm font-medium tabular-nums text-navy">
+            {TICKET_PRIORITY_CODE_LABELS[
+              row.ticketPriority as TicketPriorityCode
+            ] ?? row.ticketPriority.toUpperCase()}
+          </span>
+        ) : (
+          <span className="text-slate">—</span>
+        ),
+    },
+    {
       id: 'priority',
       header: 'Priority',
       cell: (row) =>
         row.priority ? (
-          <span className="text-sm text-navy">{row.priority}</span>
+          <span className="text-sm text-navy">
+            {TICKET_PRIORITY_LABELS[row.priority as TicketPriority] ??
+              row.priority}
+          </span>
         ) : (
           <span className="text-slate">—</span>
         ),
@@ -145,46 +186,30 @@ export function TicketsTable({
                   : 'bg-warning'
             }`}
           />
-          {label(row.status)}
+          {statusLabel(row.status)}
         </span>
       ),
     },
   );
 
-  if (onOpen || (canEdit && onAdvance)) {
+  if (onOpen) {
     columns.push({
       id: 'actions',
       header: '',
       headerClassName: 'w-[1%]',
       className: 'text-right',
-      cell: (row) => {
-        const next =
-          TICKET_NEXT_STATUS[(row.status as TicketStatus) || 'open'];
-        return (
-          <div className="flex justify-end gap-2">
-            {canEdit && onAdvance && next ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => onAdvance(row)}
-              >
-                {advanceLabel(next)}
-              </Button>
-            ) : null}
-            {onOpen ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => onOpen(row)}
-              >
-                Open
-              </Button>
-            ) : null}
-          </div>
-        );
-      },
+      cell: (row) => (
+        <div className="flex justify-end gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => onOpen(row)}
+          >
+            Open
+          </Button>
+        </div>
+      ),
     });
   }
 

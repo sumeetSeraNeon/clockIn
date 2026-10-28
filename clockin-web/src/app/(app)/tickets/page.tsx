@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { ImportModal } from '@/components/import/ImportModal';
 import { TicketForm } from '@/components/tickets/TicketForm';
 import { TicketsTable } from '@/components/tickets/TicketsTable';
-import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { EmptyState } from '@/components/common/EmptyState';
 import { Modal } from '@/components/common/Modal';
 import { PageHeader } from '@/components/common/PageHeader';
@@ -25,12 +25,18 @@ import type {
   Paginated,
   Project,
   Ticket,
+  TicketDepartmentOption,
   TicketPriority,
   TicketStatus,
   TicketType,
   UpdateTicketInput,
 } from '@/types/api';
-import { TICKET_NEXT_STATUS } from '@/types/api';
+import {
+  TICKET_STATUS_LABELS,
+  TICKET_STATUSES,
+  TICKET_TYPE_LABELS,
+  TICKET_TYPES,
+} from '@/types/api';
 
 type StatusFilter = TicketStatus | 'all';
 type TypeFilter = TicketType | 'all';
@@ -38,7 +44,7 @@ type PriorityFilter = TicketPriority | 'all';
 
 /**
  * Tickets list — filters + server-side reference/title search (`q`).
- * FINAL FIX 9 — ticket:edit gates New / Edit / Start (members view-only).
+ * Freshdesk Excel import for ticket:edit.
  */
 export default function TicketsPage() {
   const router = useRouter();
@@ -55,11 +61,11 @@ export default function TicketsPage() {
   const [nameQuery, setNameQuery] = useState('');
   const debouncedQ = useDebouncedValue(nameQuery.trim());
   const [creating, setCreating] = useState(false);
-  const [advancing, setAdvancing] = useState<Ticket | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [advanceLoading, setAdvanceLoading] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [departments, setDepartments] = useState<TicketDepartmentOption[]>([]);
 
   useEffect(() => {
     setPage(1);
@@ -82,6 +88,7 @@ export default function TicketsPage() {
     async function loadLookups() {
       let clientsData: Client[] = [];
       let projectsData: Project[] = [];
+      let departmentsData: TicketDepartmentOption[] = [];
 
       if (canViewClients || canEdit) {
         try {
@@ -103,9 +110,19 @@ export default function TicketsPage() {
         projectsData = [];
       }
 
+      try {
+        const departmentsRes = await api<{ data: TicketDepartmentOption[] }>(
+          '/tickets/departments',
+        );
+        departmentsData = departmentsRes.data ?? [];
+      } catch {
+        departmentsData = [];
+      }
+
       if (!cancelled) {
         setClients(clientsData);
         setProjects(projectsData);
+        setDepartments(departmentsData);
       }
     }
 
@@ -161,39 +178,6 @@ export default function TicketsPage() {
     }
   }
 
-  async function handleAdvance() {
-    if (!advancing) return;
-    const next =
-      TICKET_NEXT_STATUS[(advancing.status as TicketStatus) || 'open'];
-    if (!next) return;
-    setAdvanceLoading(true);
-    try {
-      await api<Ticket>(`/tickets/${advancing.id}`, {
-        method: 'PATCH',
-        body: { status: next } satisfies UpdateTicketInput,
-      });
-      toast.success(`${advancing.reference} → ${next.replace(/_/g, ' ')}`);
-      setAdvancing(null);
-      reload();
-    } catch (err) {
-      toast.error(getErrorMessage(err, 'Could not update ticket status'));
-    } finally {
-      setAdvanceLoading(false);
-    }
-  }
-
-  const advanceNext = advancing
-    ? TICKET_NEXT_STATUS[(advancing.status as TicketStatus) || 'open']
-    : null;
-  const advanceConfirmLabel =
-    advanceNext === 'in_progress'
-      ? 'Start'
-      : advanceNext === 'resolved'
-        ? 'Resolve'
-        : advanceNext === 'closed'
-          ? 'Close'
-          : 'Advance';
-
   const hasSearch = Boolean(debouncedQ);
   const filtersClear =
     status === 'all' &&
@@ -208,15 +192,24 @@ export default function TicketsPage() {
         title="Tickets"
         description={
           canEdit
-            ? 'Incidents and service requests for clients.'
+            ? 'Incidents, changes, and service requests — including imports.'
             : 'Tickets on your projects (view only).'
         }
         helpKey="tickets"
         actions={
           canEdit ? (
-            <Button type="button" onClick={openCreate}>
-              New ticket
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setImportOpen(true)}
+              >
+                Import
+              </Button>
+              <Button type="button" onClick={openCreate}>
+                New ticket
+              </Button>
+            </div>
           ) : null
         }
       />
@@ -226,7 +219,7 @@ export default function TicketsPage() {
           <label className="flex flex-col gap-1 text-xs text-slate">
             Status
             <Select
-              className="w-40"
+              className="min-w-[180px]"
               value={status}
               onChange={(e) => {
                 setPage(1);
@@ -234,10 +227,11 @@ export default function TicketsPage() {
               }}
             >
               <option value="all">All</option>
-              <option value="open">Open</option>
-              <option value="in_progress">In progress</option>
-              <option value="resolved">Resolved</option>
-              <option value="closed">Closed</option>
+              {TICKET_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {TICKET_STATUS_LABELS[s]}
+                </option>
+              ))}
             </Select>
           </label>
 
@@ -273,8 +267,11 @@ export default function TicketsPage() {
               }}
             >
               <option value="all">All types</option>
-              <option value="incident">Incident</option>
-              <option value="service_request">Service request</option>
+              {TICKET_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {TICKET_TYPE_LABELS[t]}
+                </option>
+              ))}
             </Select>
           </label>
 
@@ -332,7 +329,7 @@ export default function TicketsPage() {
               ? 'Try another search, or clear the search box.'
               : filtersClear
                 ? canEdit
-                  ? 'Raise a ticket against a client when needed.'
+                  ? 'Import an export or raise a ticket against a client.'
                   : 'You will see tickets for projects you are assigned to.'
                 : 'Nothing matches these filters.'
           }
@@ -355,7 +352,6 @@ export default function TicketsPage() {
             projectsById={projectsById}
             canEdit={canEdit}
             onOpen={openTicket}
-            onAdvance={setAdvancing}
           />
           <Pagination
             page={page}
@@ -370,32 +366,30 @@ export default function TicketsPage() {
       <Modal
         open={creating && canEdit}
         title="New ticket"
-        description="Reference is unique per organisation. Status starts as open."
+        description="Reference is unique per organisation."
         onClose={closeModal}
       >
         <TicketForm
           mode="create"
           clients={clients}
           projects={projects}
+          departments={departments}
           submitting={submitting}
           onSubmit={handleSubmit}
           onCancel={closeModal}
         />
       </Modal>
 
-      <ConfirmDialog
-        open={Boolean(advancing && advanceNext)}
-        title={`${advanceConfirmLabel} ticket?`}
-        description={
-          advancing && advanceNext
-            ? `${advancing.reference} will move from ${String(advancing.status).replace(/_/g, ' ')} to ${advanceNext.replace(/_/g, ' ')}. Status only moves forward.`
-            : ''
-        }
-        confirmLabel={advanceConfirmLabel}
-        loading={advanceLoading}
-        onConfirm={() => void handleAdvance()}
-        onCancel={() => {
-          if (!advanceLoading) setAdvancing(null);
+      <ImportModal
+        open={importOpen && canEdit}
+        kind="tickets"
+        onClose={() => setImportOpen(false)}
+        onImported={() => {
+          setImportOpen(false);
+          reload();
+          void api<{ data: TicketDepartmentOption[] }>('/tickets/departments')
+            .then((res) => setDepartments(res.data ?? []))
+            .catch(() => undefined);
         }}
       />
     </div>

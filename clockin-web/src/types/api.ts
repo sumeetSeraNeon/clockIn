@@ -71,6 +71,7 @@ export type ReportSummaryGroup = {
   projectId: string | null;
   taskId?: string | null;
   userId: string | null;
+  departmentId?: string | null;
   durationMinutes: number;
   billableMinutes: number;
   nonBillableMinutes: number;
@@ -121,7 +122,13 @@ export type ReportSummaryResponse = {
   revenuePolicy?: 'approved_only';
 };
 
-export type ReportGroupBy = 'project' | 'client' | 'user' | 'task' | 'manager';
+export type ReportGroupBy =
+  | 'project'
+  | 'client'
+  | 'user'
+  | 'task'
+  | 'manager'
+  | 'department';
 
 export type ReportDetailedLine = {
   id: string;

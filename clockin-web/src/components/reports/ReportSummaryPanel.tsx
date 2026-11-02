@@ -51,7 +51,8 @@ export function ReportSummaryPanel({ report }: ReportSummaryPanelProps) {
         .slice(0, 12)
         .map((g) => ({
           name: (g.label || 'Unassigned').slice(0, 22),
-          hours: Number((g.durationMinutes / 60).toFixed(2)),
+          Billable: Number((g.billableMinutes / 60).toFixed(2)),
+          'Non-billable': Number((g.nonBillableMinutes / 60).toFixed(2)),
         })),
     [groups],
   );
@@ -217,12 +218,19 @@ export function ReportSummaryPanel({ report }: ReportSummaryPanelProps) {
             </h2>
             <InfoTip title={`Hours by ${groupBy}`}>
               <p>
-                Top groups by approved hours
+                Top groups by approved hours (billable + non-billable stacked)
                 {reconcile
                   ? ` · ${reconcile.lineCount} line${reconcile.lineCount === 1 ? '' : 's'}`
                   : ''}
                 .
               </p>
+              {groupBy === 'department' ? (
+                <p>
+                  People in multiple departments appear in each department row.
+                  Org approved totals still count each time line once, so
+                  department rows can sum above the org total.
+                </p>
+              ) : null}
             </InfoTip>
           </div>
           {groupChartData.length === 0 ? (
@@ -234,12 +242,13 @@ export function ReportSummaryPanel({ report }: ReportSummaryPanelProps) {
               <ResponsiveBar
                 data={groupChartData}
                 theme={nivoTheme}
-                keys={['hours']}
+                keys={['Billable', 'Non-billable']}
                 indexBy="name"
                 layout="horizontal"
-                margin={{ top: 4, right: 16, bottom: 24, left: 100 }}
+                groupMode="stacked"
+                margin={{ top: 4, right: 16, bottom: 40, left: 100 }}
                 padding={0.28}
-                colors={[CHART_COLORS.coral]}
+                colors={[CHART_COLORS.coral, CHART_COLORS.navy]}
                 borderRadius={2}
                 enableLabel={false}
                 axisBottom={{
@@ -250,15 +259,34 @@ export function ReportSummaryPanel({ report }: ReportSummaryPanelProps) {
                   tickSize: 0,
                   tickPadding: 8,
                 }}
-                tooltip={({ indexValue, value }) => (
-                  <div className="rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs shadow-sm">
-                    <span className="font-medium text-navy">{indexValue}</span>
-                    {': '}
-                    <span className="tabular-nums text-slate">
-                      {Number(value).toFixed(2)}h
-                    </span>
-                  </div>
-                )}
+                legends={[
+                  {
+                    dataFrom: 'keys',
+                    anchor: 'bottom',
+                    direction: 'row',
+                    translateY: 36,
+                    itemWidth: 100,
+                    itemHeight: 14,
+                    symbolSize: 10,
+                    symbolShape: 'square',
+                  },
+                ]}
+                tooltip={({ id, indexValue, value, data }) => {
+                  const billable = Number(data.Billable ?? 0);
+                  const nonBillable = Number(data['Non-billable'] ?? 0);
+                  const total = billable + nonBillable;
+                  return (
+                    <div className="rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs shadow-sm">
+                      <div className="font-medium text-navy">{indexValue}</div>
+                      <div className="mt-0.5 tabular-nums text-slate">
+                        {String(id)}: {Number(value).toFixed(2)}h
+                      </div>
+                      <div className="tabular-nums text-slate">
+                        Total: {total.toFixed(2)}h
+                      </div>
+                    </div>
+                  );
+                }}
               />
             </div>
           )}
@@ -296,8 +324,12 @@ export function ReportSummaryPanel({ report }: ReportSummaryPanelProps) {
                     </span>
                   </div>
                   <div className="flex shrink-0 flex-wrap items-baseline gap-3 tabular-nums">
-                    <span className="text-xs text-slate">
+                    <span className="text-xs text-coral">
                       {formatHoursMinutes(group.billableMinutes)} billable
+                    </span>
+                    <span className="text-xs text-navy">
+                      {formatHoursMinutes(group.nonBillableMinutes)}{' '}
+                      non-billable
                     </span>
                     {commercial && group.revenue != null ? (
                       <span className="text-xs text-slate">

@@ -131,6 +131,14 @@ export class ReportsService {
         ? await this.managerLabelsByUserId(organisationId)
         : null;
 
+    const departmentsByUserId =
+      groupBy === 'department'
+        ? await this.departmentsByUserId(
+            organisationId,
+            [...new Set(lines.map((l) => l.timeEntry.userId))],
+          )
+        : null;
+
     type Acc = {
       key: string;
       label: string;
@@ -138,6 +146,7 @@ export class ReportsService {
       projectId: string | null;
       taskId: string | null;
       userId: string | null;
+      departmentId: string | null;
       durationMinutes: number;
       billableMinutes: number;
       nonBillableMinutes: number;
@@ -156,6 +165,14 @@ export class ReportsService {
     let totalCost = new Prisma.Decimal(0);
     let currency: string | null = null;
 
+    const emptyIds = {
+      clientId: null as string | null,
+      projectId: null as string | null,
+      taskId: null as string | null,
+      userId: null as string | null,
+      departmentId: null as string | null,
+    };
+
     for (const raw of lines) {
       const line = this.normalizeLine(raw);
       totalDuration += line.durationMinutes;
@@ -165,56 +182,89 @@ export class ReportsService {
         totalNonBillable += line.durationMinutes;
       }
 
-      const { key, label, clientId, projectId, taskId, userId: groupUserId } =
-        this.groupKey(groupBy, line, managerByUserId);
+      const targets: Array<{
+        key: string;
+        label: string;
+        clientId: string | null;
+        projectId: string | null;
+        taskId: string | null;
+        userId: string | null;
+        departmentId: string | null;
+      }> =
+        groupBy === 'department' && departmentsByUserId
+          ? this.departmentGroupTargets(
+              line.timeEntry.userId,
+              departmentsByUserId,
+            )
+          : [
+              {
+                ...emptyIds,
+                ...this.groupKey(groupBy, line, managerByUserId),
+              },
+            ];
 
-      let acc = groups.get(key);
-      if (!acc) {
-        acc = {
-          key,
-          label,
-          clientId,
-          projectId,
-          taskId,
-          userId: groupUserId,
-          durationMinutes: 0,
-          billableMinutes: 0,
-          nonBillableMinutes: 0,
-          revenue: new Prisma.Decimal(0),
-          cost: new Prisma.Decimal(0),
-          currency: null,
-        };
-        groups.set(key, acc);
-      }
-
-      acc.durationMinutes += line.durationMinutes;
-      if (line.billable) {
-        acc.billableMinutes += line.durationMinutes;
-        if (commercial) {
-          const lineRevenue = await this.lineRevenue(organisationId, line);
+      let lineRevenue: {
+        amount: Prisma.Decimal;
+        currency: string | null;
+      } | null = null;
+      let lineCost: {
+        amount: Prisma.Decimal;
+        currency: string | null;
+      } | null = null;
+      if (commercial) {
+        if (line.billable) {
+          lineRevenue = await this.lineRevenue(organisationId, line);
           if (lineRevenue) {
-            acc.revenue = acc.revenue.add(lineRevenue.amount);
-            acc.currency = acc.currency ?? lineRevenue.currency;
             totalRevenue = totalRevenue.add(lineRevenue.amount);
             currency = currency ?? lineRevenue.currency;
           } else {
             unratedBillableMinutes += line.durationMinutes;
           }
         }
-      } else {
-        acc.nonBillableMinutes += line.durationMinutes;
-      }
-
-      // STEP 3 — cost on all approved hours (billable + non-billable)
-      if (commercial) {
-        const lineCost = await this.lineCost(organisationId, line);
+        lineCost = await this.lineCost(organisationId, line);
         if (lineCost) {
-          acc.cost = acc.cost.add(lineCost.amount);
-          acc.currency = acc.currency ?? lineCost.currency;
           totalCost = totalCost.add(lineCost.amount);
           currency = currency ?? lineCost.currency;
         } else {
           uncostedMinutes += line.durationMinutes;
+        }
+      }
+
+      for (const target of targets) {
+        let acc = groups.get(target.key);
+        if (!acc) {
+          acc = {
+            key: target.key,
+            label: target.label,
+            clientId: target.clientId,
+            projectId: target.projectId,
+            taskId: target.taskId,
+            userId: target.userId,
+            departmentId: target.departmentId,
+            durationMinutes: 0,
+            billableMinutes: 0,
+            nonBillableMinutes: 0,
+            revenue: new Prisma.Decimal(0),
+            cost: new Prisma.Decimal(0),
+            currency: null,
+          };
+          groups.set(target.key, acc);
+        }
+
+        acc.durationMinutes += line.durationMinutes;
+        if (line.billable) {
+          acc.billableMinutes += line.durationMinutes;
+          if (lineRevenue) {
+            acc.revenue = acc.revenue.add(lineRevenue.amount);
+            acc.currency = acc.currency ?? lineRevenue.currency;
+          }
+        } else {
+          acc.nonBillableMinutes += line.durationMinutes;
+        }
+
+        if (lineCost) {
+          acc.cost = acc.cost.add(lineCost.amount);
+          acc.currency = acc.currency ?? lineCost.currency;
         }
       }
     }
@@ -249,6 +299,7 @@ export class ReportsService {
           projectId: g.projectId,
           taskId: g.taskId,
           userId: g.userId,
+          departmentId: g.departmentId,
           durationMinutes: g.durationMinutes,
           billableMinutes: g.billableMinutes,
           nonBillableMinutes: g.nonBillableMinutes,
@@ -262,7 +313,7 @@ export class ReportsService {
         };
       });
 
-    // Groups sum must equal totals (same loop) — exposed for UI reconcile checks
+    // Groups sum must equal totals (same loop) — except department fan-out
     const groupsRevenue = commercial
       ? mappedGroups.reduce(
           (sum, g) => sum.add(new Prisma.Decimal(g.revenue ?? '0')),
@@ -275,6 +326,7 @@ export class ReportsService {
           new Prisma.Decimal(0),
         )
       : new Prisma.Decimal(0);
+    const departmentFanOut = groupBy === 'department';
 
     const totalsMoney = commercial
       ? marginMoney(totalRevenue, totalCost)
@@ -318,9 +370,10 @@ export class ReportsService {
         ? {
             groupsRevenue: groupsRevenue.toFixed(2),
             groupsCost: groupsCost.toFixed(2),
-            matchesTotals:
-              groupsRevenue.equals(totalRevenue) &&
-              groupsCost.equals(totalCost),
+            matchesTotals: departmentFanOut
+              ? true
+              : groupsRevenue.equals(totalRevenue) &&
+                groupsCost.equals(totalCost),
             lineCount: lines.length,
           }
         : {
@@ -1079,7 +1132,13 @@ export class ReportsService {
   }
 
   private groupKey(
-    groupBy: 'project' | 'client' | 'user' | 'task' | 'manager',
+    groupBy:
+      | 'project'
+      | 'client'
+      | 'user'
+      | 'task'
+      | 'manager'
+      | 'department',
     line: NormalizedLine,
     managerByUserId?: Map<string, { key: string; label: string }> | null,
   ): {
@@ -1134,6 +1193,17 @@ export class ReportsService {
         userId: null,
       };
     }
+    // department uses departmentGroupTargets; keep a safe fallback
+    if (groupBy === 'department') {
+      return {
+        key: 'unassigned',
+        label: 'Unassigned',
+        clientId: null,
+        projectId: null,
+        taskId: null,
+        userId: null,
+      };
+    }
     return {
       key: line.resolvedProjectId ?? 'unassigned',
       label: line.project?.name ?? 'Unassigned project',
@@ -1142,6 +1212,78 @@ export class ReportsService {
       taskId: null,
       userId: null,
     };
+  }
+
+  /** Active department memberships for users (multi-dept fan-out). */
+  private async departmentsByUserId(
+    organisationId: string,
+    userIds: string[],
+  ): Promise<Map<string, Array<{ id: string; name: string }>>> {
+    const map = new Map<string, Array<{ id: string; name: string }>>();
+    if (userIds.length === 0) return map;
+
+    const rows = await this.prisma.departmentMember.findMany({
+      where: {
+        organisationId,
+        membership: {
+          organisationId,
+          status: 'active',
+          userId: { in: userIds },
+        },
+        department: { organisationId, status: 'active' },
+      },
+      select: {
+        membership: { select: { userId: true } },
+        department: { select: { id: true, name: true } },
+      },
+    });
+
+    for (const row of rows) {
+      const uid = row.membership.userId;
+      const list = map.get(uid) ?? [];
+      if (!list.some((d) => d.id === row.department.id)) {
+        list.push({ id: row.department.id, name: row.department.name });
+      }
+      map.set(uid, list);
+    }
+    return map;
+  }
+
+  private departmentGroupTargets(
+    userId: string,
+    departmentsByUserId: Map<string, Array<{ id: string; name: string }>>,
+  ): Array<{
+    key: string;
+    label: string;
+    clientId: string | null;
+    projectId: string | null;
+    taskId: string | null;
+    userId: string | null;
+    departmentId: string | null;
+  }> {
+    const deps = departmentsByUserId.get(userId) ?? [];
+    if (deps.length === 0) {
+      return [
+        {
+          key: 'unassigned',
+          label: 'Unassigned',
+          clientId: null,
+          projectId: null,
+          taskId: null,
+          userId: null,
+          departmentId: null,
+        },
+      ];
+    }
+    return deps.map((d) => ({
+      key: d.id,
+      label: d.name,
+      clientId: null,
+      projectId: null,
+      taskId: null,
+      userId: null,
+      departmentId: d.id,
+    }));
   }
 
   /**

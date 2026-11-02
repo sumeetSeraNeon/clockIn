@@ -378,6 +378,7 @@ export default function ReportsPage() {
               <option value="task">Task</option>
               <option value="user">Person</option>
               <option value="manager">Manager team</option>
+              <option value="department">Department</option>
             </Select>
           </label>
         ) : null}

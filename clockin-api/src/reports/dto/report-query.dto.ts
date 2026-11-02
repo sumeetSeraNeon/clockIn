@@ -15,7 +15,14 @@ import {
   MAX_PAGE_SIZE,
 } from '../../common/pagination';
 
-const GROUP_BY = ['project', 'client', 'user', 'task', 'manager'] as const;
+const GROUP_BY = [
+  'project',
+  'client',
+  'user',
+  'task',
+  'manager',
+  'department',
+] as const;
 
 export class ReportSummaryQueryDto {
   @IsDateString()

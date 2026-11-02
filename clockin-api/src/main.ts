@@ -39,6 +39,8 @@ async function bootstrap() {
   if (!Number.isFinite(port) || port < 0 || port >= 65536) {
     throw new Error(`Invalid PORT: ${JSON.stringify(rawPort)}`);
   }
-  await app.listen(port);
+  // Render port scan requires 0.0.0.0 — localhost-only binds are invisible.
+  await app.listen(port, '0.0.0.0');
+  console.log(`Listening on 0.0.0.0:${port}`);
 }
 bootstrap();

@@ -14,6 +14,7 @@ export type ProjectPersonRateRow = {
   marginAmount: string | null;
   marginPercent: number | null;
   effectiveFrom: string | null;
+  effectiveTo: string | null;
   isCurrent: boolean;
 };
 
@@ -24,11 +25,13 @@ function amountNum(raw: string | number | null | undefined): number | null {
 }
 
 /**
- * FIX 1 — join project_user cost + billable into one row per project-person.
- * Input rates should already be filtered to scope project_user (and current/history).
- * Within each pair, keep the first cost and first billable (list is effectiveFrom desc).
+ * Current: one row per project + person (latest cost and latest billable).
+ * History: one row per project + person + start date, so each version stays visible.
  */
-export function pairProjectUserRates(rates: Rate[]): ProjectPersonRateRow[] {
+export function pairProjectUserRates(
+  rates: Rate[],
+  mode: 'current' | 'history' = 'current',
+): ProjectPersonRateRow[] {
   const projectUser = rates.filter(
     (r) => r.scope === 'project_user' && r.projectId && r.userId,
   );
@@ -47,7 +50,9 @@ export function pairProjectUserRates(rates: Rate[]): ProjectPersonRateRow[] {
   for (const rate of projectUser) {
     const projectId = rate.projectId!;
     const userId = rate.userId!;
-    const key = `${projectId}:${userId}`;
+    const start = rate.effectiveFrom.slice(0, 10);
+    const key =
+      mode === 'history' ? `${projectId}:${userId}:${start}` : `${projectId}:${userId}`;
     let bucket = byKey.get(key);
     if (!bucket) {
       const person =
@@ -89,6 +94,10 @@ export function pairProjectUserRates(rates: Rate[]): ProjectPersonRateRow[] {
       fromCandidates.length > 0
         ? fromCandidates.sort().reverse()[0]
         : null;
+    const endCandidates = [bucket.cost, bucket.billable].filter(
+      (r): r is Rate => Boolean(r),
+    );
+    const effectiveTo = versionEnd(endCandidates);
     const currency =
       bucket.billable?.currency ?? bucket.cost?.currency ?? null;
     const isCurrent =
@@ -109,15 +118,31 @@ export function pairProjectUserRates(rates: Rate[]): ProjectPersonRateRow[] {
       marginAmount,
       marginPercent,
       effectiveFrom,
+      effectiveTo,
       isCurrent,
     });
   }
 
   return rows.sort((a, b) => {
+    if (mode === 'history') {
+      const from = (b.effectiveFrom ?? '').localeCompare(a.effectiveFrom ?? '');
+      if (from !== 0) return from;
+    }
     const p = a.projectName.localeCompare(b.projectName);
     if (p !== 0) return p;
     return a.personLabel.localeCompare(b.personLabel);
   });
+}
+
+function versionEnd(rates: Rate[]): string | null {
+  if (rates.length === 0) return null;
+  const ends = rates.map((rate) =>
+    rate.effectiveTo ? rate.effectiveTo.slice(0, 10) : null,
+  );
+  if (ends.some((end) => end === null)) return null;
+  const unique = [...new Set(ends.filter((end): end is string => end !== null))];
+  unique.sort();
+  return unique.length === 1 ? unique[0] : unique.join(' / ');
 }
 
 export function fallbackScopeRates(rates: Rate[]): Rate[] {

@@ -61,6 +61,16 @@ function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function addDays(iso, days) {
+  const date = new Date(`${iso}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function dayKey(value) {
+  return String(value).slice(0, 10);
+}
+
 async function main() {
   const token = mintToken();
   console.log('Token OK\n');
@@ -197,25 +207,74 @@ async function main() {
   console.log('\nPOST /rates/lookup (after pair) →', res.status);
   assert(res.json.matchedScope === 'project_user', 'expected project_user to win');
 
-  // New org rate supersedes previous open org rate (history, not overwrite)
+  // Same start day is rejected. A later open-ended start closes the previous row.
+  res = await api(token, 'GET', '/rates?rateType=billable&scope=organisation&pageSize=100');
+  assert(res.status === 200, 'org rate list failed');
+  const existingOrg = (res.json.data ?? []).filter(
+    (r) => r.scope === 'organisation' && r.rateType === 'billable',
+  );
+  const latestStart = existingOrg
+    .map((r) => dayKey(r.effectiveFrom))
+    .sort()
+    .at(-1) || today();
+
+  res = await api(token, 'POST', '/rates', {
+    rateType: 'billable',
+    scope: 'organisation',
+    amount: 91,
+    currency: 'GBP',
+    effectiveFrom: latestStart,
+  });
+  console.log('\nPOST /rates (same-day org) →', res.status, '(expect 400)');
+  assert(res.status === 400, 'same-day rate should be rejected');
+
+  const successor = addDays(latestStart, 30);
   res = await api(token, 'POST', '/rates', {
     rateType: 'billable',
     scope: 'organisation',
     amount: 90,
     currency: 'GBP',
-    effectiveFrom: today(),
+    effectiveFrom: successor,
   });
-  console.log('\nPOST /rates (new org supersede) →', res.status);
+  console.log('\nPOST /rates (later org supersede) →', res.status);
   assert(res.status === 200 || res.status === 201, 'supersede failed');
 
   res = await api(
     token,
     'GET',
-    '/rates?rateType=billable&scope=organisation&pageSize=20',
+    '/rates?rateType=billable&scope=organisation&pageSize=100',
   );
   const orgRates = res.json.data.filter((r) => r.scope === 'organisation');
   console.log('\nOrg billable rates count:', orgRates.length);
   assert(orgRates.length >= 2, 'expected history rows, not overwrite');
+  const expectedEnd = addDays(successor, -1);
+  const closed = orgRates.find(
+    (r) => r.effectiveTo && dayKey(r.effectiveTo) === expectedEnd,
+  );
+  assert(closed, `expected a row ending ${expectedEnd}`);
+
+  res = await api(
+    token,
+    'GET',
+    `/rates?rateType=billable&scope=organisation&current=false`,
+  );
+  assert(res.status === 200, 'current=false list failed');
+  assert(
+    (res.json.data ?? []).some((r) => dayKey(r.effectiveFrom) === successor),
+    'current=false should include the future rate',
+  );
+
+  const month = successor.slice(0, 7);
+  res = await api(
+    token,
+    'GET',
+    `/rates?rateType=billable&scope=organisation&month=${month}`,
+  );
+  assert(res.status === 200, 'month filter failed');
+  assert(
+    (res.json.data ?? []).some((r) => dayKey(r.effectiveFrom) === successor),
+    'month filter should return the future replacement row',
+  );
 
   console.log('\nAll rates checks passed.');
 }

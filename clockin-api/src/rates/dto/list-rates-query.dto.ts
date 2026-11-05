@@ -4,8 +4,11 @@ import {
   IsIn,
   IsInt,
   IsOptional,
+  IsString,
   IsUUID,
+  Matches,
   Max,
+  MaxLength,
   Min,
 } from 'class-validator';
 import {
@@ -69,9 +72,28 @@ export class ListRatesQueryDto {
   @IsUUID()
   taskId?: string;
 
-  /** When true, only rates effective today; when false, only historical / not-yet-effective. */
+  /**
+   * When true, only rates effective today; when false, ended or not started yet.
+   * Ignored when month is set. Read the raw query string — implicit conversion
+   * turns the string "false" into true before this transform runs.
+   */
   @IsOptional()
-  @Transform(({ value }) => toOptionalBoolean(value))
+  @Transform(({ obj }) =>
+    toOptionalBoolean((obj as { current?: unknown } | undefined)?.current),
+  )
   @IsBoolean()
   current?: boolean;
+
+  /** YYYY-MM. Rates whose range overlaps this calendar month. */
+  @IsOptional()
+  @Matches(/^\d{4}-(0[1-9]|1[0-2])$/, {
+    message: 'month must be YYYY-MM',
+  })
+  month?: string;
+
+  /** Matches project, person, email, client, or task name. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  q?: string;
 }

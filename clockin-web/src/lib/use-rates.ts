@@ -18,9 +18,11 @@ export type RatesQuery = {
   projectId?: string | 'all';
   userId?: string | 'all';
   taskId?: string | 'all';
-  /** true = current tab, false = history tab, undefined = all */
+  /** true = current tab only. Track omits this and sends month instead. */
   current?: boolean;
-  /** Server-side search (wire when API supports q) */
+  /** YYYY-MM. Track lists every rate overlapping this month. */
+  month?: string;
+  /** Server search across project, person, email, client, and task. */
   q?: string;
 };
 
@@ -34,6 +36,7 @@ export function useRates(query: RatesQuery) {
   const userId = query.userId ?? 'all';
   const taskId = query.taskId ?? 'all';
   const current = query.current;
+  const month = query.month?.trim() ?? '';
   const q = query.q?.trim() ?? '';
 
   const [data, setData] = useState<Rate[]>([]);
@@ -65,6 +68,7 @@ export function useRates(query: RatesQuery) {
         if (taskId !== 'all') params.set('taskId', taskId);
         if (current === true) params.set('current', 'true');
         if (current === false) params.set('current', 'false');
+        if (month) params.set('month', month);
         if (q) params.set('q', q);
 
         const result = await api<Paginated<Rate>>(
@@ -104,6 +108,7 @@ export function useRates(query: RatesQuery) {
     userId,
     taskId,
     current,
+    month,
     q,
     reloadKey,
   ]);
@@ -122,11 +127,32 @@ export function useRates(query: RatesQuery) {
 
 /** Prefer server `isCurrent`; fall back for older payloads. */
 export function isRateCurrent(rate: Rate, today = new Date()): boolean {
-  if (typeof rate.isCurrent === 'boolean') return rate.isCurrent;
-  if (!rate.effectiveTo) return true;
-  const end = rate.effectiveTo.slice(0, 10);
+  return rateTiming(rate.effectiveFrom, rate.effectiveTo, today) === 'Current';
+}
+
+export type RateTiming = 'Current' | 'Upcoming' | 'Ended';
+
+/** Current covers today. Upcoming starts later. Ended finished before today. */
+export function rateTiming(
+  effectiveFrom: string | null | undefined,
+  effectiveTo: string | null | undefined,
+  today = new Date(),
+): RateTiming {
+  const todayKey = localDateKey(today);
+  const from = effectiveFrom?.slice(0, 10) ?? '';
+  if (from && from > todayKey) return 'Upcoming';
+  if (!effectiveTo) return 'Current';
+  const ends = effectiveTo
+    .split(' / ')
+    .map((part) => part.slice(0, 10))
+    .filter(Boolean);
+  if (ends.length > 0 && ends.every((end) => end < todayKey)) return 'Ended';
+  return 'Current';
+}
+
+function localDateKey(today: Date): string {
   const y = today.getFullYear();
   const m = String(today.getMonth() + 1).padStart(2, '0');
   const d = String(today.getDate()).padStart(2, '0');
-  return end >= `${y}-${m}-${d}`;
+  return `${y}-${m}-${d}`;
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { MonthCalendarField } from '@/components/rates/MonthCalendarField';
 import { RateForm } from '@/components/rates/RateForm';
 import { RatePairForm } from '@/components/rates/RatePairForm';
 import { ProjectPersonRatesTable } from '@/components/rates/ProjectPersonRatesTable';
@@ -13,10 +14,7 @@ import { ListSkeleton } from '@/components/common/Skeleton';
 import { useToast } from '@/components/common/Toast';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
-import {
-  SearchField,
-  matchesSearchQuery,
-} from '@/components/common/SearchField';
+import { SearchField } from '@/components/common/SearchField';
 import { useAuth } from '@/lib/auth-context';
 import { api } from '@/lib/api-client';
 import { getErrorMessage } from '@/lib/get-error-message';
@@ -40,8 +38,14 @@ import type {
   Task,
 } from '@/types/api';
 
-type RatesTab = 'current' | 'history';
+type RatesTab = 'current' | 'track';
 type AddModalMode = 'pair' | 'advanced' | null;
+
+function currentMonthValue(): string {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  return `${now.getFullYear()}-${month}`;
+}
 
 /**
  * Rates — project-person pairs first; fallback scopes secondary (FIX 1).
@@ -64,6 +68,7 @@ export default function RatesPage() {
   const [clientId, setClientId] = useState<string>('all');
   const [projectId, setProjectId] = useState<string>('all');
   const [userId, setUserId] = useState<string>('all');
+  const [month, setMonth] = useState(currentMonthValue);
   const [nameQuery, setNameQuery] = useState('');
   const [modalMode, setModalMode] = useState<AddModalMode>(null);
   const [lookupOpen, setLookupOpen] = useState(false);
@@ -83,30 +88,17 @@ export default function RatesPage() {
       clientId,
       projectId,
       userId,
-      current: tab === 'current',
+      current: tab === 'current' ? true : undefined,
+      month: tab === 'track' ? month : undefined,
+      q: nameQuery,
     });
 
-  const pairRows = useMemo(() => {
-    const rows = pairProjectUserRates(data);
-    return rows.filter((r) =>
-      matchesSearchQuery(nameQuery, r.projectName, r.personLabel),
-    );
-  }, [data, nameQuery]);
-  const fallbackRows = useMemo(() => {
-    const rows = fallbackScopeRates(data);
-    if (!nameQuery.trim()) return rows;
-    return rows.filter((r) =>
-      matchesSearchQuery(
-        nameQuery,
-        r.projectName,
-        r.userName,
-        r.userEmail,
-        r.taskName,
-        r.appliesToLabel,
-        r.clientName,
-      ),
-    );
-  }, [data, nameQuery]);
+  const pairRows = useMemo(
+    () =>
+      pairProjectUserRates(data, tab === 'track' ? 'history' : 'current'),
+    [data, tab],
+  );
+  const fallbackRows = useMemo(() => fallbackScopeRates(data), [data]);
 
   const showPairSection = scope === 'all' || scope === 'project_user';
   const showFallbacks =
@@ -254,7 +246,7 @@ export default function RatesPage() {
         {(
           [
             ['current', 'Current'],
-            ['history', 'History'],
+            ['track', 'Track'],
           ] as const
         ).map(([key, label]) => (
           <button
@@ -275,7 +267,7 @@ export default function RatesPage() {
         ))}
       </div>
 
-      <div className="mb-4 flex flex-wrap items-center gap-3">
+      <div className="mb-4 flex flex-wrap items-end gap-3">
         <label className="flex items-center gap-2 text-sm text-slate">
           Type
           <Select
@@ -304,7 +296,7 @@ export default function RatesPage() {
           >
             <option value="all">All scopes</option>
             <option value="project_user">Project + person</option>
-            <optgroup label="Fallbacks">
+            <optgroup label="Other rates">
               <option value="organisation">Organisation</option>
               <option value="client">Client</option>
               <option value="project">Project</option>
@@ -374,11 +366,26 @@ export default function RatesPage() {
           </label>
         ) : null}
 
-        <SearchField
-          value={nameQuery}
-          onChange={setNameQuery}
-          placeholder="Project or person"
-        />
+        <div className="w-64 shrink-0">
+          <SearchField
+            value={nameQuery}
+            onChange={(value) => {
+              setPage(1);
+              setNameQuery(value);
+            }}
+            placeholder="Project or person"
+          />
+        </div>
+
+        {tab === 'track' ? (
+          <MonthCalendarField
+            value={month}
+            onChange={(value) => {
+              setPage(1);
+              setMonth(value);
+            }}
+          />
+        ) : null}
       </div>
 
       {loading ? (
@@ -398,7 +405,7 @@ export default function RatesPage() {
       ) : isEmpty ? (
         <EmptyState
           title={
-            tab === 'current' ? 'No current rates' : 'No historical rates'
+            tab === 'current' ? 'No current rates' : 'Nothing in this month'
           }
           description={
             canEdit && tab === 'current'
@@ -437,10 +444,10 @@ export default function RatesPage() {
           {showFallbacks ? (
             <section className="space-y-3 border-t border-navy/10 pt-6">
               <h2 className="text-base font-semibold tracking-tight text-navy">
-                Fallbacks
+                Other rates
               </h2>
               {fallbackRows.length === 0 ? (
-                <p className="text-sm text-slate">No fallback rates.</p>
+                <p className="text-sm text-slate">No other rates.</p>
               ) : (
                 <RatesTable rates={fallbackRows} />
               )}

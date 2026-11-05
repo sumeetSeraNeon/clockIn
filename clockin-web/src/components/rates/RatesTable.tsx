@@ -5,7 +5,7 @@ import {
   type DataTableColumn,
 } from '@/components/common/DataTable';
 import { formatMoney } from '@/lib/format-money';
-import { isRateCurrent } from '@/lib/use-rates';
+import { rateTiming } from '@/lib/use-rates';
 import type { Rate } from '@/types/api';
 
 type RatesTableProps = {
@@ -79,15 +79,18 @@ export function RatesTable({ rates }: RatesTableProps) {
     {
       id: 'status',
       header: 'Status',
-      cell: (row) =>
-        isRateCurrent(row) ? (
-          <span className="inline-flex items-center gap-1.5 text-sm text-navy">
-            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-coral" />
-            Current
-          </span>
-        ) : (
-          <span className="text-sm text-slate">History</span>
-        ),
+      cell: (row) => {
+        const timing = rateTiming(row.effectiveFrom, row.effectiveTo);
+        if (timing === 'Current') {
+          return (
+            <span className="inline-flex items-center gap-1.5 text-sm text-navy">
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-coral" />
+              Current
+            </span>
+          );
+        }
+        return <span className="text-sm text-slate">{timing}</span>;
+      },
     },
   ];
 

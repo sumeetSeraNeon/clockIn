@@ -5,6 +5,7 @@ import {
   type DataTableColumn,
 } from '@/components/common/DataTable';
 import { formatMoney } from '@/lib/format-money';
+import { rateTiming } from '@/lib/use-rates';
 import type { ProjectPersonRateRow } from '@/lib/rate-pairs';
 
 type ProjectPersonRatesTableProps = {
@@ -87,17 +88,29 @@ export function ProjectPersonRatesTable({
       ),
     },
     {
+      id: 'to',
+      header: 'To',
+      cell: (row) => (
+        <span className="tabular-nums text-slate">
+          {row.effectiveTo ?? 'Open'}
+        </span>
+      ),
+    },
+    {
       id: 'status',
       header: 'Status',
-      cell: (row) =>
-        row.isCurrent ? (
-          <span className="inline-flex items-center gap-1.5 text-sm text-navy">
-            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-coral" />
-            Current
-          </span>
-        ) : (
-          <span className="text-sm text-slate">History</span>
-        ),
+      cell: (row) => {
+        const timing = rateTiming(row.effectiveFrom, row.effectiveTo);
+        if (timing === 'Current') {
+          return (
+            <span className="inline-flex items-center gap-1.5 text-sm text-navy">
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-coral" />
+              Current
+            </span>
+          );
+        }
+        return <span className="text-sm text-slate">{timing}</span>;
+      },
     },
   ];
 

@@ -118,51 +118,20 @@ export class RatesService {
     }
 
     try {
-      // FIX 3 — currency from client override, else org default (ignore form currency)
       const currency = await this.resolveRateCurrency(organisationId, {
         clientId: dto.clientId,
         projectId: dto.projectId,
         taskId: dto.taskId,
       });
 
-      const rate = await this.prisma.$transaction(async (tx) => {
-        // Close previous open-ended rate for the same identity (history preserved).
-        if (effectiveTo === null) {
-          const dayBefore = new Date(effectiveFrom);
-          dayBefore.setUTCDate(dayBefore.getUTCDate() - 1);
-
-          await tx.rate.updateMany({
-            where: {
-              organisationId,
-              rateType: dto.rateType,
-              scope: dto.scope,
-              clientId: dto.clientId ?? null,
-              projectId: dto.projectId ?? null,
-              userId: dto.userId ?? null,
-              taskId: dto.taskId ?? null,
-              effectiveTo: null,
-              effectiveFrom: { lt: effectiveFrom },
-            },
-            data: { effectiveTo: dayBefore },
-          });
-        }
-
-        return tx.rate.create({
-          data: {
-            organisationId,
-            rateType: dto.rateType,
-            scope: dto.scope,
-            clientId: dto.clientId,
-            projectId: dto.projectId,
-            userId: dto.userId,
-            taskId: dto.taskId,
-            amount: new Prisma.Decimal(dto.amount),
-            currency,
-            effectiveFrom,
-            effectiveTo,
-          },
-        });
-      });
+      const rate = await this.prisma.$transaction((tx) =>
+        this.insertRate(tx, organisationId, dto, {
+          effectiveFrom,
+          effectiveTo,
+          currency,
+          amount: dto.amount,
+        }),
+      );
 
       await this.audit.writeAudit({
         organisationId,
@@ -196,32 +165,84 @@ export class RatesService {
       effectiveFrom: dto.effectiveFrom,
       effectiveTo: null as string | null,
     };
-
-    const cost = await this.create(organisationId, actorMembershipId, {
+    const costDto: CreateRateDto = {
       ...shared,
       rateType: 'cost',
       amount: dto.costAmount,
-    });
-
-    const billable = await this.create(organisationId, actorMembershipId, {
+    };
+    const billableDto: CreateRateDto = {
       ...shared,
       rateType: 'billable',
       amount: dto.billableAmount,
+    };
+
+    this.assertScopeFields(costDto);
+    this.assertScopeFields(billableDto);
+    await this.assertScopeParents(organisationId, costDto);
+
+    const effectiveFrom = new Date(dto.effectiveFrom);
+    const currency = await this.resolveRateCurrency(organisationId, {
+      projectId: dto.projectId,
     });
 
-    const costNum = Number(cost.amount.toString());
-    const billNum = Number(billable.amount.toString());
-    const margin = billNum - costNum;
-    const marginPercent =
-      billNum > 0 ? ((margin / billNum) * 100).toFixed(2) : null;
+    try {
+      const { cost, billable } = await this.prisma.$transaction(async (tx) => {
+        const costRate = await this.insertRate(tx, organisationId, costDto, {
+          effectiveFrom,
+          effectiveTo: null,
+          currency,
+          amount: dto.costAmount,
+        });
+        const billableRate = await this.insertRate(
+          tx,
+          organisationId,
+          billableDto,
+          {
+            effectiveFrom,
+            effectiveTo: null,
+            currency,
+            amount: dto.billableAmount,
+          },
+        );
+        return { cost: costRate, billable: billableRate };
+      });
 
-    return {
-      cost,
-      billable,
-      marginAmount: margin.toFixed(2),
-      marginPercent,
-      currency: billable.currency ?? cost.currency ?? 'GBP',
-    };
+      await this.audit.writeAudit({
+        organisationId,
+        actorMembershipId,
+        entityType: ENTITY_TYPE,
+        entityId: cost.id,
+        action: 'create',
+        oldValue: null,
+        newValue: this.toAuditJson(cost),
+      });
+      await this.audit.writeAudit({
+        organisationId,
+        actorMembershipId,
+        entityType: ENTITY_TYPE,
+        entityId: billable.id,
+        action: 'create',
+        oldValue: null,
+        newValue: this.toAuditJson(billable),
+      });
+
+      const costNum = Number(cost.amount.toString());
+      const billNum = Number(billable.amount.toString());
+      const margin = billNum - costNum;
+      const marginPercent =
+        billNum > 0 ? ((margin / billNum) * 100).toFixed(2) : null;
+
+      return {
+        cost,
+        billable,
+        marginAmount: margin.toFixed(2),
+        marginPercent,
+        currency: billable.currency ?? cost.currency ?? 'GBP',
+      };
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      mapPrismaError(error);
+    }
   }
 
   /**
@@ -360,29 +381,16 @@ export class RatesService {
   ): Promise<PaginatedResult<RateListItem>> {
     const { page, pageSize, skip, take } = resolvePagination(query);
     const today = this.todayUtcDate();
+    const and = this.listFilters(query, today);
 
     const where: Prisma.RateWhereInput = {
       organisationId,
       ...(query.rateType ? { rateType: query.rateType } : {}),
       ...(query.scope ? { scope: query.scope } : {}),
-      ...(query.clientId ? { clientId: query.clientId } : {}),
       ...(query.projectId ? { projectId: query.projectId } : {}),
       ...(query.userId ? { userId: query.userId } : {}),
       ...(query.taskId ? { taskId: query.taskId } : {}),
-      ...(query.current === true
-        ? {
-            effectiveFrom: { lte: today },
-            OR: [{ effectiveTo: null }, { effectiveTo: { gte: today } }],
-          }
-        : {}),
-      ...(query.current === false
-        ? {
-            OR: [
-              { effectiveFrom: { gt: today } },
-              { effectiveTo: { lt: today } },
-            ],
-          }
-        : {}),
+      ...(and.length > 0 ? { AND: and } : {}),
     };
 
     try {
@@ -435,6 +443,208 @@ export class RatesService {
     return new Date(
       Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
     );
+  }
+
+  private dateKey(value: Date): string {
+    return value.toISOString().slice(0, 10);
+  }
+
+  private addUtcDays(value: Date, days: number): Date {
+    const next = new Date(value.getTime());
+    next.setUTCDate(next.getUTCDate() + days);
+    return next;
+  }
+
+  private rangesOverlap(
+    aFrom: string,
+    aTo: string | null,
+    bFrom: string,
+    bTo: string | null,
+  ): boolean {
+    if (aTo !== null && bFrom > aTo) return false;
+    if (bTo !== null && aFrom > bTo) return false;
+    return true;
+  }
+
+  private overlapMessage(
+    dto: CreateRateDto,
+    from: string,
+    to: string | null,
+  ): string {
+    const kind = dto.rateType === 'cost' ? 'cost' : 'billable';
+    const target =
+      dto.scope === 'project_user'
+        ? 'this project and person'
+        : dto.scope === 'organisation'
+          ? 'this organisation'
+          : dto.scope === 'client'
+            ? 'this client'
+            : dto.scope === 'project'
+              ? 'this project'
+              : dto.scope === 'user'
+                ? 'this person'
+                : dto.scope === 'task'
+                  ? 'this task'
+                  : 'this rate';
+    return `A ${kind} rate for ${target} already covers ${from} – ${to ?? 'open'}.`;
+  }
+
+  /**
+   * One open rate per identity. A later open-ended start closes that row.
+   * Same day, an earlier start, or any other overlap is rejected.
+   */
+  private successorToClose(
+    dto: CreateRateDto,
+    existing: Array<{
+      id: string;
+      effectiveFrom: Date;
+      effectiveTo: Date | null;
+    }>,
+    newFrom: string,
+    newTo: string | null,
+  ): string | null {
+    const spans = existing.map((row) => ({
+      id: row.id,
+      from: this.dateKey(row.effectiveFrom),
+      to: row.effectiveTo ? this.dateKey(row.effectiveTo) : null,
+    }));
+
+    const clash = (row: { from: string; to: string | null }) => {
+      throw new BadRequestException(
+        this.overlapMessage(dto, row.from, row.to),
+      );
+    };
+
+    if (newTo === null) {
+      const openBefore = spans.filter(
+        (row) => row.to === null && row.from < newFrom,
+      );
+      const rest = spans.filter(
+        (row) => !openBefore.some((open) => open.id === row.id),
+      );
+      const blocked = rest.find((row) =>
+        this.rangesOverlap(newFrom, null, row.from, row.to),
+      );
+      if (blocked) clash(blocked);
+      if (openBefore.length > 1) clash(openBefore[0]);
+      return openBefore[0]?.id ?? null;
+    }
+
+    const blocked = spans.find((row) =>
+      this.rangesOverlap(newFrom, newTo, row.from, row.to),
+    );
+    if (blocked) clash(blocked);
+    return null;
+  }
+
+  private async insertRate(
+    tx: Prisma.TransactionClient,
+    organisationId: string,
+    dto: CreateRateDto,
+    input: {
+      effectiveFrom: Date;
+      effectiveTo: Date | null;
+      currency: string;
+      amount: number;
+    },
+  ): Promise<Rate> {
+    const existing = await tx.rate.findMany({
+      where: {
+        organisationId,
+        rateType: dto.rateType,
+        scope: dto.scope,
+        clientId: dto.clientId ?? null,
+        projectId: dto.projectId ?? null,
+        userId: dto.userId ?? null,
+        taskId: dto.taskId ?? null,
+      },
+      select: { id: true, effectiveFrom: true, effectiveTo: true },
+    });
+
+    const closeId = this.successorToClose(
+      dto,
+      existing,
+      this.dateKey(input.effectiveFrom),
+      input.effectiveTo ? this.dateKey(input.effectiveTo) : null,
+    );
+
+    if (closeId) {
+      await tx.rate.update({
+        where: { id: closeId },
+        data: { effectiveTo: this.addUtcDays(input.effectiveFrom, -1) },
+      });
+    }
+
+    return tx.rate.create({
+      data: {
+        organisationId,
+        rateType: dto.rateType,
+        scope: dto.scope,
+        clientId: dto.clientId,
+        projectId: dto.projectId,
+        userId: dto.userId,
+        taskId: dto.taskId,
+        amount: new Prisma.Decimal(input.amount),
+        currency: input.currency,
+        effectiveFrom: input.effectiveFrom,
+        effectiveTo: input.effectiveTo,
+      },
+    });
+  }
+
+  private listFilters(
+    query: ListRatesQueryDto,
+    today: Date,
+  ): Prisma.RateWhereInput[] {
+    const and: Prisma.RateWhereInput[] = [];
+
+    if (query.clientId) {
+      and.push({
+        OR: [
+          { clientId: query.clientId },
+          { project: { clientId: query.clientId } },
+        ],
+      });
+    }
+
+    if (query.month) {
+      const [yearText, monthText] = query.month.split('-');
+      const year = Number(yearText);
+      const month = Number(monthText);
+      const start = new Date(Date.UTC(year, month - 1, 1));
+      const end = new Date(Date.UTC(year, month, 0));
+      and.push({
+        effectiveFrom: { lte: end },
+        OR: [{ effectiveTo: null }, { effectiveTo: { gte: start } }],
+      });
+    } else if (query.current === true) {
+      and.push({
+        effectiveFrom: { lte: today },
+        OR: [{ effectiveTo: null }, { effectiveTo: { gte: today } }],
+      });
+    } else if (query.current === false) {
+      and.push({
+        OR: [
+          { effectiveFrom: { gt: today } },
+          { effectiveTo: { lt: today } },
+        ],
+      });
+    }
+
+    const q = query.q?.trim();
+    if (q) {
+      and.push({
+        OR: [
+          { project: { name: { contains: q, mode: 'insensitive' } } },
+          { user: { name: { contains: q, mode: 'insensitive' } } },
+          { user: { email: { contains: q, mode: 'insensitive' } } },
+          { client: { name: { contains: q, mode: 'insensitive' } } },
+          { task: { name: { contains: q, mode: 'insensitive' } } },
+        ],
+      });
+    }
+
+    return and;
   }
 
   private isRateCurrent(

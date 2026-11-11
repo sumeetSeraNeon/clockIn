@@ -1189,10 +1189,16 @@ export type TicketImportRow = {
   contactEmail?: string | null;
   contactExternalId?: string | null;
   source?: string | null;
+  projectName?: string | null;
+  projectId?: string | null;
+  crApprovalStatus?: string | null;
+  crValue?: string | null;
+  crValueCurrency?: string | null;
   clientId?: string | null;
   excluded?: boolean;
   reason?: string;
   matchedClientId?: string | null;
+  matchedProjectId?: string | null;
   matchedTicketId?: string | null;
   matchedDepartmentId?: string | null;
 };

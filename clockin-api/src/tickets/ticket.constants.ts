@@ -120,3 +120,19 @@ export function normalizeTicketPriorityCode(
   if (!raw?.trim()) return null;
   return TICKET_PRIORITY_CODE_FROM_LABEL[raw.trim().toLowerCase()] ?? null;
 }
+
+export const CR_APPROVAL_FROM_LABEL: Record<string, CrApprovalStatusValue> = {
+  pending: 'pending',
+  approved: 'approved',
+  hold: 'hold',
+  rejected: 'rejected',
+  'in delivery': 'in_delivery',
+  in_delivery: 'in_delivery',
+};
+
+export function normalizeCrApprovalLabel(
+  raw: string | null | undefined,
+): CrApprovalStatusValue | null {
+  if (!raw?.trim()) return null;
+  return CR_APPROVAL_FROM_LABEL[raw.trim().toLowerCase()] ?? null;
+}

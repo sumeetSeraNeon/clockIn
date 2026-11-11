@@ -50,6 +50,8 @@ type ProjectNode = {
   projectId: string;
   projectName: string;
   totalMinutes: number;
+  approvedCount: number;
+  totalCount: number;
   tasks: TaskNode[];
 };
 
@@ -169,6 +171,8 @@ export function TimesheetPanel({
           projectId: pid,
           projectName: g.projectName,
           totalMinutes: 0,
+          approvedCount: 0,
+          totalCount: 0,
           tasks: [],
         };
         client.projects.push(project);
@@ -181,6 +185,10 @@ export function TimesheetPanel({
         draftCount: g.draftCount,
       });
       project.totalMinutes += g.totalMinutes;
+      project.totalCount += g.entries.length;
+      project.approvedCount += g.entries.filter(
+        (e) => e.status === 'approved',
+      ).length;
       client.totalMinutes += g.totalMinutes;
     }
 
@@ -305,7 +313,9 @@ export function TimesheetPanel({
                         ) : null}
                       </div>
                       {note ? (
-                        <p className="truncate text-sm text-slate">{note}</p>
+                        <p className="whitespace-normal break-words text-sm text-slate">
+                          {note}
+                        </p>
                       ) : null}
                     </div>
                     {canEdit && !locked ? (
@@ -432,6 +442,8 @@ export function TimesheetPanel({
                             hoursLabel={formatHoursMinutes(
                               project.totalMinutes,
                             )}
+                            metaLabel={`${project.approvedCount}/${project.totalCount}`}
+                            metaTitle="Approved / total entries"
                             onToggle={() => toggle(projectKey)}
                           />
 

@@ -293,6 +293,11 @@ export function ImportModal({
           contactEmail: r.contactEmail ?? null,
           contactExternalId: r.contactExternalId ?? null,
           source: r.source ?? null,
+          projectName: r.projectName ?? null,
+          projectId: r.projectId || null,
+          crApprovalStatus: r.crApprovalStatus ?? null,
+          crValue: r.crValue ?? null,
+          crValueCurrency: r.crValueCurrency ?? null,
           clientId: r.clientId || null,
           excluded: Boolean(r.excluded),
         }));
@@ -631,11 +636,12 @@ export function ImportModal({
                 )}
               >
                 {kind === 'tickets' ? (
-                  <table className="w-full min-w-[64rem] border-collapse text-left text-sm">
+                  <table className="w-full min-w-[72rem] border-collapse text-left text-sm">
                     <colgroup>
                       <col className="w-[5.5rem]" />
                       <col className="w-[6.5rem]" />
                       <col />
+                      <col className="w-[10rem]" />
                       <col className="w-[10rem]" />
                       <col className="w-[7rem]" />
                       <col className="w-[7.5rem]" />
@@ -656,6 +662,9 @@ export function ImportModal({
                         </th>
                         <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-navy/50">
                           Client
+                        </th>
+                        <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-navy/50">
+                          Project
                         </th>
                         <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-navy/50">
                           Type
@@ -744,6 +753,7 @@ export function ImportModal({
                                       updateDraft(draft.rowKey, {
                                         clientName: e.target.value,
                                         clientId: null,
+                                        projectId: null,
                                       })
                                     }
                                   />
@@ -753,6 +763,7 @@ export function ImportModal({
                                     onChange={(e) =>
                                       updateDraft(draft.rowKey, {
                                         clientId: e.target.value || null,
+                                        projectId: null,
                                       })
                                     }
                                   >
@@ -762,6 +773,46 @@ export function ImportModal({
                                         {c.name}
                                       </option>
                                     ))}
+                                  </CellSelect>
+                                </div>
+                              </td>
+                              <td className="px-2 py-2">
+                                <div className="space-y-0.5">
+                                  <CellInput
+                                    value={draft.projectName ?? ''}
+                                    disabled={isRemoved}
+                                    onChange={(e) =>
+                                      updateDraft(draft.rowKey, {
+                                        projectName: e.target.value,
+                                        projectId: null,
+                                      })
+                                    }
+                                  />
+                                  <CellSelect
+                                    value={draft.projectId ?? ''}
+                                    disabled={isRemoved}
+                                    onChange={(e) =>
+                                      updateDraft(draft.rowKey, {
+                                        projectId: e.target.value || null,
+                                      })
+                                    }
+                                  >
+                                    <option value="">Match by name</option>
+                                    {projects
+                                      .filter((p) => {
+                                        const clientKey =
+                                          draft.clientId ||
+                                          preview?.matchedClientId ||
+                                          null;
+                                        return clientKey
+                                          ? p.clientId === clientKey
+                                          : true;
+                                      })
+                                      .map((p) => (
+                                        <option key={p.id} value={p.id}>
+                                          {p.name}
+                                        </option>
+                                      ))}
                                   </CellSelect>
                                 </div>
                               </td>
@@ -852,13 +903,59 @@ export function ImportModal({
                                 )}
                               >
                                 <td
-                                  colSpan={9}
+                                  colSpan={10}
                                   className="bg-navy/[0.03] px-4 py-3.5"
                                 >
                                   <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-wide text-navy/45">
                                     Extra fields
                                   </p>
                                   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                                    {(() => {
+                                      const typeKey = (
+                                        draft.ticketType ?? ''
+                                      )
+                                        .trim()
+                                        .toLowerCase();
+                                      const isCr =
+                                        typeKey === 'change' ||
+                                        typeKey === 'change request' ||
+                                        typeKey === 'change_request';
+                                      if (!isCr) return null;
+                                      return (
+                                        <>
+                                          <EditField
+                                            label="CR Approval"
+                                            value={draft.crApprovalStatus}
+                                            disabled={isRemoved}
+                                            onChange={(v) =>
+                                              updateDraft(draft.rowKey, {
+                                                crApprovalStatus: v,
+                                              })
+                                            }
+                                          />
+                                          <EditField
+                                            label="CR Value"
+                                            value={draft.crValue}
+                                            disabled={isRemoved}
+                                            onChange={(v) =>
+                                              updateDraft(draft.rowKey, {
+                                                crValue: v,
+                                              })
+                                            }
+                                          />
+                                          <EditField
+                                            label="CR Currency"
+                                            value={draft.crValueCurrency}
+                                            disabled={isRemoved}
+                                            onChange={(v) =>
+                                              updateDraft(draft.rowKey, {
+                                                crValueCurrency: v,
+                                              })
+                                            }
+                                          />
+                                        </>
+                                      );
+                                    })()}
                                     <EditField
                                       label="Ticket priority"
                                       value={draft.ticketPriority}

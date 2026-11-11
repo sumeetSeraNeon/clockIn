@@ -84,7 +84,7 @@ export const PAGE_HELP: Record<PageHelpKey, PageHelp> = {
     title: 'Tickets',
     paragraphs: [
       'Tickets are work items linked to a client (and optionally a project and department).',
-      'Import an Excel export to create or update by Ticket ID. Group must match an existing Department. Assign a project afterwards so project teams can see and log time.',
+      'Import an Excel export to create or update by Ticket ID. Include Project (required). Group must match an existing Department. Change Request rows can set CR Approval, Value, and Currency.',
       'Statuses and types include Incident, Change Request, Waiting on Customer, and so on. Members only see tickets on their projects.',
     ],
   },

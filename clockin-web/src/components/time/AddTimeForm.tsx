@@ -18,6 +18,8 @@ import {
 import { formatHoursMinutes } from '@/lib/format-duration';
 import { TaskSearchSelect } from '@/components/time/TaskSearchSelect';
 import { TicketOptionalSelect } from '@/components/time/TicketOptionalSelect';
+import { entryTicketInfo } from '@/lib/entry-display';
+import { ticketTypeDisplay } from '@/lib/ticket-options';
 import type { Project, Task, TimeEntry } from '@/types/api';
 import {
   findOverlappingEntry,
@@ -124,16 +126,18 @@ export function AddTimeForm({
 
   const scopedProjects = useMemo(() => {
     const base = projectsScopedToTasks(tasks, projects);
-    // Track from ticket: include the ticket's project even if it has no open tasks yet.
-    if (
-      defaultProjectId &&
-      !base.some((p) => p.id === defaultProjectId)
-    ) {
-      const extra = projects.find((p) => p.id === defaultProjectId);
-      if (extra) return [...base, extra];
+    const ensureIds = [
+      defaultProjectId,
+      firstLine?.projectId ?? '',
+    ].filter(Boolean);
+    let next = base;
+    for (const id of ensureIds) {
+      if (next.some((p) => p.id === id)) continue;
+      const extra = projects.find((p) => p.id === id);
+      if (extra) next = [...next, extra];
     }
-    return base;
-  }, [tasks, projects, defaultProjectId]);
+    return next;
+  }, [tasks, projects, defaultProjectId, firstLine?.projectId]);
   const clientOptions = useMemo(
     () => clientsFromProjects(scopedProjects),
     [scopedProjects],
@@ -147,12 +151,32 @@ export function AddTimeForm({
     [tasks, taskId],
   );
 
+  const selectedTicketLabel = useMemo(() => {
+    if (!ticketId || firstLine?.ticketId !== ticketId) return null;
+    if (firstLine.ticket?.reference) {
+      const type = ticketTypeDisplay(
+        firstLine.ticket.ticketType ?? firstLine.ticketType,
+      );
+      return type
+        ? `${firstLine.ticket.reference} (${type})`
+        : firstLine.ticket.reference;
+    }
+    const info = initialEntry ? entryTicketInfo(initialEntry) : null;
+    if (!info) return null;
+    const type = info.typeLabel || ticketTypeDisplay(info.ticketType);
+    return type ? `${info.reference} (${type})` : info.reference;
+  }, [ticketId, firstLine, initialEntry]);
+
   useEffect(() => {
     if (initialEntry && firstLine) {
       const parts = partsFromMinutes(firstLine.durationMinutes ?? 0);
       const hasRange = Boolean(initialEntry.startTime && initialEntry.endTime);
       const tid = firstLine.taskId ?? '';
-      const pid = projectIdForTask(tasks, tid);
+      const pid =
+        projectIdForTask(tasks, tid) ||
+        firstLine.projectId ||
+        defaultProjectId ||
+        '';
       setTaskId(tid);
       setProjectId(pid);
       setClientId(clientIdForProject(scopedProjects, pid));
@@ -367,6 +391,7 @@ export function AddTimeForm({
           value={ticketId}
           onChange={setTicketId}
           disabled={submitting}
+          selectedLabel={selectedTicketLabel}
         />
       </div>
 

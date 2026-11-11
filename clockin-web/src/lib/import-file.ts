@@ -46,6 +46,10 @@ export type ParsedImportRow = {
   contactEmail?: string;
   contactExternalId?: string;
   source?: string;
+  projectName?: string;
+  crApprovalStatus?: string;
+  crValue?: string;
+  crValueCurrency?: string;
 };
 
 function normHeader(value: unknown): string {
@@ -86,6 +90,7 @@ export function downloadImportTemplate(kind: ImportKind): void {
     kind === 'tickets'
       ? [
           'Client',
+          'Project',
           'Ticket ID',
           'Subject',
           'Status',
@@ -108,6 +113,9 @@ export function downloadImportTemplate(kind: ImportKind): void {
           'Full name',
           'Contact ID',
           'Contact Internal ID',
+          'CR Approval',
+          'CR Value',
+          'CR Currency',
         ]
       : IMPORT_HEADERS[kind];
   const csv = `${headers.join(',')}\n`;
@@ -183,6 +191,7 @@ export async function parseImportFile(
     return {
       ...base,
       clientName: clientFromCol || tags,
+      projectName: cell(row, 'project'),
       reference: cell(row, 'ticket id'),
       title: cell(row, 'subject'),
       ticketStatus: cell(row, 'status'),
@@ -205,6 +214,9 @@ export async function parseImportFile(
       contactEmail: cell(row, 'contact id'),
       contactExternalId: cell(row, 'contact internal id'),
       source: cell(row, 'source'),
+      crApprovalStatus: cell(row, 'cr approval'),
+      crValue: cell(row, 'cr value'),
+      crValueCurrency: cell(row, 'cr currency'),
     };
   });
 }

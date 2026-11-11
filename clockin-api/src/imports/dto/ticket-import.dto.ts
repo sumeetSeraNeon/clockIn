@@ -131,6 +131,31 @@ export class TicketImportRowDto {
   source?: string | null;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  projectName?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsUUID()
+  projectId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  crApprovalStatus?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  crValue?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  crValueCurrency?: string | null;
+
+  @IsOptional()
   @ValidateIf((_, value) => value !== null)
   @IsUUID()
   clientId?: string | null;

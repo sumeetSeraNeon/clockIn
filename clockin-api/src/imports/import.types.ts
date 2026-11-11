@@ -102,6 +102,12 @@ export type TicketImportRowInput = {
   /** Always text — never a float from Excel. */
   contactExternalId?: string | null;
   source?: string | null;
+  projectName?: string | null;
+  /** Override project match when preview picks a different project. */
+  projectId?: string | null;
+  crApprovalStatus?: string | null;
+  crValue?: string | null;
+  crValueCurrency?: string | null;
   /** Override client match when preview picks a different client. */
   clientId?: string | null;
   excluded?: boolean;
@@ -111,6 +117,7 @@ export type TicketImportRowResult = TicketImportRowInput & {
   status: ImportRowStatus;
   reason?: string;
   matchedClientId?: string | null;
+  matchedProjectId?: string | null;
   matchedTicketId?: string | null;
   matchedDepartmentId?: string | null;
   parsed?: {
@@ -126,6 +133,9 @@ export type TicketImportRowResult = TicketImportRowInput & {
     firstResponseSeconds: number | null;
     resolutionSeconds: number | null;
     internalAgentName: string | null;
+    crApprovalStatus: string | null;
+    crValue: number | null;
+    crValueCurrency: string | null;
   };
 };
 

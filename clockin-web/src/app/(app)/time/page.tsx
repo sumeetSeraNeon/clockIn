@@ -18,7 +18,6 @@ import { Modal } from '@/components/common/Modal';
 import { PageHeader } from '@/components/common/PageHeader';
 import { ListSkeleton } from '@/components/common/Skeleton';
 import { useToast } from '@/components/common/Toast';
-import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { api } from '@/lib/api-client';
 import {
@@ -578,20 +577,10 @@ function TimePageInner() {
                   Week of {formatWeekLabel(weekBounds.from, weekBounds.to)}
                 </h2>
               )}
-              {activeSheet ? (
-                <Badge
-                  variant={
-                    activeSheet.period?.status === 'approved'
-                      ? 'success'
-                      : activeSheet.period?.status === 'rejected'
-                        ? 'danger'
-                        : activeSheet.period?.status === 'submitted'
-                          ? 'warning'
-                          : 'neutral'
-                  }
-                >
-                  {activeSheet.period?.status ?? 'draft'}
-                </Badge>
+              {periodLocked ? (
+                <span className="text-xs font-medium uppercase tracking-wide text-slate">
+                  Locked
+                </span>
               ) : null}
             </div>
 
@@ -636,8 +625,8 @@ function TimePageInner() {
                       weekSheet.conflictDays.length > 0
                     ? `Some days already submitted (${weekSheet.conflictDays.join(', ')}).`
                     : mode === 'day'
-                      ? 'Submit when you finish logging for today.'
-                      : 'Submit the full week when ready.'}
+                      ? 'Submit when you have draft time (you can submit again after adding or fixing entries).'
+                      : 'Submit the full week when ready. You can submit again after adding or fixing drafts.'}
             </p>
           </div>
 
@@ -890,7 +879,7 @@ function TimePageInner() {
       <ConfirmDialog
         open={confirmAction?.kind === 'submit-today'}
         title="Submit today?"
-        description="Your draft time for today will be sent for approval. You won’t be able to edit those entries until they’re rejected or unlocked."
+        description="Only current draft and rejected entries for today will be submitted. Already-submitted lines stay as they are. You can add more drafts later and submit again."
         confirmLabel="Submit today"
         loading={submittingDay}
         onConfirm={() => runConfirmedAction()}
@@ -900,7 +889,7 @@ function TimePageInner() {
       <ConfirmDialog
         open={confirmAction?.kind === 'submit-week'}
         title="Submit week?"
-        description={`Your draft time for the week of ${formatWeekLabel(weekBounds.from, weekBounds.to)} will be sent for approval. Submitted entries become read-only.`}
+        description={`Only current draft and rejected entries for the week of ${formatWeekLabel(weekBounds.from, weekBounds.to)} will be submitted. Already-submitted lines stay as they are.`}
         confirmLabel="Submit week"
         loading={submittingWeek}
         onConfirm={() => runConfirmedAction()}
@@ -912,7 +901,7 @@ function TimePageInner() {
         title="Submit task time?"
         description={
           confirmAction?.kind === 'submit-task'
-            ? `Draft time on “${confirmAction.taskName}” will be sent for approval. Those entries become read-only until rejected or unlocked.`
+            ? `Only draft and rejected time on “${confirmAction.taskName}” will be submitted. Already-submitted lines on this task stay as they are.`
             : ''
         }
         confirmLabel="Submit task"

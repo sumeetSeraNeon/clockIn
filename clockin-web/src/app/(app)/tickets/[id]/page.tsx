@@ -390,7 +390,7 @@ export default function TicketDetailPage() {
                           {statusLabel(row.status)}
                         </Badge>
                       </td>
-                      <td className="max-w-[14rem] truncate px-3 py-2.5 text-slate">
+                      <td className="max-w-[20rem] whitespace-normal break-words px-3 py-2.5 text-slate">
                         {row.description || '—'}
                       </td>
                     </tr>

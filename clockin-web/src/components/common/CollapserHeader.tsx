@@ -55,6 +55,9 @@ type CollapserHeaderProps = {
   title: string;
   hoursLabel: string;
   hoursSubLabel?: string;
+  /** e.g. approved/total on project rows */
+  metaLabel?: string;
+  metaTitle?: string;
   onToggle: () => void;
 };
 
@@ -65,6 +68,8 @@ export function CollapserHeader({
   title,
   hoursLabel,
   hoursSubLabel,
+  metaLabel,
+  metaTitle,
   onToggle,
 }: CollapserHeaderProps) {
   const style = LEVEL_STYLES[level];
@@ -91,7 +96,17 @@ export function CollapserHeader({
           <Icon className="h-4 w-4" />
         </span>
         <div className="min-w-0">
-          <p className={cn('truncate', style.title)}>{title}</p>
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <p className={cn('truncate', style.title)}>{title}</p>
+            {metaLabel ? (
+              <span
+                className="shrink-0 rounded-md bg-navy/5 px-1.5 py-0.5 text-xs font-medium tabular-nums text-slate"
+                title={metaTitle}
+              >
+                {metaLabel}
+              </span>
+            ) : null}
+          </div>
           {hoursSubLabel ? (
             <p className="mt-0.5 truncate text-xs text-slate sm:hidden">
               {hoursSubLabel}

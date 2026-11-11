@@ -35,6 +35,7 @@ import {
   parseUkDateTime,
 } from './ticket-import-parse';
 import {
+  normalizeCrApprovalLabel,
   normalizeTicketPriorityCode,
   normalizeTicketPriorityLabel,
   normalizeTicketStatusLabel,
@@ -1004,21 +1005,26 @@ export class ImportsService {
   ) {
     this.assertRowCount(rows);
     this.assertCanEditTickets(membership);
-    const [clients, tickets, departments] = await Promise.all([
+    const [clients, tickets, departments, projects] = await Promise.all([
       this.loadClients(organisationId, membership),
       this.loadTicketsByReference(organisationId),
       this.loadDepartments(organisationId),
+      this.loadProjects(organisationId, membership),
     ]);
     const resultRows = this.validateTicketRows(
       rows,
       clients,
       tickets,
       departments,
+      projects,
     );
     return {
       rows: resultRows,
       summary: summarizeRows(resultRows),
-      lookups: { clients: this.toClientLookups(clients) },
+      lookups: {
+        clients: this.toClientLookups(clients),
+        projects: this.toProjectLookups(projects),
+      },
     };
   }
 
@@ -1039,12 +1045,15 @@ export class ImportsService {
     const clients = await this.loadClients(organisationId, membership);
     let tickets = await this.loadTicketsByReference(organisationId);
     const departments = await this.loadDepartments(organisationId);
+    const projects = await this.loadProjects(organisationId, membership);
+    const canWriteCrValue = can(membership.permissions, 'rate', 'view');
 
     const validated = this.validateTicketRows(
       rows,
       clients,
       tickets,
       departments,
+      projects,
     );
 
     for (const row of validated) {
@@ -1056,7 +1065,12 @@ export class ImportsService {
         skipped += 1;
         continue;
       }
-      if (row.status === 'error' || !row.parsed || !row.matchedClientId) {
+      if (
+        row.status === 'error' ||
+        !row.parsed ||
+        !row.matchedClientId ||
+        !row.matchedProjectId
+      ) {
         errors += 1;
         continue;
       }
@@ -1066,6 +1080,7 @@ export class ImportsService {
       const isChangeRequest = row.parsed.ticketType === 'change_request';
       const data = {
         clientId: row.matchedClientId,
+        projectId: row.matchedProjectId,
         departmentId: row.matchedDepartmentId ?? null,
         reference: normName(row.reference),
         ticketType: row.parsed.ticketType,
@@ -1082,8 +1097,9 @@ export class ImportsService {
         source: blankToNull(row.source),
         tags: blankToNull(row.tags),
         workstream: blankToNull(row.workstream),
-        // Import does not require project; default CR approval when type matches
-        crApprovalStatus: isChangeRequest ? 'pending' : null,
+        crApprovalStatus: isChangeRequest
+          ? row.parsed.crApprovalStatus ?? 'pending'
+          : null,
         openedAt: row.parsed.openedAt
           ? new Date(row.parsed.openedAt)
           : null,
@@ -1109,20 +1125,26 @@ export class ImportsService {
           errors += 1;
           continue;
         }
+        const crValue = !isChangeRequest
+          ? null
+          : canWriteCrValue
+            ? (row.parsed.crValue != null
+                ? row.parsed.crValue
+                : existing.crValue)
+            : existing.crValue;
+        const crValueCurrency = !isChangeRequest
+          ? null
+          : canWriteCrValue
+            ? (row.parsed.crValueCurrency != null
+                ? row.parsed.crValueCurrency
+                : existing.crValueCurrency)
+            : existing.crValueCurrency;
         const saved = await this.prisma.ticket.update({
           where: { id: existing.id },
           data: {
             ...data,
-            // Keep project if already assigned
-            projectId: existing.projectId,
-            // Keep existing CR approval unless type newly became change_request
-            crApprovalStatus: isChangeRequest
-              ? existing.crApprovalStatus ?? 'pending'
-              : null,
-            crValue: isChangeRequest ? existing.crValue : null,
-            crValueCurrency: isChangeRequest
-              ? existing.crValueCurrency
-              : null,
+            crValue,
+            crValueCurrency,
             resolvedAt:
               data.resolvedAt ??
               (data.status === 'resolved' && !existing.resolvedAt
@@ -1156,6 +1178,12 @@ export class ImportsService {
         data: {
           organisationId,
           ...data,
+          crValue:
+            isChangeRequest && canWriteCrValue ? row.parsed.crValue : null,
+          crValueCurrency:
+            isChangeRequest && canWriteCrValue
+              ? row.parsed.crValueCurrency
+              : null,
           openedAt: data.openedAt ?? new Date(),
           resolvedAt:
             data.resolvedAt ??
@@ -1187,6 +1215,13 @@ export class ImportsService {
     clients: { id: string; name: string }[],
     tickets: Map<string, { id: string; reference: string }>,
     departments: { id: string; name: string }[],
+    projects: {
+      id: string;
+      name: string;
+      clientId: string;
+      clientName: string;
+      status: string;
+    }[],
   ): TicketImportRowResult[] {
     const clientsByKey = new Map(
       clients.map((c) => [nameKey(c.name), c] as const),
@@ -1194,6 +1229,7 @@ export class ImportsService {
     const departmentsByKey = new Map(
       departments.map((d) => [nameKey(d.name), d] as const),
     );
+    const activeProjects = projects.filter((p) => p.status !== 'archived');
 
     return rows.map((row) => {
       if (row.excluded) {
@@ -1204,6 +1240,7 @@ export class ImportsService {
       const title = normName(row.title);
       const clientName =
         normName(row.clientName) || normName(row.tags ?? '') || '';
+      const projectName = normName(row.projectName);
 
       if (!reference) {
         return {
@@ -1226,6 +1263,14 @@ export class ImportsService {
           reason: 'Client (or Tags) is required',
         };
       }
+      if (!projectName && !row.projectId) {
+        return {
+          ...row,
+          clientName,
+          status: 'error' as const,
+          reason: 'Project is required',
+        };
+      }
 
       let matchedClient =
         row.clientId != null
@@ -1238,8 +1283,40 @@ export class ImportsService {
         return {
           ...row,
           clientName,
+          projectName,
           status: 'error' as const,
           reason: `Client "${clientName || row.clientName}" not found in ClockIn`,
+        };
+      }
+
+      const projectResolved = this.resolveProject({
+        projectName: projectName || '',
+        projectId: row.projectId,
+        clientId: matchedClient.id,
+        clientName: matchedClient.name,
+        createProject: false,
+        createClient: false,
+        projects: activeProjects,
+        canCreateProject: false,
+      });
+      if (projectResolved.status === 'error') {
+        return {
+          ...row,
+          clientName,
+          projectName,
+          status: 'error' as const,
+          reason: projectResolved.reason,
+          matchedClientId: matchedClient.id,
+        };
+      }
+      if (!projectResolved.projectId) {
+        return {
+          ...row,
+          clientName,
+          projectName: projectResolved.projectName,
+          status: 'error' as const,
+          reason: `Project '${projectResolved.projectName || projectName}' not found under client '${matchedClient.name}'`,
+          matchedClientId: matchedClient.id,
         };
       }
 
@@ -1248,9 +1325,11 @@ export class ImportsService {
         return {
           ...row,
           clientName,
+          projectName: projectResolved.projectName,
           status: 'error' as const,
           reason: `Unknown Type "${row.ticketType}"`,
           matchedClientId: matchedClient.id,
+          matchedProjectId: projectResolved.projectId,
         };
       }
 
@@ -1259,9 +1338,11 @@ export class ImportsService {
         return {
           ...row,
           clientName,
+          projectName: projectResolved.projectName,
           status: 'error' as const,
           reason: `Unknown Status "${row.status}"`,
           matchedClientId: matchedClient.id,
+          matchedProjectId: projectResolved.projectId,
         };
       }
 
@@ -1272,9 +1353,11 @@ export class ImportsService {
         return {
           ...row,
           clientName,
+          projectName: projectResolved.projectName,
           status: 'error' as const,
           reason: `Unknown Priority "${row.priority}"`,
           matchedClientId: matchedClient.id,
+          matchedProjectId: projectResolved.projectId,
         };
       }
 
@@ -1285,10 +1368,52 @@ export class ImportsService {
         return {
           ...row,
           clientName,
+          projectName: projectResolved.projectName,
           status: 'error' as const,
           reason: `Unknown Ticket Priority "${row.ticketPriority}"`,
           matchedClientId: matchedClient.id,
+          matchedProjectId: projectResolved.projectId,
         };
+      }
+
+      const isChangeRequest = ticketType === 'change_request';
+      let crApprovalStatus: string | null = null;
+      let crValue: number | null = null;
+      let crValueCurrency: string | null = null;
+      if (isChangeRequest) {
+        if (row.crApprovalStatus?.trim()) {
+          crApprovalStatus = normalizeCrApprovalLabel(row.crApprovalStatus);
+          if (!crApprovalStatus) {
+            return {
+              ...row,
+              clientName,
+              projectName: projectResolved.projectName,
+              status: 'error' as const,
+              reason: `Unknown CR Approval "${row.crApprovalStatus}"`,
+              matchedClientId: matchedClient.id,
+              matchedProjectId: projectResolved.projectId,
+            };
+          }
+        } else {
+          crApprovalStatus = 'pending';
+        }
+
+        if (row.crValue?.trim()) {
+          const parsedValue = Number(String(row.crValue).replace(/,/g, ''));
+          if (!Number.isFinite(parsedValue)) {
+            return {
+              ...row,
+              clientName,
+              projectName: projectResolved.projectName,
+              status: 'error' as const,
+              reason: `Could not read CR Value: "${row.crValue}"`,
+              matchedClientId: matchedClient.id,
+              matchedProjectId: projectResolved.projectId,
+            };
+          }
+          crValue = parsedValue;
+        }
+        crValueCurrency = blankToNull(row.crValueCurrency);
       }
 
       const dateFields: Array<[string, string | null | undefined]> = [
@@ -1309,9 +1434,11 @@ export class ImportsService {
           return {
             ...row,
             clientName,
+            projectName: projectResolved.projectName,
             status: 'error' as const,
             reason: `Could not read ${label}: "${raw}"`,
             matchedClientId: matchedClient.id,
+            matchedProjectId: projectResolved.projectId,
           };
         }
         parsedDates[label] = d.toISOString();
@@ -1327,9 +1454,11 @@ export class ImportsService {
         return {
           ...row,
           clientName,
+          projectName: projectResolved.projectName,
           status: 'error' as const,
           reason: `Could not read First response time: "${row.firstResponseDuration}"`,
           matchedClientId: matchedClient.id,
+          matchedProjectId: projectResolved.projectId,
         };
       }
 
@@ -1340,9 +1469,11 @@ export class ImportsService {
         return {
           ...row,
           clientName,
+          projectName: projectResolved.projectName,
           status: 'error' as const,
           reason: `Could not read Resolution time: "${row.resolutionDuration}"`,
           matchedClientId: matchedClient.id,
+          matchedProjectId: projectResolved.projectId,
         };
       }
 
@@ -1354,9 +1485,11 @@ export class ImportsService {
           return {
             ...row,
             clientName,
+            projectName: projectResolved.projectName,
             status: 'error' as const,
             reason: `Department "${groupName}" not found`,
             matchedClientId: matchedClient.id,
+            matchedProjectId: projectResolved.projectId,
           };
         }
       }
@@ -1366,10 +1499,12 @@ export class ImportsService {
       return {
         ...row,
         clientName,
+        projectName: projectResolved.projectName,
         reference,
         title,
         status: existingTicket ? ('update' as const) : ('create' as const),
         matchedClientId: matchedClient.id,
+        matchedProjectId: projectResolved.projectId,
         matchedTicketId: existingTicket?.id ?? null,
         matchedDepartmentId: matchedDepartment?.id ?? null,
         parsed: {
@@ -1385,6 +1520,9 @@ export class ImportsService {
           firstResponseSeconds,
           resolutionSeconds,
           internalAgentName: normalizeInternalAgent(row.internalAgentName),
+          crApprovalStatus,
+          crValue,
+          crValueCurrency,
         },
       };
     });

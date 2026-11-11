@@ -1525,6 +1525,7 @@ export class TimesheetsService {
               status: string;
               ticketId: string | null;
               ticketReference: string | null;
+              ticketType: string | null;
             }>;
           }>;
         }>,
@@ -1542,7 +1543,14 @@ export class TimesheetsService {
           orderBy: { createdAt: 'asc' },
           include: {
             task: { select: { id: true, name: true } },
-            ticket: { select: { id: true, reference: true, status: true } },
+            ticket: {
+              select: {
+                id: true,
+                reference: true,
+                status: true,
+                ticketType: true,
+              },
+            },
             project: {
               select: {
                 id: true,
@@ -1569,6 +1577,7 @@ export class TimesheetsService {
       status: string;
       ticketId: string | null;
       ticketReference: string | null;
+      ticketType: string | null;
     };
     type TaskBucket = {
       taskId: string | null;
@@ -1667,6 +1676,7 @@ export class TimesheetsService {
           status: line.status,
           ticketId: line.ticketId ?? line.ticket?.id ?? null,
           ticketReference: line.ticket?.reference ?? null,
+          ticketType: line.ticket?.ticketType ?? line.ticketType ?? null,
         });
       }
     }

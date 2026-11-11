@@ -9,7 +9,7 @@ import {
   entryDurationMinutes,
   entryStatusLabel,
   entryStatusVariant,
-  entryTicketReference,
+  entryTicketInfo,
   formatEntryTimeLabel,
   isEntryLocked,
   isEntryRunning,
@@ -255,7 +255,7 @@ export function TimesheetPanel({
                 const locked = isEntryLocked(entry);
                 const running = isEntryRunning(entry);
                 const note = entryDescription(entry);
-                const ticketRef = entryTicketReference(entry);
+                const ticketInfo = entryTicketInfo(entry);
                 const dateLabel = entry.entryDate.slice(0, 10);
 
                 return (
@@ -270,8 +270,26 @@ export function TimesheetPanel({
                         <span className="tabular-nums text-sm font-medium text-ink">
                           {formatEntryTimeLabel(entry)}
                         </span>
-                        {ticketRef ? (
-                          <Badge variant="neutral">{ticketRef}</Badge>
+                        {ticketInfo ? (
+                          <a
+                            href={`/tickets/${encodeURIComponent(ticketInfo.reference)}`}
+                            className="inline-flex max-w-full items-center gap-1.5 rounded-md bg-coral/10 px-2 py-0.5 text-xs font-semibold text-coral ring-1 ring-coral/25 hover:bg-coral/15"
+                            title={
+                              ticketInfo.typeLabel
+                                ? `${ticketInfo.typeLabel} · ${ticketInfo.reference}`
+                                : ticketInfo.reference
+                            }
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <span className="truncate">
+                              {ticketInfo.reference}
+                            </span>
+                            {ticketInfo.typeLabel ? (
+                              <span className="font-medium text-coral/80">
+                                · {ticketInfo.typeLabel}
+                              </span>
+                            ) : null}
+                          </a>
                         ) : null}
                         {mode === 'week' ? (
                           <span className="text-xs text-slate">

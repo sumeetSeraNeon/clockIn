@@ -271,6 +271,7 @@ export default function ClientsPage() {
             : 'Updates this client. Archive from the row menu if needed.'
         }
         onClose={closeModal}
+        size="xl"
       >
         <ClientForm
           mode={modalMode === 'edit' ? 'edit' : 'create'}

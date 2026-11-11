@@ -7,6 +7,10 @@ export const TASK_DETAIL_INCLUDE = {
       id: true,
       name: true,
       code: true,
+      clientId: true,
+      client: {
+        select: { id: true, name: true },
+      },
       ownerId: true,
       owner: {
         select: {

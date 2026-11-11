@@ -3,7 +3,6 @@ import {
   Controller,
   Get,
   Param,
-  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -23,6 +22,7 @@ import { TicketsService } from './tickets.service';
 /**
  * FINAL FIX 9 — ticket:view for list/detail; ticket:edit for create/update
  * (members view-only; PM/admin/owner edit).
+ * :id accepts UUID or ticket reference (CR/ticket number).
  */
 @Controller('tickets')
 @UseGuards(FirebaseAuthGuard, PermissionsGuard)
@@ -36,7 +36,7 @@ export class TicketsController {
     @CurrentMembership() membership: AuthMembership,
     @Body() dto: CreateTicketDto,
   ) {
-    return this.ticketsService.create(organisationId, membership.id, dto);
+    return this.ticketsService.create(organisationId, membership, dto);
   }
 
   /** Active departments for ticket Group dropdown (Freshdesk Group = Department). */
@@ -61,7 +61,7 @@ export class TicketsController {
   findOne(
     @CurrentOrg() organisationId: string,
     @CurrentMembership() membership: AuthMembership,
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
   ) {
     return this.ticketsService.findOne(organisationId, membership, id);
   }
@@ -71,14 +71,9 @@ export class TicketsController {
   update(
     @CurrentOrg() organisationId: string,
     @CurrentMembership() membership: AuthMembership,
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @Body() dto: UpdateTicketDto,
   ) {
-    return this.ticketsService.update(
-      organisationId,
-      membership.id,
-      id,
-      dto,
-    );
+    return this.ticketsService.update(organisationId, membership, id, dto);
   }
 }

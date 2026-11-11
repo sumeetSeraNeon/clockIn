@@ -8,10 +8,12 @@ import {
 import { formatHoursMinutes } from '@/lib/format-duration';
 import type { Client, Project, Ticket } from '@/types/api';
 import {
+  CR_APPROVAL_STATUS_LABELS,
   TICKET_PRIORITY_CODE_LABELS,
   TICKET_PRIORITY_LABELS,
   TICKET_STATUS_LABELS,
   TICKET_TYPE_LABELS,
+  type CrApprovalStatus,
   type TicketPriority,
   type TicketPriorityCode,
   type TicketStatus,
@@ -114,6 +116,20 @@ export function TicketsTable({
       cell: (row) => (
         <span className="text-sm text-slate">{typeLabel(row.ticketType)}</span>
       ),
+    },
+    {
+      id: 'crApproval',
+      header: 'CR',
+      cell: (row) =>
+        row.ticketType === 'change_request' && row.crApprovalStatus ? (
+          <span className="inline-flex rounded-md bg-navy/5 px-2 py-0.5 text-xs font-medium text-navy">
+            {CR_APPROVAL_STATUS_LABELS[
+              row.crApprovalStatus as CrApprovalStatus
+            ] ?? String(row.crApprovalStatus).replace(/_/g, ' ')}
+          </span>
+        ) : (
+          <span className="text-slate">—</span>
+        ),
     },
     {
       id: 'agent',

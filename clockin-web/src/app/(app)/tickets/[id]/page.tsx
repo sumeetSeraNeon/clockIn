@@ -25,9 +25,13 @@ import type {
   UpdateTicketInput,
 } from '@/types/api';
 import {
+  CR_APPROVAL_STATUS_LABELS,
   TICKET_PRIORITY_CODE_LABELS,
   TICKET_STATUS_LABELS,
+  TICKET_TYPE_LABELS,
+  type CrApprovalStatus,
   type TicketPriorityCode,
+  type TicketType,
 } from '@/types/api';
 
 type TicketTab = 'overview' | 'time';
@@ -63,11 +67,12 @@ export default function TicketDetailPage() {
   const params = useParams();
   const router = useRouter();
   const toast = useToast();
-  const ticketId = String(params.id ?? '');
+  const ticketKey = decodeURIComponent(String(params.id ?? ''));
   const { can } = usePermissions();
   const canEdit = can('ticket', 'edit');
   const canTrackTime = can('time_entry', 'edit');
   const canViewClients = can('client', 'view');
+  const canViewCrValue = can('rate', 'view');
 
   const [tab, setTab] = useState<TicketTab>('overview');
   const [ticket, setTicket] = useState<Ticket | null>(null);
@@ -79,11 +84,13 @@ export default function TicketDetailPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const load = useCallback(async () => {
-    if (!ticketId) return;
+    if (!ticketKey) return;
     setLoading(true);
     setError(null);
     try {
-      const detail = await api<Ticket>(`/tickets/${ticketId}`);
+      const detail = await api<Ticket>(
+        `/tickets/${encodeURIComponent(ticketKey)}`,
+      );
       setTicket(detail);
 
       const [clientsRes, projectsRes, departmentsRes] = await Promise.all([
@@ -108,7 +115,7 @@ export default function TicketDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [ticketId, canViewClients, canEdit]);
+  }, [ticketKey, canViewClients, canEdit]);
 
   useEffect(() => {
     void load();
@@ -132,10 +139,13 @@ export default function TicketDetailPage() {
     if (!ticket) return;
     setSubmitting(true);
     try {
-      const updated = await api<Ticket>(`/tickets/${ticket.id}`, {
-        method: 'PATCH',
-        body: values,
-      });
+      const updated = await api<Ticket>(
+        `/tickets/${encodeURIComponent(ticket.reference)}`,
+        {
+          method: 'PATCH',
+          body: values,
+        },
+      );
       toast.success('Ticket updated');
       await load();
       setTicket((prev) => (prev ? { ...prev, ...updated } : updated));
@@ -217,7 +227,20 @@ export default function TicketDetailPage() {
             <h1 className="text-2xl font-semibold tracking-tight text-navy">
               {ticket.reference}
             </h1>
+            <Badge variant="neutral">
+              {TICKET_TYPE_LABELS[ticket.ticketType as TicketType] ??
+                ticket.ticketType}
+            </Badge>
             <Badge variant="neutral">{statusLabel(ticket.status)}</Badge>
+            {ticket.ticketType === 'change_request' &&
+            ticket.crApprovalStatus ? (
+              <Badge variant="coral">
+                CR:{' '}
+                {CR_APPROVAL_STATUS_LABELS[
+                  ticket.crApprovalStatus as CrApprovalStatus
+                ] ?? ticket.crApprovalStatus}
+              </Badge>
+            ) : null}
             {ticket.ticketPriority ? (
               <Badge variant="neutral">
                 {TICKET_PRIORITY_CODE_LABELS[
@@ -294,6 +317,7 @@ export default function TicketDetailPage() {
             submitting={submitting}
             readOnly={!canEdit}
             hideCancel
+            canViewCrValue={canViewCrValue}
             onSubmit={(values) => handleSave(values as UpdateTicketInput)}
             onCancel={() => router.push('/tickets')}
           />

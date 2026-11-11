@@ -210,76 +210,56 @@ export function TaskForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      {!lockProject ? (
-        <FormField
-          label="Project"
-          htmlFor="task-project"
-          error={errors.projectId}
-          required
-        >
-          <Select
-            id="task-project"
-            value={form.projectId}
-            onChange={(e) => setField('projectId', e.target.value)}
-            invalid={Boolean(errors.projectId)}
+      <div className="grid gap-4 sm:grid-cols-2">
+        {!lockProject ? (
+          <FormField
+            label="Project"
+            htmlFor="task-project"
+            error={errors.projectId}
             required
           >
-            <option value="" disabled>
-              Select a project
-            </option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </Select>
-        </FormField>
-      ) : null}
-
-      <FormField label="Name" htmlFor="task-name" error={errors.name} required>
-        <Input
-          id="task-name"
-          value={form.name}
-          onChange={(e) => setField('name', e.target.value)}
-          placeholder="Implement login screen"
-          invalid={Boolean(errors.name)}
-          required
-        />
-      </FormField>
-
-      {compactCreate ? (
-        <FormField
-          label="Estimated hours"
-          htmlFor="task-estimate"
-          hint={budgetHint}
-        >
-          <Input
-            id="task-estimate"
-            type="number"
-            min={0}
-            step="0.25"
-            value={form.estimatedHours}
-            onChange={(e) => setField('estimatedHours', e.target.value)}
-            placeholder="8"
-          />
-        </FormField>
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-2">
-          <FormField label="Status" htmlFor="task-status">
             <Select
-              id="task-status"
-              value={form.status}
-              onChange={(e) => setField('status', e.target.value as TaskStatus)}
+              id="task-project"
+              value={form.projectId}
+              onChange={(e) => setField('projectId', e.target.value)}
+              invalid={Boolean(errors.projectId)}
+              required
             >
-              <option value="open">Open</option>
-              <option value="done">Done</option>
-              <option value="archived">Archived</option>
+              <option value="" disabled>
+                Select a project
+              </option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
             </Select>
           </FormField>
+        ) : null}
+
+        <FormField
+          label="Name"
+          htmlFor="task-name"
+          error={errors.name}
+          required
+          className={lockProject ? 'sm:col-span-2' : undefined}
+        >
+          <Input
+            id="task-name"
+            value={form.name}
+            onChange={(e) => setField('name', e.target.value)}
+            placeholder="Implement login screen"
+            invalid={Boolean(errors.name)}
+            required
+          />
+        </FormField>
+
+        {compactCreate ? (
           <FormField
             label="Estimated hours"
             htmlFor="task-estimate"
             hint={budgetHint}
+            className="sm:col-span-2"
           >
             <Input
               id="task-estimate"
@@ -291,34 +271,66 @@ export function TaskForm({
               placeholder="8"
             />
           </FormField>
-        </div>
-      )}
+        ) : (
+          <>
+            <FormField label="Status" htmlFor="task-status">
+              <Select
+                id="task-status"
+                value={form.status}
+                onChange={(e) =>
+                  setField('status', e.target.value as TaskStatus)
+                }
+              >
+                <option value="open">Open</option>
+                <option value="done">Done</option>
+                <option value="archived">Archived</option>
+              </Select>
+            </FormField>
+            <FormField
+              label="Estimated hours"
+              htmlFor="task-estimate"
+              hint={budgetHint}
+            >
+              <Input
+                id="task-estimate"
+                type="number"
+                min={0}
+                step="0.25"
+                value={form.estimatedHours}
+                onChange={(e) => setField('estimatedHours', e.target.value)}
+                placeholder="8"
+              />
+            </FormField>
+          </>
+        )}
 
-      <FormField
-        label="Primary owner"
-        htmlFor="task-assignee"
-        hint="Optional label. Anyone on this project’s Team can log time."
-      >
-        <Select
-          id="task-assignee"
-          value={form.assigneeId}
-          onChange={(e) => setField('assigneeId', e.target.value)}
-          disabled={!form.projectId || assigneesLoading}
+        <FormField
+          label="Primary owner"
+          htmlFor="task-assignee"
+          hint="Optional label. Anyone on this project’s Team can log time."
+          className="sm:col-span-2"
         >
-          <option value="">
-            {!form.projectId
-              ? 'Select a project first'
-              : assigneesLoading
-                ? 'Loading team…'
-                : 'Unassigned'}
-          </option>
-          {assigneeOptions.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.user.name || m.user.email}
+          <Select
+            id="task-assignee"
+            value={form.assigneeId}
+            onChange={(e) => setField('assigneeId', e.target.value)}
+            disabled={!form.projectId || assigneesLoading}
+          >
+            <option value="">
+              {!form.projectId
+                ? 'Select a project first'
+                : assigneesLoading
+                  ? 'Loading team…'
+                  : 'Unassigned'}
             </option>
-          ))}
-        </Select>
-      </FormField>
+            {assigneeOptions.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.user.name || m.user.email}
+              </option>
+            ))}
+          </Select>
+        </FormField>
+      </div>
 
       {showBillable && canSetBillable ? (
         <label className="flex items-center gap-2 text-sm text-ink">

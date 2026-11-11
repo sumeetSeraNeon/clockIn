@@ -8,11 +8,9 @@ import {
   IsUUID,
   MaxLength,
   Min,
-  MinLength,
   ValidateIf,
 } from 'class-validator';
 
-const TICKET_TYPES = ['incident', 'cr', 'sr'] as const;
 const AREAS = ['functional', 'technical', 'integration', 'pm'] as const;
 
 export class UpdateTimeLineDto {
@@ -36,27 +34,28 @@ export class UpdateTimeLineDto {
   @IsUUID()
   ticketId?: string | null;
 
+  /** Ignored when ticketId is set — server derives from ticket. */
   @IsOptional()
   @ValidateIf((_, v) => v !== null)
-  @IsIn(TICKET_TYPES)
-  ticketType?: (typeof TICKET_TYPES)[number] | null;
+  @IsString()
+  @MaxLength(50)
+  ticketType?: string | null;
 
   @IsOptional()
   @ValidateIf((_, v) => v !== null)
   @IsIn(AREAS)
   area?: string | null;
 
+  /** Deprecated — cleared on write. */
   @IsOptional()
-  @ValidateIf((o: UpdateTimeLineDto) => o.ticketType === 'cr' || o.crId != null)
+  @ValidateIf((_, v) => v !== null)
   @IsUUID()
   crId?: string | null;
 
+  /** Deprecated — cleared on write. */
   @IsOptional()
-  @ValidateIf(
-    (o: UpdateTimeLineDto) => o.ticketType === 'cr' || o.crNumber != null,
-  )
+  @ValidateIf((_, v) => v !== null)
   @IsString()
-  @MinLength(1)
   @MaxLength(50)
   crNumber?: string | null;
 

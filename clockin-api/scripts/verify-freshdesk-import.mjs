@@ -208,7 +208,7 @@ async function main() {
   assert(t1103?.projectId == null, 'project should be null after import');
   assert(t1103?.internalAgentName == null, 'No Agent → null');
   const t1119 = created.find((t) => t.reference === '1119');
-  assert(t1119?.ticketType === 'change', `change type got ${t1119?.ticketType}`);
+  assert(t1119?.ticketType === 'change_request', `change_request type got ${t1119?.ticketType}`);
   assert(t1119?.priority === 'critical', `Urgent→critical got ${t1119?.priority}`);
   assert(t1119?.status === 'waiting_on_customer', `status got ${t1119?.status}`);
   const crCount = await prisma.changeRequest.count({

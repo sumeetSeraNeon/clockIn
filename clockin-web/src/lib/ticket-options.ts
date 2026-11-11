@@ -1,4 +1,5 @@
-import type { Ticket } from '@/types/api';
+import type { Ticket, TicketType } from '@/types/api';
+import { TICKET_TYPE_LABELS } from '@/types/api';
 
 const STATUS_RANK: Record<string, number> = {
   open: 0,
@@ -24,8 +25,19 @@ export function sortTicketsForPicker(tickets: Ticket[]): Ticket[] {
   });
 }
 
+export function ticketTypeDisplay(ticketType: string | null | undefined): string {
+  if (!ticketType?.trim()) return '';
+  return (
+    TICKET_TYPE_LABELS[ticketType as TicketType] ??
+    ticketType.replace(/_/g, ' ')
+  );
+}
+
+/** e.g. `103 — Login fails (Change Request)` or `103 (Incident)`. */
 export function ticketOptionLabel(ticket: Ticket): string {
   const title = ticket.title?.trim();
-  if (title) return `${ticket.reference} — ${title}`;
-  return ticket.reference;
+  const type = ticketTypeDisplay(ticket.ticketType);
+  const typeSuffix = type ? ` (${type})` : '';
+  if (title) return `${ticket.reference} — ${title}${typeSuffix}`;
+  return `${ticket.reference}${typeSuffix}`;
 }

@@ -8,6 +8,7 @@ export type TasksQuery = {
   page?: number;
   pageSize?: number;
   status?: TaskStatus | 'all';
+  clientId?: string | 'all';
   projectId?: string | 'all';
   assigneeId?: string | 'all';
   /** Server-side name search */
@@ -18,6 +19,7 @@ export function useTasks(query: TasksQuery) {
   const page = query.page ?? 1;
   const pageSize = query.pageSize ?? 20;
   const status = query.status ?? 'all';
+  const clientId = query.clientId ?? 'all';
   const projectId = query.projectId ?? 'all';
   const assigneeId = query.assigneeId ?? 'all';
   const q = query.q?.trim() ?? '';
@@ -44,6 +46,7 @@ export function useTasks(query: TasksQuery) {
           pageSize: String(pageSize),
         });
         if (status !== 'all') params.set('status', status);
+        if (clientId !== 'all') params.set('clientId', clientId);
         if (projectId !== 'all') params.set('projectId', projectId);
         if (assigneeId !== 'all') params.set('assigneeId', assigneeId);
         if (q) params.set('q', q);
@@ -75,7 +78,7 @@ export function useTasks(query: TasksQuery) {
       cancelled = true;
       controller.abort();
     };
-  }, [page, pageSize, status, projectId, assigneeId, q, reloadKey]);
+  }, [page, pageSize, status, clientId, projectId, assigneeId, q, reloadKey]);
 
   return {
     data,

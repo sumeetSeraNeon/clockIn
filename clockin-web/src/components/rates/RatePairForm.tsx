@@ -281,85 +281,109 @@ export function RatePairForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <FormField
-        label="Client"
-        htmlFor="pair-client"
-        error={errors.clientId}
-        required={!projectLocked}
-      >
-        {projectLocked ? (
-          <Input
-            id="pair-client"
-            value={selectedClientName}
-            disabled
-            readOnly
-          />
-        ) : (
+      <div className="grid gap-4 sm:grid-cols-2">
+        <FormField
+          label="Client"
+          htmlFor="pair-client"
+          error={errors.clientId}
+          required={!projectLocked}
+        >
+          {projectLocked ? (
+            <Input
+              id="pair-client"
+              value={selectedClientName}
+              disabled
+              readOnly
+            />
+          ) : (
+            <Select
+              id="pair-client"
+              value={form.clientId}
+              onChange={(e) => setField('clientId', e.target.value)}
+              disabled={submitting}
+              invalid={Boolean(errors.clientId)}
+            >
+              <option value="">Select client</option>
+              {clientOptions.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </Select>
+          )}
+        </FormField>
+
+        <FormField
+          label="Project"
+          htmlFor="pair-project"
+          error={errors.projectId}
+          required
+        >
           <Select
-            id="pair-client"
-            value={form.clientId}
-            onChange={(e) => setField('clientId', e.target.value)}
-            disabled={submitting}
-            invalid={Boolean(errors.clientId)}
+            id="pair-project"
+            value={form.projectId}
+            onChange={(e) => setField('projectId', e.target.value)}
+            disabled={submitting || projectLocked || !form.clientId}
+            invalid={Boolean(errors.projectId)}
           >
-            <option value="">Select client</option>
-            {clientOptions.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
+            <option value="">
+              {!form.clientId ? 'Pick a client first' : 'Select project'}
+            </option>
+            {projectsForClient.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
               </option>
             ))}
           </Select>
-        )}
-      </FormField>
+        </FormField>
 
-      <FormField
-        label="Project"
-        htmlFor="pair-project"
-        error={errors.projectId}
-        required
-      >
-        <Select
-          id="pair-project"
-          value={form.projectId}
-          onChange={(e) => setField('projectId', e.target.value)}
-          disabled={submitting || projectLocked || !form.clientId}
-          invalid={Boolean(errors.projectId)}
+        <FormField
+          label="Person"
+          htmlFor="pair-user"
+          error={errors.userId}
+          required
         >
-          <option value="">
-            {!form.clientId ? 'Pick a client first' : 'Select project'}
-          </option>
-          {projectsForClient.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
+          <Select
+            id="pair-user"
+            value={form.userId}
+            onChange={(e) => setField('userId', e.target.value)}
+            disabled={
+              submitting || userLocked || !form.projectId || teamLoading
+            }
+            invalid={Boolean(errors.userId)}
+          >
+            <option value="">
+              {!form.projectId
+                ? 'Pick a project first'
+                : teamLoading
+                  ? 'Loading…'
+                  : 'Select person'}
             </option>
-          ))}
-        </Select>
-      </FormField>
+            {personOptions.map((p) => (
+              <option key={p.userId} value={p.userId}>
+                {p.label}
+              </option>
+            ))}
+          </Select>
+        </FormField>
 
-      <FormField label="Person" htmlFor="pair-user" error={errors.userId} required>
-        <Select
-          id="pair-user"
-          value={form.userId}
-          onChange={(e) => setField('userId', e.target.value)}
-          disabled={
-            submitting || userLocked || !form.projectId || teamLoading
-          }
-          invalid={Boolean(errors.userId)}
+        <FormField
+          label="Effective from"
+          htmlFor="pair-from"
+          error={errors.effectiveFrom}
+          required
         >
-          <option value="">
-            {!form.projectId
-              ? 'Pick a project first'
-              : teamLoading
-                ? 'Loading…'
-                : 'Select person'}
-          </option>
-          {personOptions.map((p) => (
-            <option key={p.userId} value={p.userId}>
-              {p.label}
-            </option>
-          ))}
-        </Select>
-      </FormField>
+          <Input
+            id="pair-from"
+            type="date"
+            value={form.effectiveFrom}
+            onChange={(e) => setField('effectiveFrom', e.target.value)}
+            invalid={Boolean(errors.effectiveFrom)}
+            disabled={submitting}
+            required
+          />
+        </FormField>
+      </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <MoneyAmountField
@@ -404,23 +428,6 @@ export function RatePairForm({
           Enter cost and billable to see margin per hour.
         </p>
       )}
-
-      <FormField
-        label="Effective from"
-        htmlFor="pair-from"
-        error={errors.effectiveFrom}
-        required
-      >
-        <Input
-          id="pair-from"
-          type="date"
-          value={form.effectiveFrom}
-          onChange={(e) => setField('effectiveFrom', e.target.value)}
-          invalid={Boolean(errors.effectiveFrom)}
-          disabled={submitting}
-          required
-        />
-      </FormField>
 
       <div className="flex justify-end gap-2 pt-2">
         <Button

@@ -67,6 +67,7 @@ const ALL_TABLES = [
   'tags',
   'time_lines',
   'time_entries',
+  'ticket_attachments',
   'tickets',
   'tasks',
   'projects',

@@ -16,7 +16,6 @@ import { ListSkeleton } from '@/components/common/Skeleton';
 import { useToast } from '@/components/common/Toast';
 import { ProjectForm } from '@/components/projects/ProjectForm';
 import { ProjectTeamPanel } from '@/components/projects/ProjectTeamPanel';
-import { TaskActivityPanel } from '@/components/tasks/TaskActivityPanel';
 import { TaskForm } from '@/components/tasks/TaskForm';
 import { TasksTable } from '@/components/tasks/TasksTable';
 import { TicketsTable } from '@/components/tickets/TicketsTable';
@@ -59,7 +58,6 @@ export default function ProjectDetailPage() {
   const canEditTasks = can('task', 'edit');
   const canViewMembers = can('member', 'view');
   const canViewClients = can('client', 'view');
-  const canTrackTime = can('time_entry', 'edit');
   const canSetBillable = can('billable', 'set');
   const canViewRates = can('rate', 'view');
   const canEditRates = can('rate', 'edit');
@@ -74,7 +72,6 @@ export default function ProjectDetailPage() {
   const [teamMembers, setTeamMembers] = useState<MemberSummary[]>([]);
   const [orgMembers, setOrgMembers] = useState<MemberSummary[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
-  const [activityTask, setActivityTask] = useState<Task | null>(null);
   const [creating, setCreating] = useState(false);
   const [createNamePrefill, setCreateNamePrefill] = useState('');
   const [quickTaskName, setQuickTaskName] = useState('');
@@ -453,11 +450,10 @@ export default function ProjectDetailPage() {
               projectsById={projectsById}
               membersById={membersById}
               canEdit={canEditTasks}
-              canTrackTime={canTrackTime}
               showBillable={showBillable}
               memberView={isMember}
-              hideProjectColumn
-              onTrack={(task) => setActivityTask(task)}
+              showOpen
+              hideContext
               onEdit={setEditing}
               onMarkDone={setMarkingDone}
               onArchive={setArchiving}
@@ -545,7 +541,9 @@ export default function ProjectDetailPage() {
               canEdit={false}
               hideClientColumn
               hideProjectColumn
-              onOpen={(t) => router.push(`/tickets/${t.id}`)}
+              onOpen={(t) =>
+                router.push(`/tickets/${encodeURIComponent(t.reference)}`)
+              }
             />
           )}
         </section>
@@ -611,19 +609,12 @@ export default function ProjectDetailPage() {
         </section>
       ) : null}
 
-      <TaskActivityPanel
-        task={activityTask}
-        open={Boolean(activityTask)}
-        onClose={() => setActivityTask(null)}
-        showBillable={showBillable}
-        canStartTimer={Boolean(canTrackTime && activityTask)}
-      />
-
       <Modal
         open={creating}
         title="Add task"
         description={`Create a task on ${project.name}. Assignee must be on the project team.`}
         onClose={closeCreateModal}
+        size="xl"
       >
         <TaskForm
           mode="create"
@@ -646,6 +637,7 @@ export default function ProjectDetailPage() {
         onClose={() => {
           if (!submitting) setEditing(null);
         }}
+        size="xl"
       >
         {editing ? (
           <TaskForm

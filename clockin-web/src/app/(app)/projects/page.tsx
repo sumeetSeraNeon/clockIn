@@ -341,6 +341,7 @@ export default function ProjectsPage() {
             : 'Update project details. Archive from the row menu if needed.'
         }
         onClose={closeModal}
+        size="xl"
       >
         <ProjectForm
           mode={modalMode === 'edit' ? 'edit' : 'create'}

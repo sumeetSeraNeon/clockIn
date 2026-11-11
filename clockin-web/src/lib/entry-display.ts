@@ -1,5 +1,6 @@
 import { formatHoursMinutes } from '@/lib/format-duration';
-import type { TimeEntry } from '@/types/api';
+import type { TimeEntry, TicketType } from '@/types/api';
+import { TICKET_TYPE_LABELS } from '@/types/api';
 
 /** Shared entry display helpers (FIX 4 — Timesheet + Calendar consistency). */
 
@@ -17,12 +18,36 @@ export function entryDescription(entry: TimeEntry): string | null {
   return note || null;
 }
 
-/** Ticket reference on the first line, e.g. INC-1042 (FIX 1). */
-export function entryTicketReference(entry: TimeEntry): string | null {
+/** First line ticket (reference + type) for timesheet / calendar. */
+export function entryTicketInfo(entry: TimeEntry): {
+  reference: string;
+  ticketType: string | null;
+  typeLabel: string | null;
+} | null {
   const lines = entry.timeLines ?? [];
   const first = lines.find((l) => l.isFirstLine) ?? lines[0];
   const ref = first?.ticket?.reference?.trim();
-  return ref || null;
+  if (!ref) return null;
+  const ticketType =
+    first?.ticket?.ticketType?.trim() || first?.ticketType?.trim() || null;
+  const typeLabel = ticketType
+    ? (TICKET_TYPE_LABELS[ticketType as TicketType] ??
+      ticketType.replace(/_/g, ' '))
+    : null;
+  return { reference: ref, ticketType, typeLabel };
+}
+
+/** Ticket reference on the first line, e.g. INC-1042 (FIX 1). */
+export function entryTicketReference(entry: TimeEntry): string | null {
+  return entryTicketInfo(entry)?.reference ?? null;
+}
+
+export function ticketTypeLabel(ticketType: string | null | undefined): string | null {
+  if (!ticketType?.trim()) return null;
+  return (
+    TICKET_TYPE_LABELS[ticketType as TicketType] ??
+    ticketType.replace(/_/g, ' ')
+  );
 }
 
 export function isEntryRunning(entry: TimeEntry): boolean {

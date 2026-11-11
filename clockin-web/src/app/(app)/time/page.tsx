@@ -835,6 +835,7 @@ function TimePageInner() {
         }
         description="One task per time slot. Start and end must not overlap another entry."
         onClose={() => !submitting && setModal(null)}
+        size="xl"
       >
         {modal?.type === 'add-time' ? (
           <AddTimeForm
@@ -859,6 +860,7 @@ function TimePageInner() {
         title="Edit entry"
         description="Update task, time, and note. Locked periods cannot be changed."
         onClose={() => !submitting && setModal(null)}
+        size="xl"
       >
         {modal?.type === 'edit-entry' ? (
           <AddTimeForm

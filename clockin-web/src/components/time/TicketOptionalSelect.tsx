@@ -1,84 +1,104 @@
 'use client';
 
-import { useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { FormField } from '@/components/common/FormField';
-import { Select } from '@/components/ui/Select';
+import { SearchableSelect } from '@/components/ui/SearchableSelect';
+import { api } from '@/lib/api-client';
 import { cn } from '@/lib/cn';
 import {
   sortTicketsForPicker,
   ticketOptionLabel,
+  ticketTypeDisplay,
 } from '@/lib/ticket-options';
-import { useTickets } from '@/lib/use-tickets';
+import type { Paginated, Ticket } from '@/types/api';
 
 type TicketOptionalSelectProps = {
   projectId: string;
   value: string;
   onChange: (ticketId: string) => void;
   disabled?: boolean;
-  /** Compact label layout for timer bar (no FormField). */
+  selectedLabel?: string | null;
   compact?: boolean;
   id?: string;
   className?: string;
 };
 
 /**
- * FIX 1 — optional ticket after Client → Project → Task.
- * Loads tickets for the selected project only; empty/disabled when none.
+ * Optional ticket picker — one GET when opened, then local filter.
  */
 export function TicketOptionalSelect({
   projectId,
   value,
   onChange,
   disabled = false,
+  selectedLabel: selectedLabelProp = null,
   compact = false,
   id = 'ticket-optional',
   className,
 }: TicketOptionalSelectProps) {
-  const { data, loading } = useTickets({
-    projectId: projectId || 'all',
-    pageSize: 100,
-    enabled: Boolean(projectId),
-  });
-
-  const options = useMemo(() => sortTicketsForPicker(data), [data]);
+  const [pickedLabel, setPickedLabel] = useState<string | null>(null);
+  const [pickedType, setPickedType] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!value || loading) return;
-    if (!projectId || !options.some((t) => t.id === value)) {
-      onChange('');
+    setPickedLabel(null);
+    setPickedType(null);
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!value) {
+      setPickedLabel(null);
+      setPickedType(null);
     }
-    // Intentionally omit onChange — parents pass inline setters.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- clear stale ticket only
-  }, [projectId, options, value, loading]);
+  }, [value]);
+
+  const loadOptions = useCallback(async () => {
+    if (!projectId) return [];
+    const params = new URLSearchParams({
+      projectId,
+      pageSize: '100',
+    });
+    const res = await api<Paginated<Ticket>>(
+      `/tickets?${params.toString()}`,
+    );
+    return sortTicketsForPicker(res.data ?? []).map((t) => ({
+      id: t.id,
+      label: ticketOptionLabel(t),
+      meta: t.ticketType,
+    }));
+  }, [projectId]);
 
   const noProject = !projectId;
-  const empty = Boolean(projectId) && !loading && options.length === 0;
-  const selectDisabled = disabled || noProject || empty || loading;
-
-  const placeholder = noProject
-    ? 'Select a project first'
-    : loading
-      ? 'Loading tickets…'
-      : empty
-        ? 'No tickets for this project'
-        : 'None';
+  const selectDisabled = disabled || noProject;
+  const selectedTypeLabel = pickedType
+    ? ticketTypeDisplay(pickedType)
+    : null;
+  const selectedLabel = pickedLabel || selectedLabelProp;
 
   const select = (
-    <Select
+    <SearchableSelect
       id={id}
       value={value}
-      onChange={(e) => onChange(e.target.value)}
+      onChange={(nextId, option) => {
+        if (!nextId) {
+          setPickedLabel(null);
+          setPickedType(null);
+          onChange('');
+          return;
+        }
+        setPickedLabel(option?.label ?? null);
+        setPickedType(option?.meta ?? null);
+        onChange(nextId);
+      }}
       disabled={selectDisabled}
+      placeholder={noProject ? 'Select a project first' : 'Search tickets…'}
+      allowClear
+      clearLabel="None"
+      selectedLabel={selectedLabel}
+      loadOptions={loadOptions}
+      loadKey={projectId || ''}
       className={cn('min-w-0 w-full', className)}
       aria-label="Ticket (optional)"
-    >
-      <option value="">{placeholder}</option>
-      {options.map((t) => (
-        <option key={t.id} value={t.id}>
-          {ticketOptionLabel(t)}
-        </option>
-      ))}
-    </Select>
+    />
   );
 
   if (compact) {
@@ -86,20 +106,23 @@ export function TicketOptionalSelect({
       <label className="flex min-w-0 w-full flex-col gap-1 text-xs text-slate sm:flex-1">
         <span>Ticket (optional)</span>
         {select}
+        {selectedTypeLabel ? (
+          <span className="text-[11px] text-slate">
+            Type: {selectedTypeLabel}
+          </span>
+        ) : null}
       </label>
     );
   }
 
+  const hint = noProject
+    ? 'Select a project first'
+    : selectedTypeLabel
+      ? `Type: ${selectedTypeLabel}`
+      : 'Filter the list — only this project';
+
   return (
-    <FormField
-      label="Ticket (optional)"
-      htmlFor={id}
-      hint={
-        empty
-          ? 'This project has no tickets yet'
-          : 'Only tickets for the selected project'
-      }
-    >
+    <FormField label="Ticket (optional)" htmlFor={id} hint={hint}>
       {select}
     </FormField>
   );

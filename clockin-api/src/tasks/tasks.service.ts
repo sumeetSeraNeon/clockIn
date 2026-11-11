@@ -125,6 +125,9 @@ export class TasksService {
   ): Promise<PaginatedResult<TaskWithDetail>> {
     const { page, pageSize, skip, take } = resolvePagination(query);
 
+    if (query.clientId) {
+      await this.assertClientInOrg(organisationId, query.clientId);
+    }
     if (query.projectId) {
       await this.assertProjectInOrg(organisationId, query.projectId);
     }
@@ -141,6 +144,7 @@ export class TasksService {
       organisationId,
       ...visibilityWhere,
       ...(query.status ? { status: query.status } : {}),
+      ...(query.clientId ? { project: { clientId: query.clientId } } : {}),
       ...(query.projectId ? { projectId: query.projectId } : {}),
       ...(query.assigneeId ? { assigneeId: query.assigneeId } : {}),
     };
@@ -360,6 +364,22 @@ export class TasksService {
     }
 
     return task;
+  }
+
+  private async assertClientInOrg(
+    organisationId: string,
+    clientId: string,
+  ): Promise<void> {
+    const client = await this.prisma.client.findFirst({
+      where: { id: clientId, organisationId },
+      select: { id: true },
+    });
+
+    if (!client) {
+      throw new BadRequestException(
+        'clientId must belong to your organisation',
+      );
+    }
   }
 
   private async assertProjectInOrg(

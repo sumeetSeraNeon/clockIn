@@ -27,16 +27,23 @@ import { UpdateTimeLineDto } from './dto/update-time-line.dto';
 const ENTRY_ENTITY = 'time_entry';
 const LINE_ENTITY = 'time_line';
 
-/** Include ticket reference on lines for Timesheet / Calendar display. */
+/** Include ticket reference + type on lines for Timesheet / Calendar display. */
 const TIME_LINES_INCLUDE = {
   orderBy: { createdAt: 'asc' as const },
   include: {
-    ticket: { select: { id: true, reference: true, status: true } },
+    ticket: {
+      select: { id: true, reference: true, status: true, ticketType: true },
+    },
   },
 };
 
 type TimeLineWithTicket = TimeLine & {
-  ticket: { id: string; reference: string; status: string } | null;
+  ticket: {
+    id: string;
+    reference: string;
+    status: string;
+    ticketType: string;
+  } | null;
 };
 
 type EntryWithLines = TimeEntry & { timeLines: TimeLineWithTicket[] };
@@ -705,20 +712,6 @@ export class TimeService {
     }
     await this.timesheets.assertEntryUnlocked(organisationId, parentEntry);
 
-    const mergedTicketType =
-      dto.ticketType !== undefined ? dto.ticketType : existing.ticketType;
-    const mergedCrId = dto.crId !== undefined ? dto.crId : existing.crId;
-    const mergedCrNumber =
-      dto.crNumber !== undefined ? dto.crNumber : existing.crNumber;
-
-    if (mergedTicketType === 'cr') {
-      if (!mergedCrId || !mergedCrNumber) {
-        throw new BadRequestException(
-          'crId and crNumber are required when ticketType is cr',
-        );
-      }
-    }
-
     let taskId =
       dto.taskId !== undefined ? dto.taskId : existing.taskId;
     let projectId =
@@ -775,15 +768,19 @@ export class TimeService {
       );
     }
 
-    if (mergedTicketType === 'cr' && mergedCrId) {
-      await this.assertCrInOrg(organisationId, mergedCrId);
-    }
-    if (dto.ticketId) {
-      await this.assertTicketForProject(
+    const mergedTicketId =
+      dto.ticketId !== undefined ? dto.ticketId : existing.ticketId;
+    let derivedTicketType: string | null =
+      dto.ticketType !== undefined ? dto.ticketType : existing.ticketType;
+
+    if (mergedTicketId) {
+      derivedTicketType = await this.assertTicketForProject(
         organisationId,
-        dto.ticketId,
+        mergedTicketId,
         projectId,
       );
+    } else if (dto.ticketId === null) {
+      derivedTicketType = null;
     }
 
     const nextDuration =
@@ -813,12 +810,10 @@ export class TimeService {
           clientId,
           billable,
           ...(dto.ticketId !== undefined ? { ticketId: dto.ticketId } : {}),
-          ...(dto.ticketType !== undefined
-            ? { ticketType: dto.ticketType }
-            : {}),
+          ticketType: derivedTicketType,
+          crId: null,
+          crNumber: null,
           ...(dto.area !== undefined ? { area: dto.area } : {}),
-          ...(dto.crId !== undefined ? { crId: dto.crId } : {}),
-          ...(dto.crNumber !== undefined ? { crNumber: dto.crNumber } : {}),
           ...(dto.durationMinutes !== undefined
             ? { durationMinutes: dto.durationMinutes }
             : {}),
@@ -949,15 +944,6 @@ export class TimeService {
       throw new BadRequestException('durationMinutes must be > 0');
     }
 
-    if (dto.ticketType === 'cr') {
-      if (!dto.crId || !dto.crNumber) {
-        throw new BadRequestException(
-          'crId and crNumber are required when ticketType is cr',
-        );
-      }
-      await this.assertCrInOrg(organisationId, dto.crId);
-    }
-
     let taskId: string | null = dto.taskId ?? null;
     let projectId: string | null = dto.projectId ?? null;
     let clientId: string | null = dto.clientId ?? null;
@@ -976,8 +962,9 @@ export class TimeService {
       }
     }
 
+    let ticketType: string | null = null;
     if (dto.ticketId) {
-      await this.assertTicketForProject(
+      ticketType = await this.assertTicketForProject(
         organisationId,
         dto.ticketId,
         projectId,
@@ -996,10 +983,10 @@ export class TimeService {
       projectId,
       clientId,
       ticketId: dto.ticketId ?? null,
-      ticketType: dto.ticketType ?? null,
+      ticketType,
       area: dto.area ?? null,
-      crId: dto.crId ?? null,
-      crNumber: dto.crNumber ?? null,
+      crId: null,
+      crNumber: null,
       durationMinutes: dto.durationMinutes,
       billable,
       description: dto.description ?? null,
@@ -1311,15 +1298,16 @@ export class TimeService {
   /**
    * Ticket must be in-org and belong to the line's project (FIX 1).
    * Tickets without a project cannot be linked to project time.
+   * Returns ticket.ticketType for denormalised storage on the line.
    */
   private async assertTicketForProject(
     organisationId: string,
     ticketId: string,
     projectId: string | null,
-  ): Promise<void> {
+  ): Promise<string> {
     const ticket = await this.prisma.ticket.findFirst({
       where: { id: ticketId, organisationId },
-      select: { id: true, projectId: true },
+      select: { id: true, projectId: true, ticketType: true },
     });
     if (!ticket) {
       throw new BadRequestException(
@@ -1331,19 +1319,7 @@ export class TimeService {
         'ticketId must belong to the selected project',
       );
     }
-  }
-
-  private async assertCrInOrg(
-    organisationId: string,
-    crId: string,
-  ): Promise<void> {
-    const cr = await this.prisma.changeRequest.findFirst({
-      where: { id: crId, organisationId },
-      select: { id: true },
-    });
-    if (!cr) {
-      throw new BadRequestException('crId must belong to your organisation');
-    }
+    return ticket.ticketType;
   }
 
   private entryAudit(entry: EntryWithLines): Prisma.InputJsonValue {

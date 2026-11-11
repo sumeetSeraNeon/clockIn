@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { cn } from '@/lib/cn';
+import { TaskSearchSelect } from '@/components/time/TaskSearchSelect';
 import { TicketOptionalSelect } from '@/components/time/TicketOptionalSelect';
 import {
   clientIdForProject,
@@ -13,7 +14,6 @@ import {
   projectIdForTask,
   projectsForClient,
   projectsScopedToTasks,
-  tasksForProject,
 } from '@/lib/task-project-picker';
 import type {
   Client,
@@ -23,7 +23,6 @@ import type {
   TimeLine,
   TimeLineArea,
   TimeLineInput,
-  TimeLineTicketType,
   UpdateTimeLineInput,
 } from '@/types/api';
 
@@ -62,10 +61,7 @@ type FormState = {
   projectId: string;
   clientId: string;
   ticketId: string;
-  ticketType: TimeLineTicketType | '';
   area: TimeLineArea | '';
-  crId: string;
-  crNumber: string;
   durationHours: string;
   durationMinutes: string;
   /** Edit-mode override / stored display; create uses inheritance preview. */
@@ -78,10 +74,7 @@ const EMPTY: FormState = {
   projectId: '',
   clientId: '',
   ticketId: '',
-  ticketType: '',
   area: '',
-  crId: '',
-  crNumber: '',
   durationHours: '0',
   durationMinutes: '30',
   billable: false,
@@ -126,7 +119,7 @@ export function TimeLineForm({
   clients,
   projects,
   tasks,
-  tickets,
+  tickets: _tickets,
   submitting,
   submitLabel,
   onSubmit,
@@ -138,7 +131,6 @@ export function TimeLineForm({
   const [form, setForm] = useState<FormState>(EMPTY);
   const [errors, setErrors] = useState<{
     duration?: string;
-    cr?: string;
   }>({});
 
   useEffect(() => {
@@ -150,10 +142,7 @@ export function TimeLineForm({
         projectId: initial.projectId ?? '',
         clientId: initial.clientId ?? '',
         ticketId: initial.ticketId ?? '',
-        ticketType: (initial.ticketType as TimeLineTicketType) || '',
         area: (initial.area as TimeLineArea) || '',
-        crId: initial.crId ?? '',
-        crNumber: initial.crNumber ?? '',
         durationHours: parts.durationHours,
         durationMinutes: parts.durationMinutes,
         // R2-FIX 1 — show the line's stored value, not a live task lookup
@@ -224,16 +213,13 @@ export function TimeLineForm({
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    const nextErrors: { duration?: string; cr?: string } = {};
+    const nextErrors: { duration?: string } = {};
     const durationMinutes = hideDuration
       ? 1
       : minutesFromParts(form.durationHours, form.durationMinutes);
 
     if (!hideDuration && durationMinutes < 1) {
       nextErrors.duration = 'Duration must be at least 1 minute.';
-    }
-    if (form.ticketType === 'cr' && (!form.crId.trim() || !form.crNumber.trim())) {
-      nextErrors.cr = 'CR requires both CR id and CR number.';
     }
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
@@ -243,10 +229,7 @@ export function TimeLineForm({
       projectId: form.projectId || undefined,
       clientId: form.clientId || undefined,
       ticketId: form.ticketId || undefined,
-      ticketType: form.ticketType || undefined,
       area: form.area || undefined,
-      crId: form.ticketType === 'cr' ? form.crId.trim() : undefined,
-      crNumber: form.ticketType === 'cr' ? form.crNumber.trim() : undefined,
       description: form.description.trim() || undefined,
       durationMinutes,
     };
@@ -257,10 +240,7 @@ export function TimeLineForm({
         projectId: form.projectId || null,
         clientId: form.clientId || null,
         ticketId: form.ticketId || null,
-        ticketType: form.ticketType || null,
         area: form.area || null,
-        crId: form.ticketType === 'cr' ? form.crId.trim() : null,
-        crNumber: form.ticketType === 'cr' ? form.crNumber.trim() : null,
         description: form.description.trim() || null,
         durationMinutes,
         ...(canSetBillable ? { billable: form.billable } : {}),
@@ -276,9 +256,8 @@ export function TimeLineForm({
   const filteredProjects = form.clientId
     ? projects.filter((p) => p.clientId === form.clientId)
     : projects;
-  const filteredTasks = form.projectId
-    ? tasks.filter((t) => t.projectId === form.projectId)
-    : tasks;
+  const selectedTaskLabel =
+    tasks.find((t) => t.id === form.taskId)?.name ?? null;
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -302,6 +281,7 @@ export function TimeLineForm({
                 clientId: e.target.value,
                 projectId: '',
                 taskId: '',
+                ticketId: '',
               }));
             }}
           >
@@ -322,6 +302,7 @@ export function TimeLineForm({
                 ...prev,
                 projectId: e.target.value,
                 taskId: '',
+                ticketId: '',
               }));
             }}
           >
@@ -335,20 +316,14 @@ export function TimeLineForm({
         </FormField>
       </div>
 
-      <FormField label="Task" htmlFor="line-task">
-        <Select
-          id="line-task"
-          value={form.taskId}
-          onChange={(e) => setField('taskId', e.target.value)}
-        >
-          <option value="">No task</option>
-          {filteredTasks.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.project?.name ? `${t.name} · ${t.project.name}` : t.name}
-            </option>
-          ))}
-        </Select>
-      </FormField>
+      <TaskSearchSelect
+        id="line-task"
+        projectId={form.projectId}
+        value={form.taskId}
+        onChange={(taskId) => setField('taskId', taskId)}
+        selectedLabel={selectedTaskLabel}
+        required={false}
+      />
 
       {!hideDuration ? (
         <FormField
@@ -381,80 +356,28 @@ export function TimeLineForm({
         </FormField>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <FormField label="Area" htmlFor="line-area">
-          <Select
-            id="line-area"
-            value={form.area}
-            onChange={(e) =>
-              setField('area', e.target.value as TimeLineArea | '')
-            }
-          >
-            <option value="">None</option>
-            <option value="functional">Functional</option>
-            <option value="technical">Technical</option>
-            <option value="integration">Integration</option>
-            <option value="pm">PM</option>
-          </Select>
-        </FormField>
-        <FormField label="Ticket type" htmlFor="line-ticket-type">
-          <Select
-            id="line-ticket-type"
-            value={form.ticketType}
-            onChange={(e) =>
-              setField('ticketType', e.target.value as TimeLineTicketType | '')
-            }
-          >
-            <option value="">None</option>
-            <option value="incident">Incident</option>
-            <option value="sr">Service request</option>
-            <option value="cr">Change request</option>
-          </Select>
-        </FormField>
-      </div>
-
-      <FormField label="Linked ticket" htmlFor="line-ticket">
+      <FormField label="Area" htmlFor="line-area">
         <Select
-          id="line-ticket"
-          value={form.ticketId}
-          onChange={(e) => setField('ticketId', e.target.value)}
+          id="line-area"
+          value={form.area}
+          onChange={(e) =>
+            setField('area', e.target.value as TimeLineArea | '')
+          }
         >
           <option value="">None</option>
-          {tickets.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.reference}
-              {t.title ? ` — ${t.title}` : ''}
-            </option>
-          ))}
+          <option value="functional">Functional</option>
+          <option value="technical">Technical</option>
+          <option value="integration">Integration</option>
+          <option value="pm">PM</option>
         </Select>
       </FormField>
 
-      {form.ticketType === 'cr' ? (
-        <div className="grid gap-4 sm:grid-cols-2">
-          <FormField
-            label="CR id"
-            htmlFor="line-cr-id"
-            error={errors.cr}
-            hint="ChangeRequest UUID from the API"
-          >
-            <Input
-              id="line-cr-id"
-              value={form.crId}
-              onChange={(e) => setField('crId', e.target.value)}
-              placeholder="uuid"
-              invalid={Boolean(errors.cr)}
-            />
-          </FormField>
-          <FormField label="CR number" htmlFor="line-cr-number">
-            <Input
-              id="line-cr-number"
-              value={form.crNumber}
-              onChange={(e) => setField('crNumber', e.target.value)}
-              placeholder="CR-1042"
-            />
-          </FormField>
-        </div>
-      ) : null}
+      <TicketOptionalSelect
+        id="line-ticket"
+        projectId={form.projectId}
+        value={form.ticketId}
+        onChange={(ticketId) => setField('ticketId', ticketId)}
+      />
 
       {showBillable && mode === 'edit' && canSetBillable ? (
         <label className="flex cursor-pointer items-center gap-2 rounded-xl bg-muted/60 px-3 py-2 text-sm text-ink">
@@ -540,7 +463,8 @@ export function TimerBarFields({
   const [projectId, setProjectId] = useState(selectedProjectId);
   const clientOptions = clientsFromProjects(scopedProjects);
   const projectOptions = projectsForClient(scopedProjects, clientId);
-  const taskOptions = tasksForProject(tasks, projectId);
+  const selectedTaskLabel =
+    tasks.find((t) => t.id === taskId)?.name ?? null;
 
   useEffect(() => {
     if (!taskId) return;
@@ -620,30 +544,15 @@ export function TimerBarFields({
             ))}
           </Select>
         </label>
-        <label className="flex min-w-0 w-full flex-col gap-1 text-xs text-slate sm:flex-1">
-          <span>
-            Task
-            <span className="ml-0.5 text-coral" aria-hidden="true">
-              *
-            </span>
-          </span>
-          <Select
-            value={taskId}
-            onChange={(e) => onTaskChange(e.target.value)}
-            disabled={disabled || !projectId}
-            className="min-w-0 w-full"
-            aria-label="Task"
-          >
-            <option value="">
-              {!projectId ? 'Select a project first' : 'Task…'}
-            </option>
-            {taskOptions.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </Select>
-        </label>
+        <TaskSearchSelect
+          compact
+          id="timer-task"
+          projectId={projectId}
+          value={taskId}
+          onChange={onTaskChange}
+          disabled={disabled}
+          selectedLabel={selectedTaskLabel}
+        />
         {onTicketChange ? (
           <TicketOptionalSelect
             compact

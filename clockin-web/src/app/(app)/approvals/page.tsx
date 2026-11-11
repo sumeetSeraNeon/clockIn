@@ -14,7 +14,10 @@ import { Select } from '@/components/ui/Select';
 import { IconChevronDown } from '@/components/ui/icons';
 import { api, isAbortError } from '@/lib/api-client';
 import { cn } from '@/lib/cn';
-import { formatDayLineTimeLabel } from '@/lib/entry-display';
+import {
+  formatDayLineTimeLabel,
+  ticketTypeLabel,
+} from '@/lib/entry-display';
 import { formatHoursMinutes } from '@/lib/format-duration';
 import { getErrorMessage } from '@/lib/get-error-message';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
@@ -672,6 +675,8 @@ export default function ApprovalsPage() {
                                             const ticketRef =
                                               day.ticketReference?.trim() ||
                                               null;
+                                            const ticketTypeLbl =
+                                              ticketTypeLabel(day.ticketType);
                                             return (
                                               <tr
                                                 key={day.lineId}
@@ -687,9 +692,24 @@ export default function ApprovalsPage() {
                                                 </td>
                                                 <td className={TD}>
                                                   {ticketRef ? (
-                                                    <Badge variant="neutral">
-                                                      {ticketRef}
-                                                    </Badge>
+                                                    <a
+                                                      href={`/tickets/${encodeURIComponent(ticketRef)}`}
+                                                      className="inline-flex max-w-full items-center gap-1 rounded-md bg-coral/10 px-2 py-0.5 text-xs font-semibold text-coral ring-1 ring-coral/25 hover:bg-coral/15"
+                                                      title={
+                                                        ticketTypeLbl
+                                                          ? `${ticketTypeLbl} · ${ticketRef}`
+                                                          : ticketRef
+                                                      }
+                                                    >
+                                                      <span className="truncate">
+                                                        {ticketRef}
+                                                      </span>
+                                                      {ticketTypeLbl ? (
+                                                        <span className="font-medium text-coral/80">
+                                                          · {ticketTypeLbl}
+                                                        </span>
+                                                      ) : null}
+                                                    </a>
                                                   ) : (
                                                     <span className="text-slate">
                                                       —

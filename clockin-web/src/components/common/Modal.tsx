@@ -13,15 +13,15 @@ type ModalProps = {
   children?: ReactNode;
   footer?: ReactNode;
   className?: string;
-  /** md = forms; lg = clients; xl = projects; 2xl = tasks; full = ticket import. */
+  /** md = short/confirm; lg = simple forms; xl = multi-field create/edit; 2xl/full = import. */
   size?: ModalSize;
 };
 
 const sizeClass: Record<ModalSize, string> = {
-  md: 'w-full max-w-lg',
-  lg: 'w-full max-w-xl',
+  md: 'w-full max-w-2xl',
+  lg: 'w-full max-w-3xl',
   xl: 'w-full max-w-4xl',
-  /** Tasks need Status + Client + Project + Task + two link columns. */
+  /** Wide tables / multi-column import preview. */
   '2xl': 'w-full max-w-6xl',
   /** Freshdesk ticket import — many columns. */
   full: 'w-[min(100vw-1.5rem,96rem)] max-w-[96rem]',

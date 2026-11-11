@@ -44,6 +44,7 @@ model Organisation {
   projectMembers         ProjectMember[]
   tasks                  Task[]
   tickets                Ticket[]
+  ticketAttachments      TicketAttachment[]
   timeEntries            TimeEntry[]
   timeLines              TimeLine[]
   tags                   Tag[]
@@ -111,6 +112,7 @@ model User {
   notifications      Notification[]
   contractorProfiles ContractorProfile[]
   aiInteractions     AiInteraction[]
+  ticketAttachments  TicketAttachment[]
 
   @@map("users")
 }
@@ -379,6 +381,7 @@ model Task {
 
 /// A client-raised work item (Freshdesk ticket). Time logs against it.
 /// Freshdesk Group maps to ClockIn Department (`departmentId`).
+/// Change Request = ticketType change_request (reference is the CR number).
 model Ticket {
   id             String    @id @default(uuid())
   organisationId String    @map("organisation_id")
@@ -386,9 +389,9 @@ model Ticket {
   projectId      String?   @map("project_id")
   /// Freshdesk Group → Department
   departmentId   String?   @map("department_id")
-  /// Human reference e.g. INC-1042, or Freshdesk Ticket ID 1103
+  /// Human reference e.g. INC-1042, CR-1042, or Freshdesk Ticket ID 1103
   reference      String
-  /// incident | change | question | service_request | problem
+  /// incident | change_request | question | service_request | problem
   ticketType     String    @map("ticket_type")
   title          String?
   description    String?   @db.Text
@@ -408,6 +411,11 @@ model Ticket {
   source              String?
   tags                String?
   workstream          String?
+  /// Change Request only: pending | approved | hold | rejected | in_delivery
+  crApprovalStatus    String?   @map("cr_approval_status")
+  /// Change Request monetary value — owner/admin only
+  crValue             Decimal?  @map("cr_value") @db.Decimal(14, 2)
+  crValueCurrency     String?   @map("cr_value_currency")
   openedAt            DateTime? @map("opened_at") @db.Timestamptz
   dueAt               DateTime? @map("due_at") @db.Timestamptz
   resolvedAt          DateTime? @map("resolved_at") @db.Timestamptz
@@ -423,7 +431,8 @@ model Ticket {
   project      Project?     @relation(fields: [projectId], references: [id])
   department   Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
 
-  timeLines TimeLine[]
+  timeLines   TimeLine[]
+  attachments TicketAttachment[]
 
   @@unique([organisationId, reference])
   @@index([organisationId])
@@ -431,7 +440,29 @@ model Ticket {
   @@index([projectId])
   @@index([departmentId])
   @@index([status])
+  @@index([crApprovalStatus])
   @@map("tickets")
+}
+
+/// Stub for ticket images/files. Object storage + upload APIs come later.
+model TicketAttachment {
+  id               String   @id @default(uuid())
+  organisationId   String   @map("organisation_id")
+  ticketId         String   @map("ticket_id")
+  fileName         String   @map("file_name")
+  mimeType         String?  @map("mime_type")
+  sizeBytes        Int?     @map("size_bytes")
+  storageKey       String   @map("storage_key")
+  uploadedByUserId String   @map("uploaded_by_user_id")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  ticket       Ticket       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  uploadedBy   User         @relation(fields: [uploadedByUserId], references: [id])
+
+  @@index([organisationId])
+  @@index([ticketId])
+  @@map("ticket_attachments")
 }
 
 // ============================================================

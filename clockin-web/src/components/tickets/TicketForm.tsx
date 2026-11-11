@@ -8,6 +8,7 @@ import { Select } from '@/components/ui/Select';
 import { cn } from '@/lib/cn';
 import type {
   Client,
+  CrApprovalStatus,
   CreateTicketInput,
   Project,
   Ticket,
@@ -19,6 +20,8 @@ import type {
   UpdateTicketInput,
 } from '@/types/api';
 import {
+  CR_APPROVAL_STATUS_LABELS,
+  CR_APPROVAL_STATUSES,
   TICKET_PRIORITY_CODE_LABELS,
   TICKET_PRIORITY_CODES,
   TICKET_PRIORITY_LABELS,
@@ -39,6 +42,8 @@ type TicketFormProps = {
   readOnly?: boolean;
   /** Hide Cancel when embedded on detail page (use page Back instead). */
   hideCancel?: boolean;
+  /** Owner/admin — show/edit CR Value (rate:view). */
+  canViewCrValue?: boolean;
   onSubmit: (values: CreateTicketInput | UpdateTicketInput) => Promise<void>;
   onCancel: () => void;
 };
@@ -63,6 +68,9 @@ type FormState = {
   source: string;
   tags: string;
   workstream: string;
+  crApprovalStatus: CrApprovalStatus;
+  crValue: string;
+  crValueCurrency: string;
   dueAt: string;
 };
 
@@ -86,6 +94,9 @@ const EMPTY: FormState = {
   source: '',
   tags: '',
   workstream: '',
+  crApprovalStatus: 'pending',
+  crValue: '',
+  crValueCurrency: 'GBP',
   dueAt: '',
 };
 
@@ -132,6 +143,7 @@ export function TicketForm({
   submitting,
   readOnly = false,
   hideCancel = false,
+  canViewCrValue = false,
   onSubmit,
   onCancel,
 }: TicketFormProps) {
@@ -139,6 +151,8 @@ export function TicketForm({
   const [errors, setErrors] = useState<{
     clientId?: string;
     reference?: string;
+    projectId?: string;
+    crValue?: string;
   }>({});
 
   useEffect(() => {
@@ -163,6 +177,13 @@ export function TicketForm({
         source: initial.source ?? '',
         tags: initial.tags ?? '',
         workstream: initial.workstream ?? '',
+        crApprovalStatus:
+          (initial.crApprovalStatus as CrApprovalStatus) || 'pending',
+        crValue:
+          initial.crValue != null && initial.crValue !== ''
+            ? String(initial.crValue)
+            : '',
+        crValueCurrency: initial.crValueCurrency ?? 'GBP',
         dueAt: toDatetimeLocalValue(initial.dueAt),
       });
     } else {
@@ -179,11 +200,16 @@ export function TicketForm({
     [projects, form.clientId],
   );
 
+  const isChangeRequest = form.ticketType === 'change_request';
+
   function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => {
       const next = { ...prev, [key]: value };
       if (key === 'clientId') {
         next.projectId = '';
+      }
+      if (key === 'ticketType' && value === 'change_request') {
+        if (!next.crApprovalStatus) next.crApprovalStatus = 'pending';
       }
       return next;
     });
@@ -192,10 +218,25 @@ export function TicketForm({
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     const reference = form.reference.trim();
-    const nextErrors: { clientId?: string; reference?: string } = {};
+    const nextErrors: {
+      clientId?: string;
+      reference?: string;
+      projectId?: string;
+      crValue?: string;
+    } = {};
     if (!form.clientId) nextErrors.clientId = 'Client is required.';
     if (mode === 'create' && !reference) {
       nextErrors.reference = 'Reference is required.';
+    }
+    if (!form.projectId) {
+      nextErrors.projectId = 'Project is required.';
+    }
+    let crValueNum: number | undefined;
+    if (isChangeRequest && canViewCrValue && form.crValue.trim()) {
+      crValueNum = Number(form.crValue);
+      if (Number.isNaN(crValueNum)) {
+        nextErrors.crValue = 'Enter a valid number.';
+      }
     }
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
@@ -206,7 +247,7 @@ export function TicketForm({
     if (mode === 'create') {
       const payload: CreateTicketInput = {
         clientId: form.clientId,
-        projectId: form.projectId || undefined,
+        projectId: form.projectId,
         departmentId: form.departmentId || undefined,
         reference,
         ticketType: form.ticketType,
@@ -225,6 +266,18 @@ export function TicketForm({
         tags: form.tags.trim() || undefined,
         workstream: form.workstream.trim() || undefined,
         dueAt: dueAtIso || undefined,
+        ...(isChangeRequest
+          ? {
+              crApprovalStatus: form.crApprovalStatus,
+              ...(canViewCrValue && crValueNum !== undefined
+                ? {
+                    crValue: crValueNum,
+                    crValueCurrency:
+                      form.crValueCurrency.trim() || 'GBP',
+                  }
+                : {}),
+            }
+          : {}),
       };
       await onSubmit(payload);
       return;
@@ -232,7 +285,7 @@ export function TicketForm({
 
     const payload: UpdateTicketInput = {
       clientId: form.clientId,
-      projectId: form.projectId || null,
+      projectId: form.projectId,
       departmentId: form.departmentId || null,
       ticketType: form.ticketType,
       title: form.title.trim() || undefined,
@@ -250,55 +303,78 @@ export function TicketForm({
       tags: form.tags.trim() || null,
       workstream: form.workstream.trim() || null,
       dueAt: dueAtIso,
+      ...(isChangeRequest
+        ? {
+            crApprovalStatus: form.crApprovalStatus,
+            ...(canViewCrValue
+              ? {
+                  crValue: form.crValue.trim()
+                    ? (crValueNum ?? Number(form.crValue))
+                    : null,
+                  crValueCurrency: form.crValueCurrency.trim() || null,
+                }
+              : {}),
+          }
+        : {
+            crApprovalStatus: null,
+            ...(canViewCrValue
+              ? { crValue: null, crValueCurrency: null }
+              : {}),
+          }),
     };
     await onSubmit(payload);
   }
 
   const showImportMeta = mode === 'edit' && initial;
   const sectionClass =
-    'space-y-5 rounded-xl border border-border/60 bg-card p-5';
+    'space-y-4 rounded-xl border border-border/60 bg-card p-5';
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      <fieldset disabled={readOnly} className="min-w-0 space-y-6 border-0 p-0">
+    <form onSubmit={handleSubmit} className="space-y-5">
+      <fieldset disabled={readOnly} className="min-w-0 space-y-5 border-0 p-0">
         <section className={sectionClass}>
           <h3 className="text-sm font-semibold text-navy">Core</h3>
-          <FormField
-            label="Client"
-            htmlFor="ticket-client"
-            error={errors.clientId}
-            required
-          >
-            <Select
-              id="ticket-client"
-              value={form.clientId}
-              onChange={(e) => setField('clientId', e.target.value)}
-              invalid={Boolean(errors.clientId)}
+          <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+            <FormField
+              label="Client"
+              htmlFor="ticket-client"
+              error={errors.clientId}
               required
             >
-              <option value="" disabled>
-                Select a client
-              </option>
-              {clients.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
+              <Select
+                id="ticket-client"
+                value={form.clientId}
+                onChange={(e) => setField('clientId', e.target.value)}
+                invalid={Boolean(errors.clientId)}
+                required
+              >
+                <option value="" disabled>
+                  Select a client
                 </option>
-              ))}
-            </Select>
-          </FormField>
-
-          <div className="grid gap-x-6 gap-y-5 sm:grid-cols-2">
+                {clients.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </Select>
+            </FormField>
             <FormField
               label="Project"
               htmlFor="ticket-project"
-              hint="Needed so the team can see this ticket and log time"
+              error={errors.projectId}
+              required
+              hint="Required — tickets belong to a project"
             >
               <Select
                 id="ticket-project"
                 value={form.projectId}
                 onChange={(e) => setField('projectId', e.target.value)}
+                invalid={Boolean(errors.projectId)}
+                required
               >
-                <option value="">No project</option>
+                <option value="" disabled>
+                  Select a project
+                </option>
                 {clientProjects.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
@@ -356,33 +432,36 @@ export function TicketForm({
                 ))}
               </Select>
             </FormField>
-          </div>
-
-          <FormField label="Title" htmlFor="ticket-title">
-            <Input
-              id="ticket-title"
-              value={form.title}
-              onChange={(e) => setField('title', e.target.value)}
-              placeholder="Login page returns 500"
-            />
-          </FormField>
-
-          <FormField label="Description" htmlFor="ticket-description">
-            <textarea
-              id="ticket-description"
-              value={form.description}
-              onChange={(e) => setField('description', e.target.value)}
-              rows={4}
-              placeholder="What happened, expected vs actual…"
-              className={cn(
-                'w-full rounded-lg border border-border bg-card px-3.5 py-2.5 text-sm text-ink',
-                'outline-none focus:outline-none focus-visible:outline-none',
-                'placeholder:text-slate/55 resize-y min-h-[96px]',
-              )}
-            />
-          </FormField>
-
-          <div className="grid gap-x-6 gap-y-5 sm:grid-cols-2">
+            <FormField
+              label="Title"
+              htmlFor="ticket-title"
+              className="sm:col-span-2"
+            >
+              <Input
+                id="ticket-title"
+                value={form.title}
+                onChange={(e) => setField('title', e.target.value)}
+                placeholder="Login page returns 500"
+              />
+            </FormField>
+            <FormField
+              label="Description"
+              htmlFor="ticket-description"
+              className="sm:col-span-2"
+            >
+              <textarea
+                id="ticket-description"
+                value={form.description}
+                onChange={(e) => setField('description', e.target.value)}
+                rows={3}
+                placeholder="What happened, expected vs actual…"
+                className={cn(
+                  'w-full rounded-lg border border-border bg-card px-3.5 py-2.5 text-sm text-ink',
+                  'outline-none focus:outline-none focus-visible:outline-none',
+                  'placeholder:text-slate/55 resize-y min-h-[72px]',
+                )}
+              />
+            </FormField>
             <FormField label="Priority" htmlFor="ticket-priority">
               <Select
                 id="ticket-priority"
@@ -419,9 +498,74 @@ export function TicketForm({
           </div>
         </section>
 
+        {isChangeRequest ? (
+          <section className={sectionClass}>
+            <h3 className="text-sm font-semibold text-navy">
+              Change Request
+            </h3>
+            <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+              <FormField
+                label="CR Approval"
+                htmlFor="ticket-cr-approval"
+                required
+              >
+                <Select
+                  id="ticket-cr-approval"
+                  value={form.crApprovalStatus}
+                  onChange={(e) =>
+                    setField(
+                      'crApprovalStatus',
+                      e.target.value as CrApprovalStatus,
+                    )
+                  }
+                >
+                  {CR_APPROVAL_STATUSES.map((s) => (
+                    <option key={s} value={s}>
+                      {CR_APPROVAL_STATUS_LABELS[s]}
+                    </option>
+                  ))}
+                </Select>
+              </FormField>
+              {canViewCrValue ? (
+                <>
+                  <FormField
+                    label="CR Value"
+                    htmlFor="ticket-cr-value"
+                    error={errors.crValue}
+                  >
+                    <Input
+                      id="ticket-cr-value"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={form.crValue}
+                      onChange={(e) => setField('crValue', e.target.value)}
+                      placeholder="0.00"
+                      invalid={Boolean(errors.crValue)}
+                    />
+                  </FormField>
+                  <FormField
+                    label="Currency"
+                    htmlFor="ticket-cr-currency"
+                  >
+                    <Input
+                      id="ticket-cr-currency"
+                      value={form.crValueCurrency}
+                      onChange={(e) =>
+                        setField('crValueCurrency', e.target.value)
+                      }
+                      placeholder="GBP"
+                    />
+                  </FormField>
+                </>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
+
         <section className={sectionClass}>
           <h3 className="text-sm font-semibold text-navy">People</h3>
-          <div className="grid gap-x-6 gap-y-5 sm:grid-cols-2">
+          <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
             <FormField label="Agent" htmlFor="ticket-agent">
               <Input
                 id="ticket-agent"
@@ -468,7 +612,7 @@ export function TicketForm({
 
         <section className={sectionClass}>
           <h3 className="text-sm font-semibold text-navy">Extra details</h3>
-          <div className="grid gap-x-6 gap-y-5 sm:grid-cols-2">
+          <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
             <FormField label="Ticket priority" htmlFor="ticket-priority-code">
               <Select
                 id="ticket-priority-code"

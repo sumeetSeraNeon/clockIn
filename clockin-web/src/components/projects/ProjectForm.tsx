@@ -172,42 +172,47 @@ export function ProjectForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <FormField
-        label="Client"
-        htmlFor="project-client"
-        error={errors.clientId}
-        required
-      >
-        <Select
-          id="project-client"
-          value={form.clientId}
-          onChange={(e) => setField('clientId', e.target.value)}
-          invalid={Boolean(errors.clientId)}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <FormField
+          label="Client"
+          htmlFor="project-client"
+          error={errors.clientId}
           required
         >
-          <option value="" disabled>
-            Select a client
-          </option>
-          {clients.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
+          <Select
+            id="project-client"
+            value={form.clientId}
+            onChange={(e) => setField('clientId', e.target.value)}
+            invalid={Boolean(errors.clientId)}
+            required
+          >
+            <option value="" disabled>
+              Select a client
             </option>
-          ))}
-        </Select>
-      </FormField>
+            {clients.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </Select>
+        </FormField>
 
-      <FormField label="Name" htmlFor="project-name" error={errors.name} required>
-        <Input
-          id="project-name"
-          value={form.name}
-          onChange={(e) => setField('name', e.target.value)}
-          placeholder="Acme Implementation"
-          invalid={Boolean(errors.name)}
+        <FormField
+          label="Name"
+          htmlFor="project-name"
+          error={errors.name}
           required
-        />
-      </FormField>
+        >
+          <Input
+            id="project-name"
+            value={form.name}
+            onChange={(e) => setField('name', e.target.value)}
+            placeholder="Acme Implementation"
+            invalid={Boolean(errors.name)}
+            required
+          />
+        </FormField>
 
-      <div className="grid gap-4 sm:grid-cols-2">
         <FormField label="Code" htmlFor="project-code">
           <Input
             id="project-code"
@@ -231,22 +236,27 @@ export function ProjectForm({
             <option value="archived">Archived</option>
           </Select>
         </FormField>
-      </div>
 
-      <FormField label="Owner" htmlFor="project-owner" hint="Optional PM">
-        <Select
-          id="project-owner"
-          value={form.ownerId}
-          onChange={(e) => setField('ownerId', e.target.value)}
+        <FormField
+          label="Owner"
+          htmlFor="project-owner"
+          hint="Optional PM"
+          className="sm:col-span-2"
         >
-          <option value="">No owner</option>
-          {members.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.user.name || m.user.email}
-            </option>
-          ))}
-        </Select>
-      </FormField>
+          <Select
+            id="project-owner"
+            value={form.ownerId}
+            onChange={(e) => setField('ownerId', e.target.value)}
+          >
+            <option value="">No owner</option>
+            {members.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.user.name || m.user.email}
+              </option>
+            ))}
+          </Select>
+        </FormField>
+      </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <FormField label="Start date" htmlFor="project-start">

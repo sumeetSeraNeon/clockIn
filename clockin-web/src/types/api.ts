@@ -282,13 +282,15 @@ export type TimeEntrySummary = {
 };
 
 export type TimeLineArea = 'functional' | 'technical' | 'integration' | 'pm';
-export type TimeLineTicketType = 'incident' | 'cr' | 'sr';
+/** @deprecated Line type is derived from the linked ticket. */
+export type TimeLineTicketType = string;
 export type TimeEntrySource = 'timer' | 'manual' | 'api';
 
 export type TimeLineTicketRef = {
   id: string;
   reference: string;
   status: string;
+  ticketType?: string;
 };
 
 export type TimeLine = {
@@ -299,11 +301,14 @@ export type TimeLine = {
   projectId: string | null;
   clientId: string | null;
   ticketId: string | null;
+  /** Denormalised from ticket.ticketType when ticketId is set. */
   ticketType: string | null;
   /** Nested when API includes ticket (FIX 1). */
   ticket?: TimeLineTicketRef | null;
   area: string | null;
+  /** @deprecated Unused — Change Request is a ticket. */
   crId: string | null;
+  /** @deprecated Unused — use ticket.reference. */
   crNumber: string | null;
   durationMinutes: number;
   billable: boolean;
@@ -373,6 +378,7 @@ export type TimesheetDayLine = {
   /** Linked ticket on the time line (FIX 1 — Approvals). */
   ticketId?: string | null;
   ticketReference?: string | null;
+  ticketType?: string | null;
 };
 
 export type TimesheetTaskBreakdown = {
@@ -461,10 +467,7 @@ export type TimeLineInput = {
   projectId?: string;
   clientId?: string;
   ticketId?: string;
-  ticketType?: TimeLineTicketType;
   area?: TimeLineArea;
-  crId?: string;
-  crNumber?: string;
   durationMinutes: number;
   billable?: boolean;
   description?: string;
@@ -489,10 +492,7 @@ export type UpdateTimeLineInput = {
   projectId?: string | null;
   clientId?: string | null;
   ticketId?: string | null;
-  ticketType?: TimeLineTicketType | null;
   area?: TimeLineArea | null;
-  crId?: string | null;
-  crNumber?: string | null;
   durationMinutes?: number;
   billable?: boolean;
   description?: string | null;
@@ -530,6 +530,8 @@ export type Task = {
     id: string;
     name: string;
     code?: string | null;
+    clientId?: string | null;
+    client?: { id: string; name: string } | null;
     ownerId?: string | null;
     owner?: TaskPerson | null;
   } | null;
@@ -567,13 +569,37 @@ export type TicketStatus =
 
 export type TicketType =
   | 'incident'
-  | 'change'
+  | 'change_request'
   | 'question'
   | 'service_request'
   | 'problem';
 
 export type TicketPriority = 'low' | 'medium' | 'high' | 'critical';
 export type TicketPriorityCode = 'p1' | 'p2' | 'p3' | 'p4';
+
+/** Change Request commercial approval (ticketType = change_request only). */
+export type CrApprovalStatus =
+  | 'pending'
+  | 'approved'
+  | 'hold'
+  | 'rejected'
+  | 'in_delivery';
+
+export const CR_APPROVAL_STATUSES: CrApprovalStatus[] = [
+  'pending',
+  'approved',
+  'hold',
+  'rejected',
+  'in_delivery',
+];
+
+export const CR_APPROVAL_STATUS_LABELS: Record<CrApprovalStatus, string> = {
+  pending: 'Pending',
+  approved: 'Approved',
+  hold: 'Hold',
+  rejected: 'Rejected',
+  in_delivery: 'In-delivery',
+};
 
 export const TICKET_STATUSES: TicketStatus[] = [
   'open',
@@ -589,7 +615,7 @@ export const TICKET_STATUSES: TicketStatus[] = [
 
 export const TICKET_TYPES: TicketType[] = [
   'incident',
-  'change',
+  'change_request',
   'question',
   'service_request',
   'problem',
@@ -609,7 +635,7 @@ export const TICKET_STATUS_LABELS: Record<TicketStatus, string> = {
 
 export const TICKET_TYPE_LABELS: Record<TicketType, string> = {
   incident: 'Incident',
-  change: 'Change',
+  change_request: 'Change Request',
   question: 'Question',
   service_request: 'Service Request',
   problem: 'Problem',
@@ -664,6 +690,11 @@ export type Ticket = {
   source?: string | null;
   tags?: string | null;
   workstream?: string | null;
+  /** Change Request only */
+  crApprovalStatus?: CrApprovalStatus | string | null;
+  /** Owner/admin only — stripped for others */
+  crValue?: string | number | null;
+  crValueCurrency?: string | null;
   openedAt: string | null;
   dueAt?: string | null;
   resolvedAt: string | null;
@@ -676,7 +707,7 @@ export type Ticket = {
   department?: TicketDepartmentOption | null;
   /** Approved minutes only (list + detail). */
   loggedMinutes?: number;
-  /** Detail (GET /tickets/:id) — linked lines only. */
+  /** Detail (GET /tickets/:idOrReference) — linked lines only. */
   minutesByStatus?: TicketMinutesByStatus;
   timeEntries?: TicketTimeEntry[];
 };
@@ -704,7 +735,7 @@ export const TICKET_PRIORITY_LABELS: Record<TicketPriority, string> = {
 
 export type CreateTicketInput = {
   clientId: string;
-  projectId?: string;
+  projectId: string;
   departmentId?: string;
   reference: string;
   ticketType: TicketType;
@@ -722,12 +753,16 @@ export type CreateTicketInput = {
   source?: string;
   tags?: string;
   workstream?: string;
+  crApprovalStatus?: CrApprovalStatus;
+  crValue?: number;
+  crValueCurrency?: string;
   dueAt?: string;
 };
 
 export type UpdateTicketInput = {
   clientId?: string;
-  projectId?: string | null;
+  /** Required on every ticket — do not clear to null. */
+  projectId?: string;
   departmentId?: string | null;
   ticketType?: TicketType;
   title?: string;
@@ -744,6 +779,9 @@ export type UpdateTicketInput = {
   source?: string | null;
   tags?: string | null;
   workstream?: string | null;
+  crApprovalStatus?: CrApprovalStatus | null;
+  crValue?: number | null;
+  crValueCurrency?: string | null;
   dueAt?: string | null;
 };
 

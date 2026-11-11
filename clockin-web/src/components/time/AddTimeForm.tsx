@@ -14,9 +14,9 @@ import {
   projectIdForTask,
   projectsForClient,
   projectsScopedToTasks,
-  tasksForProject,
 } from '@/lib/task-project-picker';
 import { formatHoursMinutes } from '@/lib/format-duration';
+import { TaskSearchSelect } from '@/components/time/TaskSearchSelect';
 import { TicketOptionalSelect } from '@/components/time/TicketOptionalSelect';
 import type { Project, Task, TimeEntry } from '@/types/api';
 import {
@@ -142,9 +142,9 @@ export function AddTimeForm({
     () => projectsForClient(scopedProjects, clientId),
     [scopedProjects, clientId],
   );
-  const taskOptions = useMemo(
-    () => tasksForProject(tasks, projectId),
-    [tasks, projectId],
+  const selectedTaskLabel = useMemo(
+    () => tasks.find((t) => t.id === taskId)?.name ?? null,
+    [tasks, taskId],
   );
 
   useEffect(() => {
@@ -308,74 +308,67 @@ export function AddTimeForm({
   return (
     <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
       {/* Tab order: client → project → task → ticket → times → description → save */}
-      <FormField label="Client" htmlFor="add-time-client" required>
-        <Select
-          id="add-time-client"
-          value={clientId}
-          onChange={(e) => {
-            setClientId(e.target.value);
-            setProjectId('');
-            setTaskId('');
-            setTicketId('');
-          }}
-          disabled={submitting}
-        >
-          <option value="">Select client…</option>
-          {clientOptions.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </Select>
-      </FormField>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <FormField label="Client" htmlFor="add-time-client" required>
+          <Select
+            id="add-time-client"
+            value={clientId}
+            onChange={(e) => {
+              setClientId(e.target.value);
+              setProjectId('');
+              setTaskId('');
+              setTicketId('');
+            }}
+            disabled={submitting}
+          >
+            <option value="">Select client…</option>
+            {clientOptions.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </Select>
+        </FormField>
 
-      <FormField label="Project" htmlFor="add-time-project" required>
-        <Select
-          id="add-time-project"
-          value={projectId}
-          onChange={(e) => {
-            setProjectId(e.target.value);
-            setTaskId('');
-            setTicketId('');
-          }}
-          disabled={submitting || !clientId}
-        >
-          <option value="">
-            {!clientId ? 'Select a client first' : 'Select project…'}
-          </option>
-          {projectOptions.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.label}
+        <FormField label="Project" htmlFor="add-time-project" required>
+          <Select
+            id="add-time-project"
+            value={projectId}
+            onChange={(e) => {
+              setProjectId(e.target.value);
+              setTaskId('');
+              setTicketId('');
+            }}
+            disabled={submitting || !clientId}
+          >
+            <option value="">
+              {!clientId ? 'Select a client first' : 'Select project…'}
             </option>
-          ))}
-        </Select>
-      </FormField>
+            {projectOptions.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+          </Select>
+        </FormField>
 
-      <FormField label="Task" htmlFor="add-time-task" required>
-        <Select
+        <TaskSearchSelect
           id="add-time-task"
+          projectId={projectId}
           value={taskId}
-          onChange={(e) => setTaskId(e.target.value)}
-          disabled={submitting || !projectId}
-        >
-          <option value="">
-            {!projectId ? 'Select a project first' : 'Select task…'}
-          </option>
-          {taskOptions.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name}
-            </option>
-          ))}
-        </Select>
-      </FormField>
+          onChange={setTaskId}
+          disabled={submitting}
+          selectedLabel={selectedTaskLabel}
+        />
 
-      <TicketOptionalSelect
-        id="add-time-ticket"
-        projectId={projectId}
-        value={ticketId}
-        onChange={setTicketId}
-        disabled={submitting}
-      />
+        <TicketOptionalSelect
+          id="add-time-ticket"
+          projectId={projectId}
+          value={ticketId}
+          onChange={setTicketId}
+          disabled={submitting}
+        />
+      </div>
 
       <div className="flex flex-wrap gap-3 text-sm">
         <label className="flex items-center gap-2 text-slate">
@@ -401,7 +394,22 @@ export function AddTimeForm({
       </div>
 
       {mode === 'range' ? (
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-3">
+          <FormField
+            label="Date"
+            htmlFor="add-time-date"
+            hint="Defaults to today"
+            required
+          >
+            <Input
+              id="add-time-date"
+              type="date"
+              value={entryDate}
+              max={toDateParam(new Date())}
+              onChange={(e) => setEntryDate(e.target.value)}
+              disabled={submitting}
+            />
+          </FormField>
           <FormField label="Start" htmlFor="add-time-start" required>
             <Input
               id="add-time-start"
@@ -424,7 +432,22 @@ export function AddTimeForm({
           </FormField>
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-3">
+          <FormField
+            label="Date"
+            htmlFor="add-time-date"
+            hint="Defaults to today"
+            required
+          >
+            <Input
+              id="add-time-date"
+              type="date"
+              value={entryDate}
+              max={toDateParam(new Date())}
+              onChange={(e) => setEntryDate(e.target.value)}
+              disabled={submitting}
+            />
+          </FormField>
           <FormField label="Hours" htmlFor="add-time-hours" required>
             <Input
               id="add-time-hours"
@@ -455,22 +478,6 @@ export function AddTimeForm({
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           placeholder="Short note"
-          disabled={submitting}
-        />
-      </FormField>
-
-      <FormField
-        label="Date"
-        htmlFor="add-time-date"
-        hint="Defaults to today"
-        required
-      >
-        <Input
-          id="add-time-date"
-          type="date"
-          value={entryDate}
-          max={toDateParam(new Date())}
-          onChange={(e) => setEntryDate(e.target.value)}
           disabled={submitting}
         />
       </FormField>

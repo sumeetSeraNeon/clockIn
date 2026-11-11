@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Modal } from '@/components/common/Modal';
+import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { api } from '@/lib/api-client';
 import { entryStatusLabel } from '@/lib/entry-display';
@@ -10,12 +10,10 @@ import { formatHoursMinutes } from '@/lib/format-duration';
 import type { Paginated, Task, TimeEntry, TimeLine } from '@/types/api';
 
 type TaskActivityPanelProps = {
-  task: Task | null;
-  open: boolean;
-  onClose: () => void;
+  task: Task;
   /** Admin / PM / owner — show Billable / Non-billable on each line. */
   showBillable?: boolean;
-  /** True only when caller may start/add time and is the task assignee. */
+  /** When true, show Add time / Start timer CTAs. */
   canStartTimer?: boolean;
 };
 
@@ -43,14 +41,22 @@ function formatEntryDate(iso: string) {
   });
 }
 
+function statusBadgeVariant(
+  status: string,
+  running: boolean,
+): 'neutral' | 'coral' | 'success' | 'warning' | 'danger' {
+  if (running) return 'coral';
+  if (status === 'approved') return 'success';
+  if (status === 'rejected') return 'danger';
+  if (status === 'submitted') return 'warning';
+  return 'neutral';
+}
+
 /**
- * Track → activity timeline for one task.
- * Start timer / Add time only when the viewer is the assignee.
+ * Time activity for one task — embedded on the task dashboard Time tab.
  */
 export function TaskActivityPanel({
   task,
-  open,
-  onClose,
   showBillable = false,
   canStartTimer = false,
 }: TaskActivityPanelProps) {
@@ -60,19 +66,13 @@ export function TaskActivityPanel({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!open || !task) {
-      setEntries([]);
-      setError(null);
-      return;
-    }
-
     let cancelled = false;
     async function load() {
       setLoading(true);
       setError(null);
       try {
         const params = new URLSearchParams({
-          taskId: task!.id,
+          taskId: task.id,
           pageSize: '100',
         });
         const res = await api<Paginated<TimeEntry>>(
@@ -92,10 +92,9 @@ export function TaskActivityPanel({
     return () => {
       cancelled = true;
     };
-  }, [open, task]);
+  }, [task.id]);
 
   const rows = useMemo((): TimelineRow[] => {
-    if (!task) return [];
     const out: TimelineRow[] = [];
     for (const entry of entries) {
       const lines = linesForTask(entry, task.id);
@@ -114,7 +113,7 @@ export function TaskActivityPanel({
       }
     }
     return out;
-  }, [entries, task]);
+  }, [entries, task.id]);
 
   const hourBreakdown = useMemo(() => {
     let approved = 0;
@@ -125,151 +124,142 @@ export function TaskActivityPanel({
       all += row.minutes;
       if (row.status === 'approved') approved += row.minutes;
       else if (row.status === 'rejected') rejected += row.minutes;
-      else pending += row.minutes; // draft + submitted (+ running)
+      else pending += row.minutes;
     }
     return { approved, pending, rejected, all };
   }, [rows]);
 
-  const projectName = task?.project?.name;
-  const manager =
-    task?.project?.owner?.user?.name ||
-    task?.project?.owner?.user?.email ||
-    null;
-
   function goStart() {
-    if (!task || !canStartTimer) return;
-    onClose();
+    if (!canStartTimer) return;
     router.push(`/time?taskId=${encodeURIComponent(task.id)}`);
   }
 
   function goAddTime() {
-    if (!task || !canStartTimer) return;
-    onClose();
+    if (!canStartTimer) return;
     router.push(`/time?add=1&taskId=${encodeURIComponent(task.id)}`);
   }
 
+  const tiles = [
+    {
+      id: 'logged',
+      label: 'Logged',
+      value: hourBreakdown.all,
+      hint: 'All time on this task',
+    },
+    {
+      id: 'awaiting',
+      label: 'Awaiting approval',
+      value: hourBreakdown.pending,
+      hint: 'Not signed off yet',
+    },
+    {
+      id: 'approved',
+      label: 'Approved',
+      value: hourBreakdown.approved,
+      hint: showBillable ? 'Counts for billing' : 'Signed off',
+    },
+  ];
+
   return (
-    <Modal
-      open={open && Boolean(task)}
-      title={task?.name ?? 'Task activity'}
-      description={
-        [projectName, manager ? `Manager: ${manager}` : null]
-          .filter(Boolean)
-          .join(' · ') || 'Time logged against this task.'
-      }
-      onClose={onClose}
-      className="max-w-xl"
-      footer={
-        canStartTimer ? (
-          <>
-            <Button type="button" variant="secondary" onClick={onClose}>
-              Close
-            </Button>
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-navy">
+            Time logged on this task
+          </h3>
+          <p className="mt-0.5 text-sm text-slate">
+            Track work here, then submit it for approval from Timesheet.
+          </p>
+        </div>
+        {canStartTimer ? (
+          <div className="flex flex-wrap gap-2">
             <Button type="button" variant="secondary" onClick={goAddTime}>
               Add time
             </Button>
             <Button type="button" onClick={goStart}>
               Start timer
             </Button>
-          </>
-        ) : (
-          <Button type="button" variant="secondary" onClick={onClose}>
-            Close
-          </Button>
-        )
-      }
-    >
-      <div className="space-y-4">
-        <div className="border-b border-navy/10 pb-3">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate">
-            Approved
-          </p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums text-navy">
-            {loading ? '…' : formatHoursMinutes(hourBreakdown.approved)}
-          </p>
-          <p className="mt-0.5 text-xs text-slate">
-            {rows.length} line{rows.length === 1 ? '' : 's'}
-            {showBillable
-              ? ' · approved time drives revenue'
-              : ' · approved time counts toward sign-off'}
-          </p>
-          {!loading && rows.length > 0 ? (
-            <dl className="mt-3 grid grid-cols-3 gap-2 text-xs">
-              <div>
-                <dt className="text-slate">Pending</dt>
-                <dd className="mt-0.5 tabular-nums text-navy">
-                  {formatHoursMinutes(hourBreakdown.pending)}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-slate">Rejected</dt>
-                <dd className="mt-0.5 tabular-nums text-navy">
-                  {formatHoursMinutes(hourBreakdown.rejected)}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-slate">All logged</dt>
-                <dd className="mt-0.5 tabular-nums text-navy">
-                  {formatHoursMinutes(hourBreakdown.all)}
-                </dd>
-              </div>
-            </dl>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        {tiles.map((tile) => (
+          <div
+            key={tile.id}
+            className="rounded-lg border border-border/70 bg-muted/30 px-4 py-3"
+          >
+            <p className="text-xs font-medium uppercase tracking-wide text-slate">
+              {tile.label}
+            </p>
+            <p className="mt-1 text-xl font-semibold tabular-nums text-navy">
+              {loading ? '…' : formatHoursMinutes(tile.value)}
+            </p>
+            <p className="mt-0.5 text-xs text-slate">{tile.hint}</p>
+          </div>
+        ))}
+      </div>
+
+      {!loading && hourBreakdown.rejected > 0 ? (
+        <p className="text-sm text-danger">
+          {formatHoursMinutes(hourBreakdown.rejected)} rejected — fix or
+          re-submit from Timesheet.
+        </p>
+      ) : null}
+
+      <div className="space-y-3">
+        <h4 className="text-sm font-semibold text-navy">Activity</h4>
 
         {error ? (
           <p className="text-sm text-danger">{error}</p>
         ) : loading ? (
           <p className="text-sm text-slate">Loading activity…</p>
         ) : rows.length === 0 ? (
-          <p className="text-sm text-slate">
+          <p className="rounded-lg border border-dashed border-border/80 px-4 py-6 text-sm text-slate">
             {canStartTimer
-              ? 'No time logged on this task yet. Start the timer or add an entry.'
+              ? 'No time logged yet. Start the timer or add an entry.'
               : 'No time logged on this task yet.'}
           </p>
         ) : (
-          <ul className="divide-y divide-navy/10">
+          <ul className="divide-y divide-navy/10 rounded-lg border border-border/60">
             {rows.map((row) => (
-              <li key={row.key} className="py-3">
-                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm">
-                  <span className="font-medium text-navy">
+              <li
+                key={row.key}
+                className="flex flex-wrap items-start justify-between gap-3 px-4 py-3"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-navy">
                     {formatEntryDate(row.entryDate)}
-                  </span>
-                  <span className="text-slate" aria-hidden>
-                    ·
-                  </span>
-                  <span className="tabular-nums text-navy">
-                    {formatHoursMinutes(row.minutes)}
-                  </span>
-                  <span className="text-slate" aria-hidden>
-                    ·
-                  </span>
-                  <span
-                    className={
-                      row.running ? 'font-medium text-coral' : 'text-slate'
-                    }
-                  >
-                    {entryStatusLabel(row.status, row.running)}
-                  </span>
+                  </p>
+                  {row.note ? (
+                    <p className="mt-0.5 truncate text-sm text-slate">
+                      {row.note}
+                    </p>
+                  ) : (
+                    <p className="mt-0.5 text-sm text-slate/70">No note</p>
+                  )}
                   {showBillable && row.billable !== null ? (
-                    <>
-                      <span className="text-slate" aria-hidden>
-                        ·
-                      </span>
-                      <span className="text-slate">
-                        {row.billable ? 'Billable' : 'Non-billable'}
-                      </span>
-                    </>
+                    <p className="mt-1 text-xs text-slate">
+                      {row.billable ? 'Billable' : 'Non-billable'}
+                    </p>
                   ) : null}
                 </div>
-                {row.note ? (
-                  <p className="mt-1 truncate text-sm text-slate">{row.note}</p>
-                ) : null}
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  <span className="text-sm font-semibold tabular-nums text-navy">
+                    {formatHoursMinutes(row.minutes)}
+                  </span>
+                  <Badge
+                    variant={statusBadgeVariant(row.status, row.running)}
+                    tone="solid"
+                  >
+                    {entryStatusLabel(row.status, row.running)}
+                  </Badge>
+                </div>
               </li>
             ))}
           </ul>
         )}
       </div>
-    </Modal>
+    </div>
   );
 }

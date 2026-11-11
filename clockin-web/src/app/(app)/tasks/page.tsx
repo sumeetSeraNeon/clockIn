@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { TaskActivityPanel } from '@/components/tasks/TaskActivityPanel';
 import { TaskForm } from '@/components/tasks/TaskForm';
 import { TasksTable } from '@/components/tasks/TasksTable';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
@@ -22,6 +21,7 @@ import { useTasks } from '@/lib/use-tasks';
 import { usePermissions } from '@/lib/use-permissions';
 import { isMemberOnlyRole } from '@/lib/app-nav';
 import type {
+  Client,
   CreateTaskInput,
   MemberSummary,
   Paginated,
@@ -41,8 +41,8 @@ export default function TasksPage() {
   const toast = useToast();
   const { can, highestRole } = usePermissions();
   const canEdit = can('task', 'edit');
-  const canTrackTime = can('time_entry', 'edit');
   const canViewMembers = can('member', 'view');
+  const canViewClients = can('client', 'view');
   const canSetBillable = can('billable', 'set');
   /** FINAL FIX 8 — commercial strip is member-only, not “lacks edit” */
   const isMember = isMemberOnlyRole(highestRole);
@@ -50,13 +50,13 @@ export default function TasksPage() {
 
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState<StatusFilter>('open');
+  const [clientId, setClientId] = useState<string | 'all'>('all');
   const [projectId, setProjectId] = useState<string | 'all'>('all');
   const [assigneeId, setAssigneeId] = useState<string | 'all'>('all');
   const [nameQuery, setNameQuery] = useState('');
   const debouncedQ = useDebouncedValue(nameQuery.trim());
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [editing, setEditing] = useState<Task | null>(null);
-  const [activityTask, setActivityTask] = useState<Task | null>(null);
   const [archiving, setArchiving] = useState<Task | null>(null);
   const [markingDone, setMarkingDone] = useState<Task | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -65,6 +65,7 @@ export default function TasksPage() {
   const [markDoneLoading, setMarkDoneLoading] = useState(false);
   const [members, setMembers] = useState<MemberSummary[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
 
   useEffect(() => {
     setPage(1);
@@ -75,6 +76,7 @@ export default function TasksPage() {
       page,
       pageSize: 20,
       status,
+      clientId,
       projectId,
       assigneeId,
       q: debouncedQ,
@@ -95,6 +97,18 @@ export default function TasksPage() {
           projectsData = [];
         }
 
+        let clientsData: Client[] = [];
+        if (canViewClients) {
+          try {
+            const clientsRes = await api<Paginated<Client>>(
+              '/clients?pageSize=100&status=active',
+            );
+            clientsData = clientsRes.data ?? [];
+          } catch {
+            clientsData = [];
+          }
+        }
+
         let membersData: MemberSummary[] = [];
         if (canViewMembers) {
           try {
@@ -109,11 +123,13 @@ export default function TasksPage() {
         if (!cancelled) {
           setMembers(membersData);
           setProjects(projectsData);
+          setClients(clientsData);
         }
       } catch {
         if (!cancelled) {
           setMembers([]);
           setProjects([]);
+          setClients([]);
         }
       }
     }
@@ -122,7 +138,7 @@ export default function TasksPage() {
     return () => {
       cancelled = true;
     };
-  }, [canViewMembers]);
+  }, [canViewMembers, canViewClients]);
 
   const membersById = useMemo(() => {
     const map = new Map<string, MemberSummary>();
@@ -135,6 +151,11 @@ export default function TasksPage() {
     for (const p of projects) map.set(p.id, p);
     return map;
   }, [projects]);
+
+  const projectsForFilter = useMemo(() => {
+    if (clientId === 'all') return projects;
+    return projects.filter((p) => p.clientId === clientId);
+  }, [projects, clientId]);
 
   const openCreate = useCallback(() => {
     setEditing(null);
@@ -211,6 +232,7 @@ export default function TasksPage() {
   const hasSearch = Boolean(debouncedQ);
   const filtersClear =
     status === 'all' &&
+    clientId === 'all' &&
     projectId === 'all' &&
     assigneeId === 'all' &&
     !hasSearch;
@@ -258,6 +280,34 @@ export default function TasksPage() {
             </Select>
           </label>
 
+          {canViewClients ? (
+            <label className="flex flex-col gap-1 text-xs text-slate">
+              Client
+              <Select
+                className="min-w-[160px]"
+                value={clientId}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setPage(1);
+                  setClientId(next);
+                  if (next !== 'all' && projectId !== 'all') {
+                    const selected = projectsById.get(projectId);
+                    if (!selected || selected.clientId !== next) {
+                      setProjectId('all');
+                    }
+                  }
+                }}
+              >
+                <option value="all">All clients</option>
+                {clients.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          ) : null}
+
           <label className="flex flex-col gap-1 text-xs text-slate">
             Project
             <Select
@@ -269,7 +319,7 @@ export default function TasksPage() {
               }}
             >
               <option value="all">All projects</option>
-              {projects.map((p) => (
+              {projectsForFilter.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
                 </option>
@@ -358,10 +408,9 @@ export default function TasksPage() {
             projectsById={projectsById}
             membersById={membersById}
             canEdit={canEdit}
-            canTrackTime={canTrackTime}
             showBillable={showBillable}
             memberView={isMember}
-            onTrack={(task) => setActivityTask(task)}
+            showOpen
             onEdit={openEdit}
             onMarkDone={setMarkingDone}
             onArchive={setArchiving}
@@ -376,14 +425,6 @@ export default function TasksPage() {
         </>
       )}
 
-      <TaskActivityPanel
-        task={activityTask}
-        open={Boolean(activityTask)}
-        onClose={() => setActivityTask(null)}
-        showBillable={showBillable}
-        canStartTimer={Boolean(canTrackTime && activityTask)}
-      />
-
       <Modal
         open={modalMode !== null}
         title={modalMode === 'create' ? 'New task' : 'Edit task'}
@@ -393,6 +434,7 @@ export default function TasksPage() {
             : 'Update task details. Mark done or archive from the row.'
         }
         onClose={closeModal}
+        size="xl"
       >
         <TaskForm
           mode={modalMode === 'edit' ? 'edit' : 'create'}

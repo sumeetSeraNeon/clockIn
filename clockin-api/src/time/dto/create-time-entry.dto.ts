@@ -10,12 +10,9 @@ import {
   IsUUID,
   MaxLength,
   Min,
-  MinLength,
-  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 
-const TICKET_TYPES = ['incident', 'cr', 'sr'] as const;
 const AREAS = ['functional', 'technical', 'integration', 'pm'] as const;
 const SOURCES = ['timer', 'manual', 'api'] as const;
 
@@ -37,22 +34,27 @@ export class TimeLineInputDto {
   @IsUUID()
   ticketId?: string;
 
+  /**
+   * Ignored when ticketId is set — server derives type from the ticket.
+   * Kept optional for backwards-compatible clients; do not send for new UI.
+   */
   @IsOptional()
-  @IsIn(TICKET_TYPES)
-  ticketType?: (typeof TICKET_TYPES)[number];
+  @IsString()
+  @MaxLength(50)
+  ticketType?: string;
 
   @IsOptional()
   @IsIn(AREAS)
   area?: string;
 
-  /** Required when ticketType = cr */
-  @ValidateIf((o: TimeLineInputDto) => o.ticketType === 'cr')
+  /** Deprecated — ignored. Use ticketId (Change Request = ticket). */
+  @IsOptional()
   @IsUUID()
   crId?: string;
 
-  @ValidateIf((o: TimeLineInputDto) => o.ticketType === 'cr')
+  /** Deprecated — ignored. Ticket reference comes from the linked ticket. */
+  @IsOptional()
   @IsString()
-  @MinLength(1)
   @MaxLength(50)
   crNumber?: string;
 
@@ -84,16 +86,10 @@ export class CreateTimeEntryDto {
   @IsDateString()
   startTime?: string;
 
-  /**
-   * Omit / null for a running timer.
-   * For manual entries, set endTime (or leave null only when source=timer).
-   */
   @IsOptional()
-  @ValidateIf((_, v) => v !== null)
   @IsDateString()
-  endTime?: string | null;
+  endTime?: string;
 
-  /** Mandatory first line — every entry must have at least one line. */
   @IsDefined()
   @ValidateNested()
   @Type(() => TimeLineInputDto)

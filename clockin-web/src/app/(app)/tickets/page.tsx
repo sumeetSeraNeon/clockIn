@@ -52,6 +52,7 @@ export default function TicketsPage() {
   const { can } = usePermissions();
   const canEdit = can('ticket', 'edit');
   const canViewClients = can('client', 'view');
+  const canViewCrValue = can('rate', 'view');
 
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState<StatusFilter>('open');
@@ -150,7 +151,7 @@ export default function TicketsPage() {
 
   const openTicket = useCallback(
     (ticket: Ticket) => {
-      router.push(`/tickets/${ticket.id}`);
+      router.push(`/tickets/${encodeURIComponent(ticket.reference)}`);
     },
     [router],
   );
@@ -170,7 +171,7 @@ export default function TicketsPage() {
       toast.success('Ticket created');
       setCreating(false);
       reload();
-      router.push(`/tickets/${created.id}`);
+      router.push(`/tickets/${encodeURIComponent(created.reference)}`);
     } catch (err) {
       toast.error(getErrorMessage(err, 'Could not save ticket'));
     } finally {
@@ -368,6 +369,7 @@ export default function TicketsPage() {
         title="New ticket"
         description="Reference is unique per organisation."
         onClose={closeModal}
+        size="xl"
       >
         <TicketForm
           mode="create"
@@ -375,6 +377,7 @@ export default function TicketsPage() {
           projects={projects}
           departments={departments}
           submitting={submitting}
+          canViewCrValue={canViewCrValue}
           onSubmit={handleSubmit}
           onCancel={closeModal}
         />

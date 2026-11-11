@@ -1,11 +1,13 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, type Ticket } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import type { AuthMembership } from '../auth/auth.types';
+import { can } from '../auth/permissions';
 import { VisibilityService } from '../auth/visibility.service';
 import {
   buildPaginatedResult,
@@ -17,9 +19,15 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { ListTicketsQueryDto } from './dto/list-tickets-query.dto';
 import { UpdateTicketDto } from './dto/update-ticket.dto';
-import { TICKET_STATUSES } from './ticket.constants';
+import {
+  CR_APPROVAL_STATUSES,
+  TICKET_STATUSES,
+} from './ticket.constants';
 
 const ENTITY_TYPE = 'ticket';
+const CHANGE_REQUEST = 'change_request';
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const ticketInclude = {
   department: { select: { id: true, name: true, status: true } },
@@ -49,24 +57,47 @@ export class TicketsService {
 
   async create(
     organisationId: string,
-    actorMembershipId: string,
+    membership: AuthMembership,
     dto: CreateTicketDto,
   ): Promise<TicketWithDepartment> {
     await this.assertClientInOrg(organisationId, dto.clientId);
 
-    if (dto.projectId) {
-      await this.assertProjectForClient(
-        organisationId,
-        dto.projectId,
-        dto.clientId,
-      );
+    if (!dto.projectId) {
+      throw new BadRequestException('projectId is required');
     }
+    await this.assertProjectForClient(
+      organisationId,
+      dto.projectId,
+      dto.clientId,
+    );
+
+    const isCr = dto.ticketType === CHANGE_REQUEST;
     if (dto.departmentId) {
       await this.assertDepartmentInOrg(organisationId, dto.departmentId);
     }
 
     const status = dto.status ?? 'open';
     this.assertAllowedStatus(status);
+
+    let crApprovalStatus: string | null = null;
+    let crValue: number | null = null;
+    let crValueCurrency: string | null = null;
+
+    if (isCr) {
+      crApprovalStatus = dto.crApprovalStatus ?? 'pending';
+      this.assertCrApprovalStatus(crApprovalStatus);
+      const financial = this.resolveCrFinancialWrite(membership, dto, null);
+      crValue = financial.crValue;
+      crValueCurrency = financial.crValueCurrency;
+    } else if (
+      dto.crApprovalStatus != null ||
+      dto.crValue != null ||
+      dto.crValueCurrency != null
+    ) {
+      throw new BadRequestException(
+        'CR fields are only allowed when ticketType is change_request',
+      );
+    }
 
     const openedAt = dto.openedAt ? new Date(dto.openedAt) : new Date();
     const contactName = dto.contactName?.trim() || dto.raisedBy?.trim() || null;
@@ -94,6 +125,9 @@ export class TicketsService {
           source: dto.source?.trim() || null,
           tags: dto.tags?.trim() || null,
           workstream: dto.workstream?.trim() || null,
+          crApprovalStatus,
+          crValue,
+          crValueCurrency,
           openedAt,
           dueAt: dto.dueAt ? new Date(dto.dueAt) : null,
           resolvedAt: dto.resolvedAt
@@ -117,7 +151,7 @@ export class TicketsService {
 
       await this.audit.writeAudit({
         organisationId,
-        actorMembershipId,
+        actorMembershipId: membership.id,
         entityType: ENTITY_TYPE,
         entityId: ticket.id,
         action: 'create',
@@ -125,7 +159,7 @@ export class TicketsService {
         newValue: this.toAuditJson(ticket),
       });
 
-      return ticket;
+      return this.presentTicket(ticket, membership);
     } catch (error) {
       mapPrismaError(error);
     }
@@ -192,7 +226,12 @@ export class TicketsService {
       ]);
 
       const withLogged = await this.attachLoggedMinutes(organisationId, data);
-      return buildPaginatedResult(withLogged, total, page, pageSize);
+      return buildPaginatedResult(
+        withLogged.map((row) => this.presentTicket(row, membership)),
+        total,
+        page,
+        pageSize,
+      );
     } catch (error) {
       mapPrismaError(error);
     }
@@ -201,7 +240,7 @@ export class TicketsService {
   async findOne(
     organisationId: string,
     membership: AuthMembership,
-    id: string,
+    idOrReference: string,
   ): Promise<
     TicketWithDepartment & {
       loggedMinutes: number;
@@ -228,10 +267,11 @@ export class TicketsService {
       organisationId,
       membership,
     );
-    const ticket = await this.prisma.ticket.findFirst({
-      where: { id, organisationId, ...visibilityWhere },
-      include: ticketInclude,
-    });
+    const ticket = await this.findByIdOrReference(
+      organisationId,
+      idOrReference,
+      visibilityWhere,
+    );
     if (!ticket) {
       throw new NotFoundException('Ticket not found');
     }
@@ -240,7 +280,7 @@ export class TicketsService {
       this.loadTicketTimeActivity(organisationId, ticket.id),
     ]);
     return {
-      ...ticket,
+      ...this.presentTicket(ticket, membership),
       loggedMinutes,
       minutesByStatus: activity.minutesByStatus,
       timeEntries: activity.timeEntries,
@@ -249,29 +289,36 @@ export class TicketsService {
 
   async update(
     organisationId: string,
-    actorMembershipId: string,
-    id: string,
+    membership: AuthMembership,
+    idOrReference: string,
     dto: UpdateTicketDto,
   ): Promise<TicketWithDepartment> {
-    const existing = await this.findOwnedOrThrow(organisationId, id);
+    const existing = await this.findOwnedOrThrow(organisationId, idOrReference);
 
     if (dto.status) {
       this.assertAllowedStatus(dto.status);
     }
 
     const nextClientId = dto.clientId ?? existing.clientId;
+    const nextType = dto.ticketType ?? existing.ticketType;
+    const isCr = nextType === CHANGE_REQUEST;
 
     if (dto.clientId) {
       await this.assertClientInOrg(organisationId, dto.clientId);
     }
 
-    if (dto.projectId) {
-      await this.assertProjectForClient(
-        organisationId,
-        dto.projectId,
-        nextClientId,
-      );
+    const nextProjectId =
+      dto.projectId !== undefined ? dto.projectId : existing.projectId;
+
+    if (!nextProjectId) {
+      throw new BadRequestException('projectId is required');
     }
+
+    await this.assertProjectForClient(
+      organisationId,
+      nextProjectId,
+      nextClientId,
+    );
 
     if (dto.departmentId) {
       await this.assertDepartmentInOrg(organisationId, dto.departmentId);
@@ -331,6 +378,33 @@ export class TicketsService {
         : {}),
     };
 
+    if (isCr) {
+      if (dto.crApprovalStatus !== undefined) {
+        if (dto.crApprovalStatus == null) {
+          throw new BadRequestException(
+            'crApprovalStatus is required when ticketType is change_request',
+          );
+        }
+        this.assertCrApprovalStatus(dto.crApprovalStatus);
+        data.crApprovalStatus = dto.crApprovalStatus;
+      } else if (
+        existing.ticketType !== CHANGE_REQUEST ||
+        !existing.crApprovalStatus
+      ) {
+        data.crApprovalStatus = 'pending';
+      }
+
+      const financial = this.resolveCrFinancialWrite(membership, dto, existing);
+      if (financial.wrote) {
+        data.crValue = financial.crValue;
+        data.crValueCurrency = financial.crValueCurrency;
+      }
+    } else {
+      data.crApprovalStatus = null;
+      data.crValue = null;
+      data.crValueCurrency = null;
+    }
+
     if (dto.status === 'resolved' && !existing.resolvedAt) {
       data.resolvedAt = new Date();
     }
@@ -348,11 +422,11 @@ export class TicketsService {
         throw new NotFoundException('Ticket not found');
       }
 
-      const ticket = await this.findOwnedOrThrow(organisationId, id);
+      const ticket = await this.findOwnedOrThrow(organisationId, existing.id);
 
       await this.audit.writeAudit({
         organisationId,
-        actorMembershipId,
+        actorMembershipId: membership.id,
         entityType: ENTITY_TYPE,
         entityId: ticket.id,
         action: 'update',
@@ -360,11 +434,12 @@ export class TicketsService {
         newValue: this.toAuditJson(ticket),
       });
 
-      return ticket;
+      return this.presentTicket(ticket, membership);
     } catch (error) {
       if (
         error instanceof NotFoundException ||
-        error instanceof BadRequestException
+        error instanceof BadRequestException ||
+        error instanceof ForbiddenException
       ) {
         throw error;
       }
@@ -378,14 +453,105 @@ export class TicketsService {
     }
   }
 
-  private async findOwnedOrThrow(
+  private assertCrApprovalStatus(status: string): void {
+    if (!(CR_APPROVAL_STATUSES as readonly string[]).includes(status)) {
+      throw new BadRequestException(`Invalid CR approval status: ${status}`);
+    }
+  }
+
+  private canViewCrValue(membership: AuthMembership): boolean {
+    return can(membership.permissions, 'rate', 'view');
+  }
+
+  private presentTicket<T extends TicketWithDepartment>(
+    ticket: T,
+    membership: AuthMembership,
+  ): T {
+    if (this.canViewCrValue(membership)) {
+      return ticket;
+    }
+    return {
+      ...ticket,
+      crValue: null,
+      crValueCurrency: null,
+    };
+  }
+
+  /**
+   * Owner/admin may set CR value. Others may not change it.
+   * When fields are omitted, keep existing (update) or null (create).
+   */
+  private resolveCrFinancialWrite(
+    membership: AuthMembership,
+    dto: { crValue?: number | null; crValueCurrency?: string | null },
+    existing: Ticket | null,
+  ): {
+    wrote: boolean;
+    crValue: number | null;
+    crValueCurrency: string | null;
+  } {
+    const valueTouched = dto.crValue !== undefined;
+    const currencyTouched = dto.crValueCurrency !== undefined;
+    if (!valueTouched && !currencyTouched) {
+      return {
+        wrote: false,
+        crValue:
+          existing?.crValue != null ? Number(existing.crValue) : null,
+        crValueCurrency: existing?.crValueCurrency ?? null,
+      };
+    }
+
+    if (!this.canViewCrValue(membership)) {
+      throw new ForbiddenException(
+        'Only owner/admin can set Change Request value',
+      );
+    }
+
+    const crValue =
+      valueTouched
+        ? dto.crValue == null
+          ? null
+          : dto.crValue
+        : existing?.crValue != null
+          ? Number(existing.crValue)
+          : null;
+    const crValueCurrency =
+      currencyTouched
+        ? dto.crValueCurrency?.trim() || null
+        : existing?.crValueCurrency ?? null;
+
+    return { wrote: true, crValue, crValueCurrency };
+  }
+
+  private async findByIdOrReference(
     organisationId: string,
-    id: string,
-  ): Promise<TicketWithDepartment> {
-    const ticket = await this.prisma.ticket.findFirst({
-      where: { id, organisationId },
+    idOrReference: string,
+    extraWhere: Prisma.TicketWhereInput = {},
+  ): Promise<TicketWithDepartment | null> {
+    const key = decodeURIComponent(idOrReference).trim();
+    if (!key) return null;
+
+    if (UUID_RE.test(key)) {
+      return this.prisma.ticket.findFirst({
+        where: { id: key, organisationId, ...extraWhere },
+        include: ticketInclude,
+      });
+    }
+
+    return this.prisma.ticket.findFirst({
+      where: { organisationId, reference: key, ...extraWhere },
       include: ticketInclude,
     });
+  }
+
+  private async findOwnedOrThrow(
+    organisationId: string,
+    idOrReference: string,
+  ): Promise<TicketWithDepartment> {
+    const ticket = await this.findByIdOrReference(
+      organisationId,
+      idOrReference,
+    );
 
     if (!ticket) {
       throw new NotFoundException('Ticket not found');
@@ -569,6 +735,9 @@ export class TicketsService {
       agentName: ticket.agentName,
       contactName: ticket.contactName,
       contactEmail: ticket.contactEmail,
+      crApprovalStatus: ticket.crApprovalStatus,
+      crValue: ticket.crValue != null ? Number(ticket.crValue) : null,
+      crValueCurrency: ticket.crValueCurrency,
       openedAt: ticket.openedAt?.toISOString() ?? null,
       dueAt: ticket.dueAt?.toISOString() ?? null,
       resolvedAt: ticket.resolvedAt?.toISOString() ?? null,

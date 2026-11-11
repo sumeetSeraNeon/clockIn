@@ -2,7 +2,7 @@
 
 export const TICKET_TYPES = [
   'incident',
-  'change',
+  'change_request',
   'question',
   'service_request',
   'problem',
@@ -33,10 +33,23 @@ export type TicketPriorityValue = (typeof TICKET_PRIORITIES)[number];
 export const TICKET_PRIORITY_CODES = ['p1', 'p2', 'p3', 'p4'] as const;
 export type TicketPriorityCode = (typeof TICKET_PRIORITY_CODES)[number];
 
+/** Change Request commercial approval (ticketType = change_request only). */
+export const CR_APPROVAL_STATUSES = [
+  'pending',
+  'approved',
+  'hold',
+  'rejected',
+  'in_delivery',
+] as const;
+export type CrApprovalStatusValue = (typeof CR_APPROVAL_STATUSES)[number];
+
 /** Sheet / UI label → stored value */
 export const TICKET_TYPE_FROM_LABEL: Record<string, TicketTypeValue> = {
   incident: 'incident',
-  change: 'change',
+  // Legacy Freshdesk / sheet labels → change_request
+  change: 'change_request',
+  'change request': 'change_request',
+  change_request: 'change_request',
   question: 'question',
   'service request': 'service_request',
   service_request: 'service_request',

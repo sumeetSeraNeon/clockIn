@@ -1063,6 +1063,7 @@ export class ImportsService {
 
       const contactName =
         blankToNull(row.contactName) || blankToNull(row.agentName);
+      const isChangeRequest = row.parsed.ticketType === 'change_request';
       const data = {
         clientId: row.matchedClientId,
         departmentId: row.matchedDepartmentId ?? null,
@@ -1081,6 +1082,8 @@ export class ImportsService {
         source: blankToNull(row.source),
         tags: blankToNull(row.tags),
         workstream: blankToNull(row.workstream),
+        // Import does not require project; default CR approval when type matches
+        crApprovalStatus: isChangeRequest ? 'pending' : null,
         openedAt: row.parsed.openedAt
           ? new Date(row.parsed.openedAt)
           : null,
@@ -1112,6 +1115,14 @@ export class ImportsService {
             ...data,
             // Keep project if already assigned
             projectId: existing.projectId,
+            // Keep existing CR approval unless type newly became change_request
+            crApprovalStatus: isChangeRequest
+              ? existing.crApprovalStatus ?? 'pending'
+              : null,
+            crValue: isChangeRequest ? existing.crValue : null,
+            crValueCurrency: isChangeRequest
+              ? existing.crValueCurrency
+              : null,
             resolvedAt:
               data.resolvedAt ??
               (data.status === 'resolved' && !existing.resolvedAt

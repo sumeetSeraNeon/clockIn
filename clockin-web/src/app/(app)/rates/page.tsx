@@ -469,6 +469,7 @@ export default function RatesPage() {
         title="Set project rates"
         description="Pick client, then project, then person — cost and bill per hour."
         onClose={() => !submitting && setModalMode(null)}
+        size="xl"
       >
         <RatePairForm
           projects={projects}
@@ -486,6 +487,7 @@ export default function RatesPage() {
         title="Advanced rate"
         description="Single cost or billable row for org, client, project, person, or task."
         onClose={() => !submitting && setModalMode(null)}
+        size="xl"
       >
         <RateForm
           clients={clients}
@@ -504,7 +506,7 @@ export default function RatesPage() {
         title="Check effective rate"
         description="Uses the same lookup as reports: most-specific matching rate on a date."
         onClose={() => setLookupOpen(false)}
-        className="max-w-lg"
+        size="lg"
       >
         <RateLookupPanel
           clients={clients}

@@ -1,8 +1,10 @@
+import { Type } from 'class-transformer';
 import {
   IsDateString,
   IsEmail,
   IsIn,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
@@ -12,6 +14,7 @@ import {
   ValidateIf,
 } from 'class-validator';
 import {
+  CR_APPROVAL_STATUSES,
   TICKET_PRIORITIES,
   TICKET_PRIORITY_CODES,
   TICKET_STATUSES,
@@ -22,9 +25,8 @@ export class CreateTicketDto {
   @IsUUID()
   clientId!: string;
 
-  @IsOptional()
   @IsUUID()
-  projectId?: string;
+  projectId!: string;
 
   @IsOptional()
   @IsUUID()
@@ -106,6 +108,22 @@ export class CreateTicketDto {
   @IsString()
   @MaxLength(200)
   workstream?: string;
+
+  /** Change Request only — defaults to pending */
+  @IsOptional()
+  @IsIn(CR_APPROVAL_STATUSES)
+  crApprovalStatus?: (typeof CR_APPROVAL_STATUSES)[number];
+
+  /** Change Request value — owner/admin only */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  crValue?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  crValueCurrency?: string;
 
   @IsOptional()
   @IsDateString()

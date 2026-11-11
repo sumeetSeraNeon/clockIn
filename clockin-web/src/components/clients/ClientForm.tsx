@@ -105,18 +105,23 @@ export function ClientForm({
 
   return (
     <form id="client-form" onSubmit={handleSubmit} className="space-y-4">
-      <FormField label="Name" htmlFor="client-name" error={nameError} required>
-        <Input
-          id="client-name"
-          value={form.name}
-          onChange={(e) => setField('name', e.target.value)}
-          placeholder="Acme Corp"
-          invalid={Boolean(nameError)}
-          required
-        />
-      </FormField>
-
       <div className="grid gap-4 sm:grid-cols-2">
+        <FormField
+          label="Name"
+          htmlFor="client-name"
+          error={nameError}
+          required
+          className="sm:col-span-2"
+        >
+          <Input
+            id="client-name"
+            value={form.name}
+            onChange={(e) => setField('name', e.target.value)}
+            placeholder="Acme Corp"
+            invalid={Boolean(nameError)}
+            required
+          />
+        </FormField>
         <FormField label="Code" htmlFor="client-code" hint="Optional short code">
           <Input
             id="client-code"
@@ -136,9 +141,6 @@ export function ClientForm({
             onChange={(code) => setField('currency', code)}
           />
         </FormField>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
         <FormField label="Status" htmlFor="client-status">
           <Select
             id="client-status"
@@ -168,20 +170,20 @@ export function ClientForm({
             ))}
           </Select>
         </FormField>
+        <FormField
+          label="External ref"
+          htmlFor="client-external"
+          hint="CRM id — optional"
+          className="sm:col-span-2"
+        >
+          <Input
+            id="client-external"
+            value={form.externalRef}
+            onChange={(e) => setField('externalRef', e.target.value)}
+            placeholder="crm-123"
+          />
+        </FormField>
       </div>
-
-      <FormField
-        label="External ref"
-        htmlFor="client-external"
-        hint="CRM id — optional"
-      >
-        <Input
-          id="client-external"
-          value={form.externalRef}
-          onChange={(e) => setField('externalRef', e.target.value)}
-          placeholder="crm-123"
-        />
-      </FormField>
 
       <div className="flex justify-end gap-2 pt-2">
         <Button

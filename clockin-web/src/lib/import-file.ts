@@ -46,7 +46,6 @@ export type ParsedImportRow = {
   contactEmail?: string;
   contactExternalId?: string;
   source?: string;
-  projectName?: string;
   crApprovalStatus?: string;
   crValue?: string;
   crValueCurrency?: string;

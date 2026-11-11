@@ -115,8 +115,8 @@ export const PAGE_HELP: Record<PageHelpKey, PageHelp> = {
   reports: {
     title: 'Reports',
     paragraphs: [
-      'Hours, billable mix, budget burn, utilisation, and (when you have rate access) money views.',
-      'Revenue and profitability use approved time. Export CSV for the current filters.',
+      'Hours, billable mix, budget burn, utilisation, Change Requests (CR tab), and (when you have rate access) money views.',
+      'Revenue and profitability use approved time. The CR tab uses opened-in-range values, open-CR aging, and approved time on Change Requests.',
       'Pick a date range, a department, or a person, then use the tabs to switch report types.',
     ],
   },

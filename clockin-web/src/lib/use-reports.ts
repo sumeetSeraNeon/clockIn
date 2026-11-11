@@ -5,6 +5,7 @@ import { api } from '@/lib/api-client';
 import type {
   ApprovalsReportResponse,
   BudgetReportResponse,
+  CrReportResponse,
   Paginated,
   ReportDetailedLine,
   ReportGroupBy,
@@ -344,6 +345,61 @@ export function useReportUtilisation(
             err instanceof Error
               ? err.message
               : 'Could not load utilisation report.',
+          );
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    enabled,
+    filters.dateFrom,
+    filters.dateTo,
+    filters.clientId,
+    filters.projectId,
+    filters.userId,
+    filters.departmentId,
+    reloadKey,
+  ]);
+
+  return { data, loading, error, reload };
+}
+
+/** Change Request dashboard from GET /reports/cr */
+export function useReportCr(filters: ReportFiltersState, enabled: boolean) {
+  const [data, setData] = useState<CrReportResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const reload = useCallback(() => setReloadKey((k) => k + 1), []);
+
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const params = new URLSearchParams();
+        appendCommon(params, filters);
+        const result = await api<CrReportResponse>(
+          `/reports/cr?${params.toString()}`,
+        );
+        if (!cancelled) setData(result);
+      } catch (err) {
+        if (!cancelled) {
+          setData(null);
+          setError(
+            err instanceof Error
+              ? err.message
+              : 'Could not load Change Request report.',
           );
         }
       } finally {

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { ApprovalsReportPanel } from '@/components/reports/ApprovalsReportPanel';
+import { CrReportPanel } from '@/components/reports/CrReportPanel';
 import { DepartmentRosterPanel } from '@/components/reports/DepartmentRosterPanel';
 import { BudgetReportPanel } from '@/components/reports/BudgetReportPanel';
 import { ReportDetailedTable } from '@/components/reports/ReportDetailedTable';
@@ -22,6 +23,7 @@ import { downloadCsv } from '@/lib/download-csv';
 import {
   useReportApprovals,
   useReportBudget,
+  useReportCr,
   useReportDetailed,
   useReportSummary,
   useReportUtilisation,
@@ -38,7 +40,13 @@ import type {
   DepartmentSummary,
 } from '@/types/api';
 
-type Tab = 'summary' | 'detailed' | 'utilisation' | 'budget' | 'approvals';
+type Tab =
+  | 'summary'
+  | 'detailed'
+  | 'utilisation'
+  | 'budget'
+  | 'approvals'
+  | 'cr';
 
 function defaultFilters(): ReportFiltersState {
   const { from, to } = weekRange();
@@ -96,6 +104,7 @@ export default function ReportsPage() {
     filters,
     canView && tab === 'utilisation',
   );
+  const cr = useReportCr(filters, canView && tab === 'cr');
 
   useEffect(() => {
     if (!canView) return;
@@ -147,6 +156,10 @@ export default function ReportsPage() {
   }
 
   function handleExportCsv() {
+    if (tab === 'cr') {
+      toast.error('CSV export is not available for the CR dashboard yet');
+      return;
+    }
     if (tab === 'detailed') {
       if (detailed.data.length === 0) {
         toast.error('Nothing to export on this page');
@@ -290,7 +303,9 @@ export default function ReportsPage() {
           ? budget.loading
           : tab === 'approvals'
             ? approvals.loading
-            : summary.loading;
+            : tab === 'cr'
+              ? cr.loading
+              : summary.loading;
   const error =
     tab === 'detailed'
       ? detailed.error
@@ -300,7 +315,9 @@ export default function ReportsPage() {
           ? budget.error
           : tab === 'approvals'
             ? approvals.error
-            : summary.error;
+            : tab === 'cr'
+              ? cr.error
+              : summary.error;
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -323,6 +340,7 @@ export default function ReportsPage() {
             ['utilisation', 'Utilisation'],
             ['budget', 'Budget'],
             ['approvals', 'Approvals'],
+            ['cr', 'CR'],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -561,6 +579,7 @@ export default function ReportsPage() {
               utilisation.reload();
               budget.reload();
               approvals.reload();
+              cr.reload();
             }}
           >
             Try again
@@ -574,6 +593,8 @@ export default function ReportsPage() {
         <BudgetReportPanel report={budget.data} />
       ) : tab === 'approvals' && approvals.data ? (
         <ApprovalsReportPanel report={approvals.data} />
+      ) : tab === 'cr' && cr.data ? (
+        <CrReportPanel report={cr.data} />
       ) : tab === 'detailed' ? (
         detailed.data.length === 0 ? (
           <EmptyState

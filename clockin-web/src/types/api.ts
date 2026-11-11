@@ -253,6 +253,81 @@ export type ApprovalsReportResponse = {
   slices: ApprovalsReportSliceRow[];
 };
 
+/** GET /reports/cr — Change Request dashboard */
+export type CrReportAgingBucket =
+  | '0_30'
+  | '31_60'
+  | '61_90'
+  | '90_plus';
+
+export type CrReportApprovalSlice = {
+  status: string;
+  count: number;
+  value: string | null;
+};
+
+export type CrReportAgingSlice = {
+  bucket: CrReportAgingBucket;
+  count: number;
+  value: string | null;
+};
+
+export type CrReportTicketRow = {
+  id: string;
+  reference: string;
+  title: string | null;
+  clientName: string;
+  projectName: string;
+  departmentName: string | null;
+  crApprovalStatus: string;
+  ticketStatus: string;
+  openedAt: string;
+  ageDays: number;
+  crValue: string | null;
+  crValueCurrency: string | null;
+  approvedMinutes: number;
+  cost: string | null;
+  marginVsValue: string | null;
+};
+
+export type CrReportProfitRow = {
+  userId?: string;
+  departmentId?: string | null;
+  label: string;
+  approvedMinutes: number;
+  revenue: string | null;
+  cost: string | null;
+  margin: string | null;
+};
+
+export type CrReportResponse = {
+  dateFrom: string;
+  dateTo: string;
+  commercial: boolean;
+  currency: string | null;
+  mixedCurrencies?: boolean;
+  kpis: {
+    totalValue: string | null;
+    pendingValue: string | null;
+    holdValue: string | null;
+    inDeliveryValue: string | null;
+    rejectedValue: string | null;
+    approvedValue: string | null;
+    totalCount: number;
+    pendingCount: number;
+    holdCount: number;
+    inDeliveryCount: number;
+    rejectedCount: number;
+    approvedCount: number;
+    openedInRangeCount: number;
+  };
+  byApproval: CrReportApprovalSlice[];
+  aging: CrReportAgingSlice[];
+  tickets: CrReportTicketRow[];
+  byPerson: CrReportProfitRow[];
+  byDepartment: CrReportProfitRow[];
+};
+
 export type PaginationMeta = {
   page: number;
   pageSize: number;

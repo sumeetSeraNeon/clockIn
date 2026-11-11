@@ -11,6 +11,17 @@ Approved-time rollups for hours and (with `rate:view`) money.
 | GET | `/api/reports/budget` | `report:view` | Budget burn + timeline % + on_track/watch/overrunning |
 | GET | `/api/reports/utilisation` | `report:view` | Billable ÷ available (calendar or weekday×8) |
 | GET | `/api/reports/approvals` | `report:view` | Timesheet slice pipeline |
+| GET | `/api/reports/cr` | `report:view` | Change Request dashboard (ticket CRs + linked time) |
+
+## Change Request report
+
+Hybrid date rules:
+
+- **Value KPIs / approval mix** — tickets with `ticketType=change_request` whose `openedAt` (else `createdAt`) falls in `dateFrom`–`dateTo`, filtered by client/project/department.
+- **Aging** — still-open CRs (status not `closed` / `resolved` / `legacy_ticket`); age vs `dateTo`; same entity filters; **not** opened-date boxed.
+- **Hours / rate profit** — approved time lines in range on CR tickets. Person filter scopes time only (not value KPIs).
+
+Commercial (`rate:view`): `crValue` rollups, revenue/cost/margin by person & department (same rate rules as Summary), and per-CR sold value vs cost. Managers see counts and hours only.
 
 ## STEP 3 money rules
 

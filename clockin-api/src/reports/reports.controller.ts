@@ -10,6 +10,7 @@ import { PermissionsGuard } from '../auth/permissions.guard';
 import {
   ReportApprovalsQueryDto,
   ReportBudgetQueryDto,
+  ReportCrQueryDto,
   ReportDetailedQueryDto,
   ReportSummaryQueryDto,
   ReportUtilisationQueryDto,
@@ -95,6 +96,23 @@ export class ReportsController {
     @Query() query: ReportUtilisationQueryDto,
   ) {
     return this.reportsService.utilisation(
+      organisationId,
+      membership,
+      user.id,
+      query,
+    );
+  }
+
+  /** Change Request dashboard — value KPIs, aging, CR-linked profit */
+  @Get('cr')
+  @RequirePermission('report', 'view')
+  cr(
+    @CurrentOrg() organisationId: string,
+    @CurrentMembership() membership: AuthMembership,
+    @CurrentUser() user: User,
+    @Query() query: ReportCrQueryDto,
+  ) {
+    return this.reportsService.crReport(
       organisationId,
       membership,
       user.id,

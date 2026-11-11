@@ -170,3 +170,28 @@ export class ReportUtilisationQueryDto {
   @IsUUID()
   departmentId?: string;
 }
+
+/** Change Request dashboard — ticket value KPIs + CR-linked approved time */
+export class ReportCrQueryDto {
+  @IsDateString()
+  dateFrom!: string;
+
+  @IsDateString()
+  dateTo!: string;
+
+  @IsOptional()
+  @IsUUID()
+  clientId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  projectId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  userId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  departmentId?: string;
+}

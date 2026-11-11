@@ -15,6 +15,7 @@ import { DepartmentsService } from '../departments/departments.service';
 import {
   ReportApprovalsQueryDto,
   ReportBudgetQueryDto,
+  ReportCrQueryDto,
   ReportDetailedQueryDto,
   ReportSummaryQueryDto,
   ReportUtilisationQueryDto,
@@ -28,6 +29,7 @@ type LineForReport = {
   taskId: string | null;
   projectId: string | null;
   clientId: string | null;
+  ticketId: string | null;
   description: string | null;
   ticketType: string | null;
   area: string | null;
@@ -51,6 +53,15 @@ type LineForReport = {
   } | null;
   client: { id: string; name: string; code: string | null } | null;
 };
+
+const CR_CLOSED_STATUSES = new Set(['closed', 'resolved', 'legacy_ticket']);
+const CR_APPROVAL_STATUSES = [
+  'pending',
+  'approved',
+  'hold',
+  'rejected',
+  'in_delivery',
+] as const;
 
 /** FIX 6 — dimensions filled from task → project → client when denormalised ids are null. */
 type NormalizedLine = LineForReport & {
@@ -778,6 +789,356 @@ export class ReportsService {
   }
 
   /**
+   * Change Request dashboard: hybrid dates + value KPIs + CR-linked profit.
+   * Money fields only when rate:view (commercial).
+   */
+  async crReport(
+    organisationId: string,
+    membership: AuthMembership,
+    userId: string,
+    query: ReportCrQueryDto,
+  ) {
+    this.assertDateRange(query.dateFrom, query.dateTo);
+    const commercial = can(membership.permissions, 'rate', 'view');
+    const rangeStart = new Date(`${query.dateFrom}T00:00:00.000Z`);
+    const rangeEnd = new Date(`${query.dateTo}T23:59:59.999Z`);
+    const asOf = rangeEnd;
+
+    const ticketVis = await this.visibility.ticketWhere(
+      organisationId,
+      membership,
+    );
+    const tickets = await this.prisma.ticket.findMany({
+      where: {
+        organisationId,
+        ticketType: 'change_request',
+        ...ticketVis,
+        ...(query.clientId ? { clientId: query.clientId } : {}),
+        ...(query.projectId ? { projectId: query.projectId } : {}),
+        ...(query.departmentId ? { departmentId: query.departmentId } : {}),
+      },
+      select: {
+        id: true,
+        reference: true,
+        title: true,
+        status: true,
+        crApprovalStatus: true,
+        crValue: true,
+        crValueCurrency: true,
+        openedAt: true,
+        createdAt: true,
+        clientId: true,
+        projectId: true,
+        departmentId: true,
+        client: { select: { name: true, currency: true } },
+        project: { select: { name: true } },
+        department: { select: { name: true } },
+      },
+    });
+
+    const openedInRange = tickets.filter((t) => {
+      const opened = t.openedAt ?? t.createdAt;
+      return opened >= rangeStart && opened <= rangeEnd;
+    });
+    const stillOpen = tickets.filter(
+      (t) => !CR_CLOSED_STATUSES.has(t.status),
+    );
+
+    const moneyOrNull = (n: number) =>
+      commercial ? n.toFixed(2) : null;
+
+    const sumValueByStatus = (rows: typeof tickets, status: string) => {
+      let sum = 0;
+      let count = 0;
+      for (const t of rows) {
+        const st = t.crApprovalStatus ?? 'pending';
+        if (st !== status) continue;
+        count += 1;
+        if (t.crValue != null) sum += Number(t.crValue);
+      }
+      return { sum, count };
+    };
+
+    const pendingAgg = sumValueByStatus(openedInRange, 'pending');
+    const approvedAgg = sumValueByStatus(openedInRange, 'approved');
+    const holdAgg = sumValueByStatus(openedInRange, 'hold');
+    const inDeliveryAgg = sumValueByStatus(openedInRange, 'in_delivery');
+    const rejectedAgg = sumValueByStatus(openedInRange, 'rejected');
+
+    let totalValueNum = 0;
+    for (const t of openedInRange) {
+      if (t.crValue != null) totalValueNum += Number(t.crValue);
+    }
+
+    const byApproval = CR_APPROVAL_STATUSES.map((status) => {
+      const agg = sumValueByStatus(openedInRange, status);
+      return {
+        status,
+        count: agg.count,
+        value: moneyOrNull(agg.sum),
+      };
+    });
+
+    const agingBuckets: Record<
+      '0_30' | '31_60' | '61_90' | '90_plus',
+      { count: number; value: number }
+    > = {
+      '0_30': { count: 0, value: 0 },
+      '31_60': { count: 0, value: 0 },
+      '61_90': { count: 0, value: 0 },
+      '90_plus': { count: 0, value: 0 },
+    };
+    for (const t of stillOpen) {
+      const opened = t.openedAt ?? t.createdAt;
+      const ageDays = Math.max(
+        0,
+        Math.floor((asOf.getTime() - opened.getTime()) / 86_400_000),
+      );
+      const bucket =
+        ageDays <= 30
+          ? '0_30'
+          : ageDays <= 60
+            ? '31_60'
+            : ageDays <= 90
+              ? '61_90'
+              : '90_plus';
+      agingBuckets[bucket].count += 1;
+      if (t.crValue != null) agingBuckets[bucket].value += Number(t.crValue);
+    }
+    const aging = (
+      ['0_30', '31_60', '61_90', '90_plus'] as const
+    ).map((bucket) => ({
+      bucket,
+      count: agingBuckets[bucket].count,
+      value: moneyOrNull(agingBuckets[bucket].value),
+    }));
+
+    // Person filter scopes time only; department already applied on tickets for KPIs.
+    const timeUserIds = await this.scopedUserIds(
+      organisationId,
+      query.departmentId,
+      query.userId,
+    );
+    const lines = await this.fetchLines(organisationId, membership, userId, {
+      dateFrom: query.dateFrom,
+      dateTo: query.dateTo,
+      clientId: query.clientId,
+      projectId: query.projectId,
+      userIds: timeUserIds,
+      ticketType: 'change_request',
+      entryStatus: 'approved',
+    });
+
+    const ticketById = new Map(tickets.map((t) => [t.id, t]));
+    const minutesByTicket = new Map<string, number>();
+    const costByTicket = new Map<string, number>();
+    const personAcc = new Map<
+      string,
+      {
+        userId: string;
+        label: string;
+        approvedMinutes: number;
+        revenue: number;
+        cost: number;
+      }
+    >();
+
+    for (const raw of lines) {
+      const line = this.normalizeLine(raw);
+      const tid = line.ticketId;
+      if (!tid || !ticketById.has(tid)) continue;
+
+      minutesByTicket.set(
+        tid,
+        (minutesByTicket.get(tid) ?? 0) + line.durationMinutes,
+      );
+
+      let revenueAmt = 0;
+      let costAmt = 0;
+      if (commercial) {
+        if (line.billable) {
+          const rev = await this.lineRevenue(organisationId, line);
+          if (rev) revenueAmt = Number(rev.amount);
+        }
+        const cost = await this.lineCost(organisationId, line);
+        if (cost) {
+          costAmt = Number(cost.amount);
+          costByTicket.set(
+            tid,
+            (costByTicket.get(tid) ?? 0) + costAmt,
+          );
+        }
+      }
+
+      const uid = line.timeEntry.userId;
+      let person = personAcc.get(uid);
+      if (!person) {
+        person = {
+          userId: uid,
+          label:
+            line.timeEntry.user.name ??
+            line.timeEntry.user.email ??
+            uid,
+          approvedMinutes: 0,
+          revenue: 0,
+          cost: 0,
+        };
+        personAcc.set(uid, person);
+      }
+      person.approvedMinutes += line.durationMinutes;
+      person.revenue += revenueAmt;
+      person.cost += costAmt;
+    }
+
+    const departmentsByUserId = await this.departmentsByUserId(
+      organisationId,
+      [...personAcc.keys()],
+    );
+    const deptAcc = new Map<
+      string,
+      {
+        departmentId: string | null;
+        label: string;
+        approvedMinutes: number;
+        revenue: number;
+        cost: number;
+      }
+    >();
+    for (const person of personAcc.values()) {
+      const targets = this.departmentGroupTargets(
+        person.userId,
+        departmentsByUserId,
+      );
+      for (const target of targets) {
+        let dept = deptAcc.get(target.key);
+        if (!dept) {
+          dept = {
+            departmentId: target.departmentId,
+            label: target.label,
+            approvedMinutes: 0,
+            revenue: 0,
+            cost: 0,
+          };
+          deptAcc.set(target.key, dept);
+        }
+        dept.approvedMinutes += person.approvedMinutes;
+        dept.revenue += person.revenue;
+        dept.cost += person.cost;
+      }
+    }
+
+    const ticketIdsForTable = new Set<string>();
+    for (const t of openedInRange) ticketIdsForTable.add(t.id);
+    for (const tid of minutesByTicket.keys()) ticketIdsForTable.add(tid);
+
+    const ticketRows = [...ticketIdsForTable]
+      .map((id) => ticketById.get(id))
+      .filter((t): t is NonNullable<typeof t> => Boolean(t))
+      .map((t) => {
+        const opened = t.openedAt ?? t.createdAt;
+        const ageDays = Math.max(
+          0,
+          Math.floor((asOf.getTime() - opened.getTime()) / 86_400_000),
+        );
+        const approvedMinutes = minutesByTicket.get(t.id) ?? 0;
+        const cost =
+          commercial && costByTicket.has(t.id)
+            ? costByTicket.get(t.id)!
+            : null;
+        const crValue =
+          commercial && t.crValue != null ? Number(t.crValue) : null;
+        const marginVsValue =
+          commercial && crValue != null && cost != null
+            ? crValue - cost
+            : null;
+        return {
+          id: t.id,
+          reference: t.reference,
+          title: t.title,
+          clientName: t.client?.name ?? '—',
+          projectName: t.project?.name ?? '—',
+          departmentName: t.department?.name ?? null,
+          crApprovalStatus: t.crApprovalStatus ?? 'pending',
+          ticketStatus: t.status,
+          openedAt: opened.toISOString(),
+          ageDays,
+          crValue:
+            commercial && t.crValue != null
+              ? Number(t.crValue).toFixed(2)
+              : null,
+          crValueCurrency: commercial ? t.crValueCurrency : null,
+          approvedMinutes,
+          cost: cost != null ? cost.toFixed(2) : null,
+          marginVsValue:
+            marginVsValue != null ? marginVsValue.toFixed(2) : null,
+        };
+      })
+      .sort((a, b) => a.reference.localeCompare(b.reference));
+
+    const byPerson = [...personAcc.values()]
+      .map((p) => ({
+        userId: p.userId,
+        label: p.label,
+        approvedMinutes: p.approvedMinutes,
+        revenue: commercial ? p.revenue.toFixed(2) : null,
+        cost: commercial ? p.cost.toFixed(2) : null,
+        margin: commercial
+          ? (p.revenue - p.cost).toFixed(2)
+          : null,
+      }))
+      .sort((a, b) => b.approvedMinutes - a.approvedMinutes);
+
+    const byDepartment = [...deptAcc.values()]
+      .map((d) => ({
+        departmentId: d.departmentId,
+        label: d.label,
+        approvedMinutes: d.approvedMinutes,
+        revenue: commercial ? d.revenue.toFixed(2) : null,
+        cost: commercial ? d.cost.toFixed(2) : null,
+        margin: commercial
+          ? (d.revenue - d.cost).toFixed(2)
+          : null,
+      }))
+      .sort((a, b) => b.approvedMinutes - a.approvedMinutes);
+
+    const currencies = new Set<string>();
+    if (commercial) {
+      for (const t of openedInRange) {
+        const c = t.crValueCurrency?.trim() || t.client?.currency?.trim();
+        if (c) currencies.add(c);
+      }
+    }
+
+    return {
+      dateFrom: query.dateFrom,
+      dateTo: query.dateTo,
+      commercial,
+      currency: currencies.size === 1 ? [...currencies][0]! : null,
+      mixedCurrencies: commercial && currencies.size > 1,
+      kpis: {
+        totalValue: moneyOrNull(totalValueNum),
+        pendingValue: moneyOrNull(pendingAgg.sum),
+        holdValue: moneyOrNull(holdAgg.sum),
+        inDeliveryValue: moneyOrNull(inDeliveryAgg.sum),
+        rejectedValue: moneyOrNull(rejectedAgg.sum),
+        approvedValue: moneyOrNull(approvedAgg.sum),
+        totalCount: openedInRange.length,
+        pendingCount: pendingAgg.count,
+        holdCount: holdAgg.count,
+        inDeliveryCount: inDeliveryAgg.count,
+        rejectedCount: rejectedAgg.count,
+        approvedCount: approvedAgg.count,
+        openedInRangeCount: openedInRange.length,
+      },
+      byApproval,
+      aging,
+      tickets: ticketRows,
+      byPerson,
+      byDepartment,
+    };
+  }
+
+  /**
    * Phase2 FIX5 — waiting / approved / rejected approval pipeline (slices).
    */
   async approvalsReport(
@@ -949,6 +1310,8 @@ export class ReportsService {
       userIds?: string[];
       taskId?: string;
       billable?: boolean;
+      ticketType?: string;
+      ticketIds?: string[];
       /** FINAL FIX 7 — default approved for report rollups */
       entryStatus?: 'approved' | 'pending' | 'all';
     },
@@ -982,6 +1345,8 @@ export class ReportsService {
       userIds?: string[];
       taskId?: string;
       billable?: boolean;
+      ticketType?: string;
+      ticketIds?: string[];
       entryStatus?: 'approved' | 'pending' | 'all';
     },
   ): Promise<Prisma.TimeLineWhereInput> {
@@ -1009,6 +1374,10 @@ export class ReportsService {
           ...(filters.clientId ? { clientId: filters.clientId } : {}),
           ...(filters.projectId ? { projectId: filters.projectId } : {}),
           ...(filters.taskId ? { taskId: filters.taskId } : {}),
+          ...(filters.ticketType ? { ticketType: filters.ticketType } : {}),
+          ...(filters.ticketIds
+            ? { ticketId: { in: filters.ticketIds } }
+            : {}),
           ...(filters.billable !== undefined
             ? { billable: filters.billable }
             : {}),

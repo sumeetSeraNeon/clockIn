@@ -392,7 +392,13 @@ export default function TaskDetailPage() {
                         color: null,
                         createdAt: task.createdAt,
                         updatedAt: task.updatedAt,
-                        client: task.project.client ?? null,
+                        client: task.project.client
+                          ? {
+                              id: task.project.client.id,
+                              name: task.project.client.name,
+                              currency: null,
+                            }
+                          : null,
                         owner: task.project.owner ?? null,
                       } satisfies Project,
                     ]

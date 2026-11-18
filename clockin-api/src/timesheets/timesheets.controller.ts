@@ -19,6 +19,7 @@ import { RequirePermission } from '../auth/decorators/require-permission.decorat
 import { FirebaseAuthGuard } from '../auth/firebase-auth.guard';
 import { PermissionsGuard } from '../auth/permissions.guard';
 import { ApprovalsLogQueryDto } from './dto/approvals-log-query.dto';
+import { BulkDecideTimesheetDto } from './dto/bulk-decide.dto';
 import { ListPendingQueryDto } from './dto/list-pending-query.dto';
 import { RejectTimesheetDto } from './dto/reject-timesheet.dto';
 import { GetMineTimesheetQueryDto } from './dto/get-mine-query.dto';
@@ -89,6 +90,18 @@ export class TimesheetsController {
       membership,
       query,
     );
+  }
+
+  /** Bulk approve/reject project slices. Must be before `:id` routes. */
+  @Post('bulk-decide')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission('timesheet', 'approve')
+  bulkDecide(
+    @CurrentOrg() organisationId: string,
+    @CurrentMembership() membership: AuthMembership,
+    @Body() dto: BulkDecideTimesheetDto,
+  ) {
+    return this.timesheets.bulkDecide(organisationId, membership, dto);
   }
 
   /** `:id` is a timesheet period slice id (per-project approval unit). */

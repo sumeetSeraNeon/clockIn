@@ -17,7 +17,7 @@ import {
 import { formatHoursMinutes } from '@/lib/format-duration';
 import type { Project, Task, TimeEntry } from '@/types/api';
 
-export type TimesheetMode = 'day' | 'week';
+export type TimesheetMode = 'day' | 'week' | 'period';
 
 type TimesheetPanelProps = {
   mode: TimesheetMode;
@@ -231,7 +231,8 @@ export function TimesheetPanel({
     );
   }
 
-  const periodLabel = mode === 'day' ? 'today' : 'this week';
+  const periodLabel =
+    mode === 'day' ? 'today' : mode === 'week' ? 'this week' : 'this period';
   const noTimeLogged = entries.length === 0;
   const periodTotalLabel = mode === 'day' ? "Today's total" : 'Period total';
 
@@ -299,7 +300,7 @@ export function TimesheetPanel({
                             ) : null}
                           </a>
                         ) : null}
-                        {mode === 'week' ? (
+                        {mode === 'week' || mode === 'period' ? (
                           <span className="text-xs text-slate">
                             {dateLabel}
                           </span>

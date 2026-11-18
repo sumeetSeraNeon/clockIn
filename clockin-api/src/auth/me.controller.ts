@@ -70,7 +70,13 @@ export class MeController {
   ) {
     const organisation = await this.prisma.organisation.findUnique({
       where: { id: organisationId },
-      select: { id: true, name: true, code: true, currency: true },
+      select: {
+        id: true,
+        name: true,
+        code: true,
+        currency: true,
+        managersCanSeeMargin: true,
+      },
     });
 
     const roleNames = membership.roles.map((r) => r.name);
@@ -108,6 +114,7 @@ export class MeController {
             name: organisation.name,
             code: organisation.code,
             currency: organisation.currency,
+            managersCanSeeMargin: organisation.managersCanSeeMargin,
           }
         : null,
       roles: membership.roles,

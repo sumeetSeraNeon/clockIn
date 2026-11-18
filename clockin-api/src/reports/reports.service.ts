@@ -105,7 +105,10 @@ export class ReportsService {
   ) {
     this.assertDateRange(query.dateFrom, query.dateTo);
     const groupBy = query.groupBy ?? 'project';
-    const commercial = can(membership.permissions, 'rate', 'view');
+    const commercial = await this.resolveCommercial(
+      organisationId,
+      membership,
+    );
 
     // FINAL FIX 7 — revenue / billable rollups use approved time only
     const userIds = await this.scopedUserIds(
@@ -405,7 +408,10 @@ export class ReportsService {
   ): Promise<PaginatedResult<Record<string, unknown>>> {
     this.assertDateRange(query.dateFrom, query.dateTo);
     const { page, pageSize, skip, take } = resolvePagination(query);
-    const commercial = can(membership.permissions, 'rate', 'view');
+    const commercial = await this.resolveCommercial(
+      organisationId,
+      membership,
+    );
 
     const userIds = await this.scopedUserIds(
       organisationId,
@@ -799,7 +805,10 @@ export class ReportsService {
     query: ReportCrQueryDto,
   ) {
     this.assertDateRange(query.dateFrom, query.dateTo);
-    const commercial = can(membership.permissions, 'rate', 'view');
+    const commercial = await this.resolveCommercial(
+      organisationId,
+      membership,
+    );
     const rangeStart = new Date(`${query.dateFrom}T00:00:00.000Z`);
     const rangeEnd = new Date(`${query.dateTo}T23:59:59.999Z`);
     const asOf = rangeEnd;
@@ -1689,6 +1698,23 @@ export class ReportsService {
       scope: lookup.matchedScope,
       currency: lookup.currency,
     };
+  }
+
+  /**
+   * Admin/owner (rate:view) always commercial.
+   * Managers (report:view) only when org.managersCanSeeMargin is true.
+   */
+  private async resolveCommercial(
+    organisationId: string,
+    membership: AuthMembership,
+  ): Promise<boolean> {
+    if (can(membership.permissions, 'rate', 'view')) return true;
+    if (!can(membership.permissions, 'report', 'view')) return false;
+    const org = await this.prisma.organisation.findUnique({
+      where: { id: organisationId },
+      select: { managersCanSeeMargin: true },
+    });
+    return org?.managersCanSeeMargin === true;
   }
 
   /**

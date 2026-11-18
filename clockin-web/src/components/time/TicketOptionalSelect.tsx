@@ -103,14 +103,18 @@ export function TicketOptionalSelect({
 
   if (compact) {
     return (
-      <label className="flex min-w-0 w-full flex-col gap-1 text-xs text-slate sm:flex-1">
+      <label className="flex min-h-[4.75rem] min-w-0 w-full flex-col gap-1 text-xs text-slate sm:flex-1">
         <span>Ticket (optional)</span>
         {select}
-        {selectedTypeLabel ? (
-          <span className="text-[11px] text-slate">
-            Type: {selectedTypeLabel}
-          </span>
-        ) : null}
+        <span
+          className={cn(
+            'min-h-[1rem] text-[11px] leading-4 text-slate',
+            !selectedTypeLabel && 'invisible',
+          )}
+          aria-hidden={!selectedTypeLabel}
+        >
+          Type: {selectedTypeLabel || '—'}
+        </span>
       </label>
     );
   }

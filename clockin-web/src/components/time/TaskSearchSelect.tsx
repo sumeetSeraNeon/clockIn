@@ -78,7 +78,7 @@ export function TaskSearchSelect({
 
   if (compact) {
     return (
-      <label className="flex min-w-0 w-full flex-col gap-1 text-xs text-slate sm:flex-1">
+      <label className="flex min-h-[4.75rem] min-w-0 w-full flex-col gap-1 text-xs text-slate sm:flex-1">
         <span>
           Task
           {required ? (
@@ -88,6 +88,8 @@ export function TaskSearchSelect({
           ) : null}
         </span>
         {select}
+        {/* Reserve space so Ticket type hint does not shift this row */}
+        <span className="min-h-[1rem]" aria-hidden />
       </label>
     );
   }

@@ -38,6 +38,8 @@ export type MeOrganisation = {
   name: string;
   code: string | null;
   currency?: string | null;
+  /** When true, managers with report:view see margin on dashboard/reports */
+  managersCanSeeMargin?: boolean;
 };
 
 /** Response shape of GET /api/me */

@@ -44,6 +44,11 @@ export class TasksService {
       membership,
       dto.projectId,
     );
+    await this.assertUniqueNameInProject(
+      organisationId,
+      dto.projectId,
+      dto.name,
+    );
 
     if (dto.assigneeId) {
       await this.assertMembershipInOrg(organisationId, dto.assigneeId);
@@ -234,6 +239,15 @@ export class TasksService {
           ? Number(existing.estimatedHours)
           : 0;
 
+    if (dto.name !== undefined || dto.projectId !== undefined) {
+      await this.assertUniqueNameInProject(
+        organisationId,
+        nextProjectId,
+        dto.name ?? existing.name,
+        existing.id,
+      );
+    }
+
     await this.assertEstimateWithinBudget(
       organisationId,
       nextProjectId,
@@ -394,6 +408,36 @@ export class TasksService {
     if (!project) {
       throw new BadRequestException(
         'projectId must belong to your organisation',
+      );
+    }
+  }
+
+  /** Case-insensitive unique name among non-archived tasks on the same project. */
+  private async assertUniqueNameInProject(
+    organisationId: string,
+    projectId: string,
+    name: string,
+    excludeTaskId?: string,
+  ): Promise<void> {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      throw new BadRequestException('Task name is required');
+    }
+
+    const duplicate = await this.prisma.task.findFirst({
+      where: {
+        organisationId,
+        projectId,
+        status: { not: 'archived' },
+        name: { equals: trimmed, mode: 'insensitive' },
+        ...(excludeTaskId ? { id: { not: excludeTaskId } } : {}),
+      },
+      select: { id: true },
+    });
+
+    if (duplicate) {
+      throw new BadRequestException(
+        'A task with this name already exists on this project',
       );
     }
   }

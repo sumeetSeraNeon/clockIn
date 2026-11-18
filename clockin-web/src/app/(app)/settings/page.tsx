@@ -31,6 +31,7 @@ type OrganisationSettings = {
   name: string;
   code: string | null;
   currency: string;
+  managersCanSeeMargin?: boolean;
 };
 
 /**
@@ -63,12 +64,16 @@ export default function SettingsPage() {
   const [currency, setCurrency] = useState(
     ensureCurrencyOption(me?.organisation?.currency),
   );
+  const [managersCanSeeMargin, setManagersCanSeeMargin] = useState(
+    me?.organisation?.managersCanSeeMargin === true,
+  );
   const [savingOrg, setSavingOrg] = useState(false);
 
   useEffect(() => {
     setName(me?.user.name ?? '');
     setTimezone(ensureTimezoneOption(me?.user.timezone));
     setCurrency(ensureCurrencyOption(me?.organisation?.currency));
+    setManagersCanSeeMargin(me?.organisation?.managersCanSeeMargin === true);
     if (me?.user.id) {
       setNotifyPrefs(loadNotificationPrefs(me.user.id));
     }
@@ -77,6 +82,7 @@ export default function SettingsPage() {
     me?.user.name,
     me?.user.timezone,
     me?.organisation?.currency,
+    me?.organisation?.managersCanSeeMargin,
   ]);
 
   async function handleSaveProfile(event?: FormEvent) {
@@ -151,10 +157,17 @@ export default function SettingsPage() {
     try {
       const res = await api<OrganisationSettings>('/organisation', {
         method: 'PATCH',
-        body: { currency: currency.toUpperCase() },
+        body: {
+          currency: currency.toUpperCase(),
+          managersCanSeeMargin,
+        },
       });
       await refreshMe();
-      toast.success(`Default currency set to ${res.currency}`);
+      toast.success(
+        `Organisation saved · currency ${res.currency}${
+          res.managersCanSeeMargin ? ' · managers can see margin' : ''
+        }`,
+      );
     } catch (err) {
       toast.error(getErrorMessage(err, 'Could not save organisation settings'));
     } finally {
@@ -399,7 +412,7 @@ export default function SettingsPage() {
 
           <form
             onSubmit={(e) => void handleSaveOrg(e)}
-            className="max-w-sm"
+            className="max-w-lg space-y-4"
           >
             <FormField label="Default currency" htmlFor="org-currency">
               <CurrencySelect
@@ -409,6 +422,26 @@ export default function SettingsPage() {
                 disabled={savingOrg}
               />
             </FormField>
+            <label className="flex cursor-pointer items-start gap-3 text-sm text-ink">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 accent-coral"
+                checked={managersCanSeeMargin}
+                disabled={savingOrg}
+                onChange={(e) => setManagersCanSeeMargin(e.target.checked)}
+              />
+              <span>
+                <span className="font-medium">
+                  Allow managers to see margin
+                </span>
+                <span className="mt-0.5 block text-slate">
+                  Off by default. When on, project and team managers see
+                  revenue and margin on the dashboard and reports. Admins and
+                  owners always see money. Members never do. Rates stay
+                  admin-only.
+                </span>
+              </span>
+            </label>
           </form>
         </section>
       ) : null}

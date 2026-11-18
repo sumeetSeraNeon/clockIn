@@ -29,6 +29,7 @@ import {
   useReportUtilisation,
   type ReportFiltersState,
 } from '@/lib/use-reports';
+import { useAuth } from '@/lib/auth-context';
 import { usePermissions } from '@/lib/use-permissions';
 import type {
   Client,
@@ -70,10 +71,13 @@ function defaultFilters(): ReportFiltersState {
  */
 export default function ReportsPage() {
   const toast = useToast();
+  const { me } = useAuth();
   const { can } = usePermissions();
   const canView = can('report', 'view');
   const canViewMembers = can('member', 'view');
   const canViewRates = can('rate', 'view');
+  const showCommercial =
+    canViewRates || me?.organisation?.managersCanSeeMargin === true;
 
   const [tab, setTab] = useState<Tab>('summary');
   const [filters, setFilters] = useState<ReportFiltersState>(defaultFilters);
@@ -609,7 +613,7 @@ export default function ReportsPage() {
             </p>
             <ReportDetailedTable
               rows={detailed.data}
-              commercial={canViewRates}
+              commercial={showCommercial}
             />
             <Pagination
               page={page}

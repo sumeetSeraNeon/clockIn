@@ -25,8 +25,10 @@ import { usePermissions } from '@/lib/use-permissions';
 import type {
   ApprovalsLogItem,
   ApprovalsLogResponse,
+  Client,
   Member,
   Paginated,
+  Project,
   TimesheetDayLine,
   TimesheetPendingItem,
   TimesheetTaskBreakdown,
@@ -34,11 +36,13 @@ import type {
 
 type RejectTarget =
   | { kind: 'slice'; item: TimesheetPendingItem }
-  | { kind: 'line'; sliceId: string; line: TimesheetDayLine };
+  | { kind: 'line'; sliceId: string; line: TimesheetDayLine }
+  | { kind: 'bulk'; sliceIds: string[] };
 
 type ApproveTarget =
   | { kind: 'all'; item: TimesheetPendingItem }
-  | { kind: 'line'; sliceId: string; line: TimesheetDayLine };
+  | { kind: 'line'; sliceId: string; line: TimesheetDayLine }
+  | { kind: 'bulk'; sliceIds: string[] };
 
 type MainTab = 'pending' | 'log';
 type LogStatusFilter = 'all' | 'submitted' | 'approved' | 'rejected';
@@ -192,6 +196,11 @@ export default function ApprovalsPage() {
   const [logDateFrom, setLogDateFrom] = useState('');
   const [logDateTo, setLogDateTo] = useState('');
   const [members, setMembers] = useState<Member[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [pendingClientId, setPendingClientId] = useState('all');
+  const [pendingProjectId, setPendingProjectId] = useState('all');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [pendingQuery, setPendingQuery] = useState('');
   const [logQuery, setLogQuery] = useState('');
@@ -206,6 +215,10 @@ export default function ApprovalsPage() {
       try {
         const params = new URLSearchParams();
         if (debouncedPendingQ) params.set('q', debouncedPendingQ);
+        if (pendingClientId !== 'all') params.set('clientId', pendingClientId);
+        if (pendingProjectId !== 'all') {
+          params.set('projectId', pendingProjectId);
+        }
         const qs = params.toString();
         const res = await api<{
           data: TimesheetPendingItem[];
@@ -214,6 +227,7 @@ export default function ApprovalsPage() {
         }>(`/timesheets/pending${qs ? `?${qs}` : ''}`, { signal });
         setData(res.data ?? []);
         setPendingView(res.view ?? null);
+        setSelectedIds(new Set());
       } catch (err) {
         if (isAbortError(err)) return;
         setData([]);
@@ -222,7 +236,7 @@ export default function ApprovalsPage() {
         if (!signal?.aborted) setLoading(false);
       }
     },
-    [canApprove, debouncedPendingQ],
+    [canApprove, debouncedPendingQ, pendingClientId, pendingProjectId],
   );
 
   const reloadLog = useCallback(
@@ -296,14 +310,51 @@ export default function ApprovalsPage() {
     };
   }, [isOrgApprover]);
 
+  useEffect(() => {
+    if (!canApprove) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [clientsRes, projectsRes] = await Promise.all([
+          api<Paginated<Client>>('/clients?pageSize=100&status=active'),
+          api<Paginated<Project>>('/projects?pageSize=100&status=active'),
+        ]);
+        if (!cancelled) {
+          setClients(clientsRes.data ?? []);
+          setProjects(projectsRes.data ?? []);
+        }
+      } catch {
+        if (!cancelled) {
+          setClients([]);
+          setProjects([]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [canApprove]);
+
   const pageDescription = useMemo(() => {
     if (isOrgApprover) {
       return 'Review pending submissions across the organisation, or browse the full approvals log.';
     }
-    return 'Review pending time from your team — people who report to you and time on projects you manage.';
+    return 'Review pending time on projects you own. Approve or reject each project submission.';
   }, [isOrgApprover]);
 
-  const hasPendingSearch = Boolean(debouncedPendingQ);
+  const hasPendingSearch =
+    Boolean(debouncedPendingQ) ||
+    pendingClientId !== 'all' ||
+    pendingProjectId !== 'all';
+
+  const allVisibleSelected =
+    data.length > 0 && data.every((item) => selectedIds.has(item.id));
+  const selectedCount = selectedIds.size;
+
+  const filteredProjects = useMemo(() => {
+    if (pendingClientId === 'all') return projects;
+    return projects.filter((p) => p.clientId === pendingClientId);
+  }, [projects, pendingClientId]);
   const hasLogSearch = Boolean(debouncedLogQ);
 
   useEffect(() => {
@@ -324,6 +375,24 @@ export default function ApprovalsPage() {
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
   }
 
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAllVisible() {
+    setSelectedIds((prev) => {
+      if (data.length > 0 && data.every((item) => prev.has(item.id))) {
+        return new Set();
+      }
+      return new Set(data.map((item) => item.id));
+    });
+  }
+
   async function handleApproveAll(item: TimesheetPendingItem) {
     setActingKey(`slice:${item.id}`);
     try {
@@ -334,6 +403,34 @@ export default function ApprovalsPage() {
       if (tab === 'log') await reloadLog();
     } catch (err) {
       toast.error(getErrorMessage(err, 'Could not approve'));
+    } finally {
+      setActingKey(null);
+    }
+  }
+
+  async function handleBulkApprove(sliceIds: string[]) {
+    setActingKey('bulk');
+    try {
+      const res = await api<{
+        succeeded: string[];
+        failed: Array<{ id: string; message: string }>;
+      }>('/timesheets/bulk-decide', {
+        method: 'POST',
+        body: { action: 'approve', sliceIds },
+      });
+      const ok = res.succeeded?.length ?? 0;
+      const fail = res.failed?.length ?? 0;
+      if (ok > 0) toast.success(`Approved ${ok} submission${ok === 1 ? '' : 's'}`);
+      if (fail > 0) {
+        toast.error(
+          `${fail} could not be approved${res.failed?.[0]?.message ? `: ${res.failed[0].message}` : ''}`,
+        );
+      }
+      setApproveTarget(null);
+      await reloadPending();
+      if (tab === 'log') await reloadLog();
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Could not approve selected'));
     } finally {
       setActingKey(null);
     }
@@ -371,6 +468,28 @@ export default function ApprovalsPage() {
           body: { reason: trimmed },
         });
         toast.success('Rejected');
+      } else if (rejectTarget.kind === 'bulk') {
+        const res = await api<{
+          succeeded: string[];
+          failed: Array<{ id: string; message: string }>;
+        }>('/timesheets/bulk-decide', {
+          method: 'POST',
+          body: {
+            action: 'reject',
+            sliceIds: rejectTarget.sliceIds,
+            reason: trimmed,
+          },
+        });
+        const ok = res.succeeded?.length ?? 0;
+        const fail = res.failed?.length ?? 0;
+        if (ok > 0) {
+          toast.success(`Rejected ${ok} submission${ok === 1 ? '' : 's'}`);
+        }
+        if (fail > 0) {
+          toast.error(
+            `${fail} could not be rejected${res.failed?.[0]?.message ? `: ${res.failed[0].message}` : ''}`,
+          );
+        }
       } else {
         await api(
           `/timesheets/${rejectTarget.sliceId}/lines/${rejectTarget.line.lineId}/reject`,
@@ -457,18 +576,98 @@ export default function ApprovalsPage() {
         <>
           {!loading && !error && data.length > 0 && pendingView === 'managed' ? (
             <p className="text-sm text-slate">
-              Showing pending items from your team and projects you manage.
+              Showing pending items on projects you own.
             </p>
           ) : null}
 
           {!loading && !error ? (
             <div className="space-y-3 border-t border-border/50 pt-4">
-              <SearchField
-                value={pendingQuery}
-                onChange={setPendingQuery}
-                label="Search"
-                placeholder="Requester, client, or project"
-              />
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="min-w-[14rem] flex-1">
+                  <SearchField
+                    value={pendingQuery}
+                    onChange={setPendingQuery}
+                    label="Search"
+                    placeholder="Requester, client, or project"
+                  />
+                </div>
+                <label className="flex flex-col gap-1 text-xs text-slate">
+                  Client
+                  <Select
+                    className="min-w-[160px]"
+                    value={pendingClientId}
+                    onChange={(e) => {
+                      setPendingClientId(e.target.value);
+                      setPendingProjectId('all');
+                    }}
+                  >
+                    <option value="all">All clients</option>
+                    {clients.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+                <label className="flex flex-col gap-1 text-xs text-slate">
+                  Project
+                  <Select
+                    className="min-w-[160px]"
+                    value={pendingProjectId}
+                    onChange={(e) => setPendingProjectId(e.target.value)}
+                  >
+                    <option value="all">All projects</option>
+                    {filteredProjects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+              </div>
+              {selectedCount > 0 ? (
+                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/80 bg-paper px-3 py-2">
+                  <p className="text-sm text-ink">
+                    {selectedCount} selected
+                  </p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    loading={actingKey === 'bulk'}
+                    disabled={Boolean(actingKey)}
+                    onClick={() =>
+                      setApproveTarget({
+                        kind: 'bulk',
+                        sliceIds: [...selectedIds],
+                      })
+                    }
+                  >
+                    Approve selected
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    disabled={Boolean(actingKey)}
+                    onClick={() =>
+                      setRejectTarget({
+                        kind: 'bulk',
+                        sliceIds: [...selectedIds],
+                      })
+                    }
+                  >
+                    Reject selected
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setSelectedIds(new Set())}
+                  >
+                    Clear
+                  </Button>
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -497,7 +696,7 @@ export default function ApprovalsPage() {
                   ? 'Try another search, or clear the search box.'
                   : isOrgApprover
                     ? 'When someone submits a day or week, each project appears here until it is decided.'
-                    : 'Nothing from your team is waiting. When a report or project member submits time, it shows up here with a full breakdown.'
+                    : 'Nothing on your projects is waiting. When someone submits time on a project you own, it shows up here with a full breakdown.'
               }
             />
           ) : (
@@ -506,6 +705,15 @@ export default function ApprovalsPage() {
                 <table className="w-full min-w-[920px] border-collapse text-left text-sm">
                   <thead>
                     <tr className="border-b border-navy/10 bg-navy/[0.06]">
+                      <th className={cn(TH, 'w-10')}>
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 accent-coral"
+                          checked={allVisibleSelected}
+                          onChange={toggleSelectAllVisible}
+                          aria-label="Select all pending"
+                        />
+                      </th>
                       <th className={cn(TH, 'w-10')} aria-label="Expand" />
                       <th className={TH}>Requester</th>
                       <th className={TH}>Client</th>
@@ -534,6 +742,7 @@ export default function ApprovalsPage() {
                       const tasksWaiting = waitingTasks(item);
                       const clientName = sliceClientName(item);
                       const projectName = sliceProjectName(item);
+                      const checked = selectedIds.has(item.id);
 
                       return (
                         <Fragment key={item.id}>
@@ -545,6 +754,15 @@ export default function ApprovalsPage() {
                                 : 'border-l-4 border-l-transparent hover:bg-navy/[0.03]',
                             )}
                           >
+                            <td className={cn(TD, 'w-10')}>
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4 accent-coral"
+                                checked={checked}
+                                onChange={() => toggleSelected(item.id)}
+                                aria-label={`Select ${label}`}
+                              />
+                            </td>
                             <td className={cn(TD, 'w-10 pr-0')}>
                               <button
                                 type="button"
@@ -631,7 +849,7 @@ export default function ApprovalsPage() {
                           </tr>
                           {open ? (
                             <tr className="border-b border-navy/10 bg-coral-tint/10">
-                              <td className="px-3 py-3 sm:px-4" colSpan={8}>
+                              <td className="px-3 py-3 sm:px-4" colSpan={9}>
                                 {tasksWaiting.length === 0 ? (
                                   <p className="pl-8 text-sm text-slate">
                                     No waiting lines for this project.
@@ -982,7 +1200,9 @@ export default function ApprovalsPage() {
         title={
           rejectTarget?.kind === 'line'
             ? 'Reject this time?'
-            : 'Reject pending lines?'
+            : rejectTarget?.kind === 'bulk'
+              ? `Reject ${rejectTarget.sliceIds.length} selected?`
+              : 'Reject pending lines?'
         }
         description={
           rejectTarget?.kind === 'line'
@@ -991,7 +1211,9 @@ export default function ApprovalsPage() {
                   ? ` (${rejectTarget.line.ticketReference})`
                   : ''
               }. A reason is required.`
-            : 'Every waiting line on this project slice will be rejected. The member can edit and resubmit. A reason is required.'
+            : rejectTarget?.kind === 'bulk'
+              ? 'Every waiting line on the selected project submissions will be rejected. Members can edit and resubmit. A reason is required.'
+              : 'Every waiting line on this project slice will be rejected. The member can edit and resubmit. A reason is required.'
         }
         confirmLabel="Reject"
         danger
@@ -1061,6 +1283,24 @@ export default function ApprovalsPage() {
         onConfirm={() => {
           if (approveTarget?.kind === 'all') {
             void handleApproveAll(approveTarget.item);
+          }
+        }}
+        onCancel={() => setApproveTarget(null)}
+      />
+
+      <ConfirmDialog
+        open={approveTarget?.kind === 'bulk'}
+        title={
+          approveTarget?.kind === 'bulk'
+            ? `Approve ${approveTarget.sliceIds.length} selected?`
+            : 'Approve selected?'
+        }
+        description="Approve every waiting line on the selected project submissions. Approved time becomes locked."
+        confirmLabel="Approve selected"
+        loading={actingKey === 'bulk'}
+        onConfirm={() => {
+          if (approveTarget?.kind === 'bulk') {
+            void handleBulkApprove(approveTarget.sliceIds);
           }
         }}
         onCancel={() => setApproveTarget(null)}

@@ -19,6 +19,7 @@ import { PageHeader } from '@/components/common/PageHeader';
 import { ListSkeleton } from '@/components/common/Skeleton';
 import { useToast } from '@/components/common/Toast';
 import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
 import { api } from '@/lib/api-client';
 import {
   formatWeekLabel,
@@ -34,7 +35,6 @@ import {
 } from '@/lib/use-time-entries';
 import { usePermissions } from '@/lib/use-permissions';
 import { useAuth } from '@/lib/auth-context';
-import { isMemberOnlyRole } from '@/lib/app-nav';
 import type {
   CreateTimeEntryInput,
   Paginated,
@@ -60,8 +60,7 @@ type ModalKind =
 
 /** FIX 5 — pending confirm for submit / stop timer */
 type ConfirmAction =
-  | { kind: 'submit-today' }
-  | { kind: 'submit-week' }
+  | { kind: 'submit-period' }
   | { kind: 'submit-task'; taskId: string; taskName: string }
   | { kind: 'stop-timer' };
 
@@ -73,15 +72,19 @@ function TimePageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { me } = useAuth();
-  const { can, highestRole } = usePermissions();
+  const { can } = usePermissions();
   const canEdit = can('time_entry', 'edit');
-  const showBillable = !isMemberOnlyRole(highestRole);
   const myMembershipId = me?.membership?.id ?? null;
 
   const today = toDateParam(new Date());
   const [mode, setMode] = useState<TimesheetMode>('day');
   /** Anchor for week navigation — independent of calendar. */
   const [weekAnchor, setWeekAnchor] = useState(() => new Date());
+  const initialWeek = weekRange();
+  const [customFrom, setCustomFrom] = useState(() =>
+    toDateParam(initialWeek.from),
+  );
+  const [customTo, setCustomTo] = useState(() => toDateParam(initialWeek.to));
 
   const [modal, setModal] = useState<ModalKind>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -99,12 +102,14 @@ function TimePageInner() {
     null,
   );
   const [daySheet, setDaySheet] = useState<TimesheetMineResponse | null>(null);
-  const [submittingWeek, setSubmittingWeek] = useState(false);
-  const [submittingDay, setSubmittingDay] = useState(false);
+  const [customSheet, setCustomSheet] =
+    useState<TimesheetMineResponse | null>(null);
+  const [submittingPeriod, setSubmittingPeriod] = useState(false);
   const [submittingTaskId, setSubmittingTaskId] = useState<string | null>(null);
 
   const weekLocked = Boolean(weekSheet?.locked);
   const dayLocked = Boolean(daySheet?.locked);
+  const customLocked = Boolean(customSheet?.locked);
   const canMutateTime = canEdit && !weekLocked;
 
   const weekDays = useMemo(() => weekDayParams(weekAnchor), [weekAnchor]);
@@ -115,8 +120,25 @@ function TimePageInner() {
     weekFrom === weekDayParams(new Date())[0] &&
     weekTo === weekDayParams(new Date())[6];
 
-  const periodFrom = mode === 'day' ? today : weekFrom;
-  const periodTo = mode === 'day' ? today : weekTo;
+  const customRange = useMemo(() => {
+    let from = customFrom;
+    let to = customTo;
+    if (from > to) {
+      const swap = from;
+      from = to;
+      to = swap;
+    }
+    return { from, to };
+  }, [customFrom, customTo]);
+
+  const periodFrom =
+    mode === 'day'
+      ? today
+      : mode === 'week'
+        ? weekFrom
+        : customRange.from;
+  const periodTo =
+    mode === 'day' ? today : mode === 'week' ? weekTo : customRange.to;
 
   const {
     data: periodEntries,
@@ -270,6 +292,25 @@ function TimePageInner() {
     }
   }, [canEdit, today]);
 
+  const loadCustomSheet = useCallback(async () => {
+    if (!canEdit) {
+      setCustomSheet(null);
+      return;
+    }
+    try {
+      const params = new URLSearchParams({
+        periodStart: customRange.from,
+        periodEnd: customRange.to,
+      });
+      const res = await api<TimesheetMineResponse>(
+        `/timesheets/me?${params.toString()}`,
+      );
+      setCustomSheet(res);
+    } catch {
+      setCustomSheet(null);
+    }
+  }, [canEdit, customRange.from, customRange.to]);
+
   useEffect(() => {
     void loadWeekSheet();
   }, [loadWeekSheet, periodEntries, mode]);
@@ -277,6 +318,11 @@ function TimePageInner() {
   useEffect(() => {
     void loadDaySheet();
   }, [loadDaySheet, todayEntries]);
+
+  useEffect(() => {
+    if (mode !== 'period') return;
+    void loadCustomSheet();
+  }, [loadCustomSheet, periodEntries, mode]);
 
   function shiftWeek(delta: number) {
     setWeekAnchor((prev) => {
@@ -286,58 +332,41 @@ function TimePageInner() {
     });
   }
 
-  async function handleSubmitWeek() {
-    setSubmittingWeek(true);
-    try {
-      await api('/timesheets/submit', {
-        method: 'POST',
-        body: { periodStart: weekFrom, periodEnd: weekTo },
-      });
-      toast.success('Week submitted for approval');
-      setConfirmAction(null);
-      refresh();
-      await loadWeekSheet();
-      await loadDaySheet();
-    } catch (err) {
-      toast.error(getErrorMessage(err, 'Could not submit week'));
-    } finally {
-      setSubmittingWeek(false);
-    }
+  async function reloadSheets() {
+    await loadWeekSheet();
+    await loadDaySheet();
+    if (mode === 'period') await loadCustomSheet();
   }
 
-  async function handleSubmitToday() {
-    setSubmittingDay(true);
+  async function handleSubmitPeriod() {
+    setSubmittingPeriod(true);
     try {
       await api('/timesheets/submit', {
         method: 'POST',
-        body: { periodStart: today, periodEnd: today },
+        body: { periodStart: periodFrom, periodEnd: periodTo },
       });
-      toast.success('Today submitted for approval');
+      toast.success('Submitted for approval');
       setConfirmAction(null);
       refresh();
-      await loadWeekSheet();
-      await loadDaySheet();
+      await reloadSheets();
     } catch (err) {
-      toast.error(getErrorMessage(err, 'Could not submit today'));
+      toast.error(getErrorMessage(err, 'Could not submit'));
     } finally {
-      setSubmittingDay(false);
+      setSubmittingPeriod(false);
     }
   }
 
   async function handleSubmitTask(taskId: string) {
     setSubmittingTaskId(taskId);
     try {
-      const periodStart = mode === 'day' ? today : weekFrom;
-      const periodEnd = mode === 'day' ? today : weekTo;
       await api('/timesheets/submit', {
         method: 'POST',
-        body: { periodStart, periodEnd, taskId },
+        body: { periodStart: periodFrom, periodEnd: periodTo, taskId },
       });
       toast.success('Task time submitted for approval');
       setConfirmAction(null);
       refresh();
-      await loadWeekSheet();
-      await loadDaySheet();
+      await reloadSheets();
     } catch (err) {
       toast.error(getErrorMessage(err, 'Could not submit task'));
     } finally {
@@ -427,8 +456,7 @@ function TimePageInner() {
 
   function runConfirmedAction() {
     if (!confirmAction) return;
-    if (confirmAction.kind === 'submit-today') void handleSubmitToday();
-    else if (confirmAction.kind === 'submit-week') void handleSubmitWeek();
+    if (confirmAction.kind === 'submit-period') void handleSubmitPeriod();
     else if (confirmAction.kind === 'submit-task') {
       void handleSubmitTask(confirmAction.taskId);
     } else if (confirmAction.kind === 'stop-timer') void handleStop();
@@ -512,8 +540,7 @@ function TimePageInner() {
       toast.success('Entry deleted');
       setDeleting(null);
       refresh();
-      await loadWeekSheet();
-      await loadDaySheet();
+      await reloadSheets();
     } catch (err) {
       toast.error(getErrorMessage(err, 'Could not delete'));
     } finally {
@@ -521,8 +548,10 @@ function TimePageInner() {
     }
   }
 
-  const activeSheet = mode === 'day' ? daySheet : weekSheet;
-  const periodLocked = mode === 'day' ? dayLocked : weekLocked;
+  const activeSheet =
+    mode === 'day' ? daySheet : mode === 'week' ? weekSheet : customSheet;
+  const periodLocked =
+    mode === 'day' ? dayLocked : mode === 'week' ? weekLocked : customLocked;
 
   const todayTotalMinutes = useMemo(
     () =>
@@ -572,9 +601,13 @@ function TimePageInner() {
                 <h2 className="text-lg font-semibold tracking-tight text-ink">
                   Today · {today}
                 </h2>
-              ) : (
+              ) : mode === 'week' ? (
                 <h2 className="text-lg font-semibold tracking-tight text-ink">
                   Week of {formatWeekLabel(weekBounds.from, weekBounds.to)}
+                </h2>
+              ) : (
+                <h2 className="text-lg font-semibold tracking-tight text-ink">
+                  {customRange.from} – {customRange.to}
                 </h2>
               )}
               {periodLocked ? (
@@ -589,78 +622,80 @@ function TimePageInner() {
               role="group"
               aria-label="Timesheet period"
             >
-              <button
-                type="button"
-                className={`rounded-md px-3.5 py-1.5 text-sm font-medium transition ${
-                  mode === 'day'
-                    ? 'bg-card text-ink shadow-sm'
-                    : 'text-slate hover:text-ink'
-                }`}
-                onClick={() => setMode('day')}
-              >
-                Day
-              </button>
-              <button
-                type="button"
-                className={`rounded-md px-3.5 py-1.5 text-sm font-medium transition ${
-                  mode === 'week'
-                    ? 'bg-card text-ink shadow-sm'
-                    : 'text-slate hover:text-ink'
-                }`}
-                onClick={() => setMode('week')}
-              >
-                Week
-              </button>
+              {(
+                [
+                  ['day', 'Day'],
+                  ['week', 'Week'],
+                  ['period', 'Period'],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={`rounded-md px-3.5 py-1.5 text-sm font-medium transition ${
+                    mode === id
+                      ? 'bg-card text-ink shadow-sm'
+                      : 'text-slate hover:text-ink'
+                  }`}
+                  onClick={() => setMode(id)}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
+
+            {mode === 'period' ? (
+              <div className="flex flex-wrap items-end gap-3">
+                <label className="flex flex-col gap-1 text-xs text-slate">
+                  From
+                  <Input
+                    type="date"
+                    value={customFrom}
+                    max={today}
+                    onChange={(e) => setCustomFrom(e.target.value)}
+                    className="w-auto"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-xs text-slate">
+                  To
+                  <Input
+                    type="date"
+                    value={customTo}
+                    max={today}
+                    onChange={(e) => setCustomTo(e.target.value)}
+                    className="w-auto"
+                  />
+                </label>
+              </div>
+            ) : null}
 
             <p className="text-sm text-slate">
               {timerBlockingSubmit
                 ? 'Stop the running timer before submitting.'
                 : periodLocked
-                  ? mode === 'day'
-                    ? 'Today is locked — entries are read-only.'
-                    : 'This week is locked — entries are read-only.'
-                  : mode === 'week' &&
-                      weekSheet?.conflictDays &&
-                      weekSheet.conflictDays.length > 0
-                    ? `Some days already submitted (${weekSheet.conflictDays.join(', ')}).`
-                    : mode === 'day'
-                      ? 'Submit when you have draft time (you can submit again after adding or fixing entries).'
-                      : 'Submit the full week when ready. You can submit again after adding or fixing drafts.'}
+                  ? 'This period is locked — entries are read-only.'
+                  : activeSheet?.conflictDays &&
+                      activeSheet.conflictDays.length > 0
+                    ? `Some days already submitted (${activeSheet.conflictDays.join(', ')}).`
+                    : 'Submit when you have draft time. You can submit again after adding or fixing entries.'}
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end">
             {canEdit ? (
-              mode === 'day' ? (
-                <Button
-                  type="button"
-                  loading={submittingDay}
-                  disabled={
-                    submittingDay ||
-                    !daySheet?.canSubmit ||
-                    dayLocked ||
-                    timerBlockingSubmit
-                  }
-                  onClick={() => setConfirmAction({ kind: 'submit-today' })}
-                >
-                  Submit today
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  loading={submittingWeek}
-                  disabled={
-                    submittingWeek ||
-                    !weekSheet?.canSubmit ||
-                    weekLocked ||
-                    timerBlockingSubmit
-                  }
-                  onClick={() => setConfirmAction({ kind: 'submit-week' })}
-                >
-                  Submit week
-                </Button>
-              )
+              <Button
+                type="button"
+                loading={submittingPeriod}
+                disabled={
+                  submittingPeriod ||
+                  !activeSheet?.canSubmit ||
+                  periodLocked ||
+                  timerBlockingSubmit
+                }
+                onClick={() => setConfirmAction({ kind: 'submit-period' })}
+              >
+                Submit
+              </Button>
             ) : null}
             {canMutateTime ? (
               <Button
@@ -739,7 +774,6 @@ function TimePageInner() {
         tasks={tasks}
         projects={projects}
         canEdit={canMutateTime && !dayLocked}
-        showBillable={showBillable}
         starting={starting}
         stopping={stopping}
         atDailyCap={atDailyCap}
@@ -771,7 +805,7 @@ function TimePageInner() {
           tasks={tasks}
           projectsById={projectsById}
           entries={periodEntries}
-          canEdit={canMutateTime && !(mode === 'day' && dayLocked)}
+          canEdit={canMutateTime && !periodLocked}
           canSubmit={
             Boolean(activeSheet?.canSubmit) &&
             !periodLocked &&
@@ -780,7 +814,13 @@ function TimePageInner() {
           submittingTaskId={submittingTaskId}
           timerBusy={starting || stopping}
           runningTaskId={runningTaskId}
-          defaultEntryDate={mode === 'day' ? today : weekFrom}
+          defaultEntryDate={
+            mode === 'day'
+              ? today
+              : mode === 'week'
+                ? weekFrom
+                : customRange.from
+          }
           onAddTime={(taskId, entryDate) => {
             const day = entryDate ?? today;
             if (day > today) {
@@ -877,21 +917,17 @@ function TimePageInner() {
       />
 
       <ConfirmDialog
-        open={confirmAction?.kind === 'submit-today'}
-        title="Submit today?"
-        description="Only current draft and rejected entries for today will be submitted. Already-submitted lines stay as they are. You can add more drafts later and submit again."
-        confirmLabel="Submit today"
-        loading={submittingDay}
-        onConfirm={() => runConfirmedAction()}
-        onCancel={() => setConfirmAction(null)}
-      />
-
-      <ConfirmDialog
-        open={confirmAction?.kind === 'submit-week'}
-        title="Submit week?"
-        description={`Only current draft and rejected entries for the week of ${formatWeekLabel(weekBounds.from, weekBounds.to)} will be submitted. Already-submitted lines stay as they are.`}
-        confirmLabel="Submit week"
-        loading={submittingWeek}
+        open={confirmAction?.kind === 'submit-period'}
+        title={
+          mode === 'day'
+            ? 'Submit this day?'
+            : mode === 'week'
+              ? 'Submit this week?'
+              : 'Submit this period?'
+        }
+        description={`Only current draft and rejected entries for ${periodFrom === periodTo ? periodFrom : `${periodFrom} – ${periodTo}`} will be submitted. Already-submitted lines stay as they are. You can add more drafts later and submit again.`}
+        confirmLabel="Submit"
+        loading={submittingPeriod}
         onConfirm={() => runConfirmedAction()}
         onCancel={() => setConfirmAction(null)}
       />

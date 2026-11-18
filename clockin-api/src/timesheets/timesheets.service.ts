@@ -261,6 +261,10 @@ export class TimesheetsService {
       organisationId,
       status: 'submitted',
       timesheetPeriod: { status: 'submitted' },
+      ...(query.projectId ? { projectId: query.projectId } : {}),
+      ...(query.clientId
+        ? { project: { clientId: query.clientId } }
+        : {}),
     };
 
     const q = query.q?.trim();
@@ -635,6 +639,47 @@ export class TimesheetsService {
       pageSize,
       totalPages: Math.max(1, Math.ceil(total / pageSize)),
     };
+  }
+
+  async bulkDecide(
+    organisationId: string,
+    membership: AuthMembership,
+    dto: {
+      action: 'approve' | 'reject';
+      sliceIds: string[];
+      reason?: string;
+    },
+  ) {
+    if (dto.action === 'reject') {
+      const reason = dto.reason?.trim() ?? '';
+      if (reason.length < 3) {
+        throw new BadRequestException(
+          'Rejection reason is required (at least 3 characters)',
+        );
+      }
+    }
+
+    const succeeded: string[] = [];
+    const failed: Array<{ id: string; message: string }> = [];
+
+    for (const sliceId of dto.sliceIds) {
+      try {
+        if (dto.action === 'approve') {
+          await this.approve(organisationId, membership, sliceId);
+        } else {
+          await this.reject(organisationId, membership, sliceId, {
+            reason: dto.reason!.trim(),
+          });
+        }
+        succeeded.push(sliceId);
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : 'Could not decide this slice';
+        failed.push({ id: sliceId, message });
+      }
+    }
+
+    return { succeeded, failed };
   }
 
   async approve(
@@ -1038,6 +1083,7 @@ export class TimesheetsService {
     );
   }
 
+  /** Project-owner PM or admin/owner. Null-project slices: admin/owner only. */
   private async canApproveSlice(
     organisationId: string,
     membership: AuthMembership,
@@ -1047,45 +1093,31 @@ export class TimesheetsService {
     if (!scope) return false;
     if (scope === 'all') return true;
 
-    if (ctx.projectId) {
-      const project = await this.prisma.project.findFirst({
-        where: { id: ctx.projectId, organisationId },
-        select: { ownerId: true },
-      });
-      return project?.ownerId === membership.id;
-    }
+    if (!ctx.projectId) return false;
 
-    const subject = await this.prisma.membership.findFirst({
-      where: {
-        organisationId,
-        userId: ctx.userId,
-        status: 'active',
-      },
-      select: { managerId: true },
+    const project = await this.prisma.project.findFirst({
+      where: { id: ctx.projectId, organisationId },
+      select: { ownerId: true },
     });
-    return subject?.managerId === membership.id;
+    return project?.ownerId === membership.id;
   }
 
+  /** Unused period-level helper — same project-only rule as canApproveSlice. */
   private async canApprovePeriod(
     organisationId: string,
     membership: AuthMembership,
-    period: { userId: string; periodStart: Date | null; periodEnd: Date | null },
+    _period: {
+      userId: string;
+      periodStart: Date | null;
+      periodEnd: Date | null;
+    },
   ): Promise<boolean> {
     const scope = scopeFor(membership.permissions, 'timesheet', 'approve');
     if (!scope) return false;
-    // Admin / owner — see all approvals
     if (scope === 'all') return true;
-
-    // Line manager only (assigned managerId) — not every PM
-    const subject = await this.prisma.membership.findFirst({
-      where: {
-        organisationId,
-        userId: period.userId,
-        status: 'active',
-      },
-      select: { id: true, managerId: true },
-    });
-    return subject?.managerId === membership.id;
+    // Managed approvers decide per project slice, not whole period
+    void organisationId;
+    return false;
   }
 
   private periodKind(

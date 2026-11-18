@@ -22,7 +22,13 @@ export class OrganisationsService {
   async get(organisationId: string) {
     const org = await this.prisma.organisation.findUnique({
       where: { id: organisationId },
-      select: { id: true, name: true, code: true, currency: true },
+      select: {
+        id: true,
+        name: true,
+        code: true,
+        currency: true,
+        managersCanSeeMargin: true,
+      },
     });
     if (!org) {
       throw new NotFoundException('Organisation not found');
@@ -54,8 +60,17 @@ export class OrganisationsService {
           ...(dto.currency !== undefined
             ? { currency: dto.currency.toUpperCase() }
             : {}),
+          ...(dto.managersCanSeeMargin !== undefined
+            ? { managersCanSeeMargin: dto.managersCanSeeMargin }
+            : {}),
         },
-        select: { id: true, name: true, code: true, currency: true },
+        select: {
+          id: true,
+          name: true,
+          code: true,
+          currency: true,
+          managersCanSeeMargin: true,
+        },
       });
 
       await this.audit.writeAudit({

@@ -30,6 +30,8 @@ model Organisation {
   code      String?
   currency  String   @default("GBP")
   timezone  String   @default("UTC")
+  /// When true, managers with report:view see margin/revenue (admins/owners always can via rate:view)
+  managersCanSeeMargin Boolean @default(false) @map("managers_can_see_margin")
   /// active | suspended
   status    String   @default("active")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz

@@ -78,7 +78,7 @@ export const APP_NAV: AppNavItem[] = [
   },
   {
     href: '/tickets',
-    label: 'Tickets',
+    label: 'Tickets and CRs',
     Icon: IconTickets,
     permission: { resource: 'ticket', action: 'view' },
   },

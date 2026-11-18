@@ -56,10 +56,11 @@ describe('FIX 1 permission resolution', () => {
     expect(scopeFor(g, 'ticket', 'edit')).toBe('managed');
   });
 
-  it('team_manager: managed member view + timesheet approve; no project edit', () => {
+  it('team_manager: managed member view + reports; no timesheet approve; no project edit', () => {
     const g = grantsFor('team_manager');
     expect(scopeFor(g, 'member', 'view')).toBe('managed');
-    expect(scopeFor(g, 'timesheet', 'approve')).toBe('managed');
+    expect(can(g, 'timesheet', 'approve')).toBe(false);
+    expect(can(g, 'report', 'view')).toBe(true);
     expect(can(g, 'project', 'edit')).toBe(false);
     expect(scopeFor(g, 'project', 'view')).toBe('own');
   });

@@ -223,7 +223,7 @@ export default function ProjectDetailPage() {
       { id: 'team', label: 'Team' },
     ];
     if (canViewTickets) {
-      list.push({ id: 'tickets', label: 'Tickets' });
+      list.push({ id: 'tickets', label: 'Tickets and CRs' });
     }
     list.push({ id: 'overview', label: 'Overview' });
     if (canEditProject) {

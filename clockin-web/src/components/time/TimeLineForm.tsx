@@ -489,7 +489,7 @@ export function TimerBarFields({
         className="w-full min-w-0"
       />
       <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-end">
-        <label className="flex min-w-0 w-full flex-col gap-1 text-xs text-slate sm:flex-1">
+        <label className="flex min-h-[4.75rem] min-w-0 w-full flex-col gap-1 text-xs text-slate sm:flex-1">
           <span>
             Client
             <span className="ml-0.5 text-coral" aria-hidden="true">
@@ -515,8 +515,9 @@ export function TimerBarFields({
               </option>
             ))}
           </Select>
+          <span className="min-h-[1rem]" aria-hidden />
         </label>
-        <label className="flex min-w-0 w-full flex-col gap-1 text-xs text-slate sm:flex-1">
+        <label className="flex min-h-[4.75rem] min-w-0 w-full flex-col gap-1 text-xs text-slate sm:flex-1">
           <span>
             Project
             <span className="ml-0.5 text-coral" aria-hidden="true">
@@ -543,6 +544,7 @@ export function TimerBarFields({
               </option>
             ))}
           </Select>
+          <span className="min-h-[1rem]" aria-hidden />
         </label>
         <TaskSearchSelect
           compact
@@ -566,7 +568,7 @@ export function TimerBarFields({
         {showBillable ? (
           <p
             className={cn(
-              'shrink-0 pb-2 text-sm text-slate',
+              'w-[7.5rem] shrink-0 self-end pb-5 text-sm tabular-nums text-slate',
               disabled && 'opacity-60',
             )}
             title={
@@ -578,7 +580,7 @@ export function TimerBarFields({
             {billable ? 'Billable' : 'Non-billable'}
           </p>
         ) : null}
-        {actions}
+        <div className="shrink-0 self-end pb-5">{actions}</div>
       </div>
     </div>
   );

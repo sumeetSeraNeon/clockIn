@@ -192,12 +192,12 @@ export default function TicketDetailPage() {
           onClick={() => router.push('/tickets')}
         >
           <IconChevronLeft className="h-4 w-4" />
-          Tickets
+          Tickets and CRs
         </Button>
         <EmptyState
           title="Ticket not found"
           description={error || 'This ticket is not available.'}
-          actionLabel="Back to tickets"
+          actionLabel="Back to Tickets and CRs"
           onAction={() => router.push('/tickets')}
         />
       </div>
@@ -221,7 +221,7 @@ export default function TicketDetailPage() {
             onClick={() => router.push('/tickets')}
           >
             <IconChevronLeft className="h-4 w-4" />
-            Tickets
+            Tickets and CRs
           </Button>
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-semibold tracking-tight text-navy">

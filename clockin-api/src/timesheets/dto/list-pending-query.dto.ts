@@ -1,4 +1,4 @@
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 
 /** GET /timesheets/pending — optional requester/client/project search. */
 export class ListPendingQueryDto {
@@ -7,4 +7,12 @@ export class ListPendingQueryDto {
   @IsString()
   @MaxLength(100)
   q?: string;
+
+  @IsOptional()
+  @IsUUID()
+  clientId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  projectId?: string;
 }

@@ -190,11 +190,11 @@ export default function TicketsPage() {
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader
-        title="Tickets"
+        title="Tickets and CRs"
         description={
           canEdit
-            ? 'Incidents, changes, and service requests — including imports.'
-            : 'Tickets on your projects (view only).'
+            ? 'Incidents, change requests, and service requests — including imports.'
+            : 'Tickets and CRs on your projects (view only).'
         }
         helpKey="tickets"
         actions={

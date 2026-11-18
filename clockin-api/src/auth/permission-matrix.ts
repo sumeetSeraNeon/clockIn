@@ -86,7 +86,7 @@ export const ROLE_PERMISSION_MATRIX: Record<
     { id: '00000000-0000-4000-8000-000000000064', resource: 'ticket', action: 'view', scope: 'own' },
     { id: '00000000-0000-4000-8000-000000000065', resource: 'client', action: 'view', scope: 'own' },
     { id: '00000000-0000-4000-8000-000000000066', resource: 'member', action: 'view', scope: 'managed' },
-    { id: '00000000-0000-4000-8000-000000000067', resource: 'timesheet', action: 'approve', scope: 'managed' },
+    // Approvals are project-only (PM + admin/owner) — team managers do not approve
     { id: '00000000-0000-4000-8000-000000000068', resource: 'report', action: 'view', scope: 'managed' },
   ],
   admin: [

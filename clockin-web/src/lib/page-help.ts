@@ -37,9 +37,9 @@ export const PAGE_HELP: Record<PageHelpKey, PageHelp> = {
   timesheet: {
     title: 'Timesheet',
     paragraphs: [
-      'Log time on tasks you can access, then submit a day or week for approval.',
+      'Log time on tasks you can access, then submit a day, week, or custom period for approval.',
       'Use Client → Project → Task to find work. The timer sits in this flow; submitted or approved periods lock for edit.',
-      'Submit from here — Calendar is for overview, not the main submit path.',
+      'You can submit more than once — new drafts after a submit can be submitted again. Calendar is for overview, not the main submit path.',
     ],
   },
   calendar: {
@@ -53,7 +53,7 @@ export const PAGE_HELP: Record<PageHelpKey, PageHelp> = {
     title: 'Approvals',
     paragraphs: [
       'Review time waiting for a decision. Expand a row for the project and task breakdown, then approve or reject.',
-      'Line managers and project managers see their team or projects. Admins and owners can also open the org-wide log.',
+      'Project managers see submissions on projects they own. Admins and owners see everything and can open the org-wide log.',
       'Rejecting needs a short reason so the person can fix and resubmit.',
     ],
   },
@@ -81,9 +81,9 @@ export const PAGE_HELP: Record<PageHelpKey, PageHelp> = {
     ],
   },
   tickets: {
-    title: 'Tickets',
+    title: 'Tickets and CRs',
     paragraphs: [
-      'Tickets are work items linked to a client (and optionally a project and department).',
+      'Tickets and change requests are work items linked to a client (and optionally a project and department).',
       'Import an Excel export to create or update by Ticket ID. Include Project (required). Group must match an existing Department. Change Request rows can set CR Approval, Value, and Currency.',
       'Statuses and types include Incident, Change Request, Waiting on Customer, and so on. Members only see tickets on their projects.',
     ],
@@ -124,7 +124,7 @@ export const PAGE_HELP: Record<PageHelpKey, PageHelp> = {
     title: 'Settings',
     paragraphs: [
       'Your account: profile, password, and notification preferences.',
-      'Organisation defaults (currency and similar) appear only if you manage the org.',
+      'Organisation defaults (currency and whether managers can see margin) appear only if you manage the org.',
       'Personal settings are available to everyone; org sections stay permission-gated.',
     ],
   },

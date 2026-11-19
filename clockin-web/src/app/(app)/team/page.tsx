@@ -9,6 +9,7 @@ import {
 import { MembersTable } from '@/components/team/MembersTable';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { EmptyState } from '@/components/common/EmptyState';
+import { FormField } from '@/components/common/FormField';
 import { Modal } from '@/components/common/Modal';
 import { PageHeader } from '@/components/common/PageHeader';
 import { Pagination } from '@/components/common/Pagination';
@@ -16,6 +17,7 @@ import { SearchField } from '@/components/common/SearchField';
 import { ListSkeleton } from '@/components/common/Skeleton';
 import { useToast } from '@/components/common/Toast';
 import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { useAuth } from '@/lib/auth-context';
 import { api } from '@/lib/api-client';
@@ -25,6 +27,7 @@ import { useMembers } from '@/lib/use-members';
 import { usePermissions } from '@/lib/use-permissions';
 import type {
   InviteMemberInput,
+  LeaveListResponse,
   Member,
   MembershipStatus,
   OrgRole,
@@ -34,6 +37,11 @@ import type {
 type StatusFilter = MembershipStatus | 'all';
 type ModalMode = 'invite' | 'edit' | null;
 
+function currentYearMonth(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
 /**
  * Team — flat list of people. Manager column shows line manager.
  * Name/email search is server-side (`q`); manager filter stays client-side on the page.
@@ -41,11 +49,13 @@ type ModalMode = 'invite' | 'edit' | null;
 export default function TeamPage() {
   const toast = useToast();
   const { me } = useAuth();
-  const { can, scopeFor } = usePermissions();
+  const { can, scopeFor, highestRole } = usePermissions();
   const canEdit = can('membership', 'edit');
   const memberViewScope = scopeFor('member', 'view');
   const showManagerFilter = memberViewScope === 'all';
   const currentMembershipId = me?.membership?.id ?? null;
+  const canEditAllLeave = highestRole === 'owner' || highestRole === 'admin';
+  const canEditManagedLeave = highestRole === 'team_manager';
 
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState<StatusFilter>('all');
@@ -63,6 +73,13 @@ export default function TeamPage() {
   const [approveLoading, setApproveLoading] = useState(false);
   const [allMembers, setAllMembers] = useState<Member[]>([]);
   const [inviteResetLink, setInviteResetLink] = useState<string | null>(null);
+  const [leaveMonth, setLeaveMonth] = useState(currentYearMonth);
+  const [leaveByUserId, setLeaveByUserId] = useState<Record<string, number>>(
+    {},
+  );
+  const [leaveEditing, setLeaveEditing] = useState<Member | null>(null);
+  const [leaveDraftDays, setLeaveDraftDays] = useState('0');
+  const [leaveSaving, setLeaveSaving] = useState(false);
 
   useEffect(() => {
     setPage(1);
@@ -95,6 +112,85 @@ export default function TeamPage() {
     void loadLookups();
     void loadRoles();
   }, [loadLookups, loadRoles]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadLeave() {
+      try {
+        const res = await api<LeaveListResponse>(
+          `/utilisation/leave?yearMonth=${encodeURIComponent(leaveMonth)}`,
+        );
+        if (cancelled) return;
+        const map: Record<string, number> = {};
+        for (const e of res.entries ?? []) {
+          map[e.userId] = e.leaveDays;
+        }
+        setLeaveByUserId(map);
+      } catch {
+        if (!cancelled) setLeaveByUserId({});
+      }
+    }
+    void loadLeave();
+    return () => {
+      cancelled = true;
+    };
+  }, [leaveMonth]);
+
+  const canEditLeaveRow = useCallback(
+    (member: Member) => {
+      if (canEditAllLeave) return true;
+      if (canEditManagedLeave && member.managerId === currentMembershipId) {
+        return true;
+      }
+      return false;
+    },
+    [canEditAllLeave, canEditManagedLeave, currentMembershipId],
+  );
+
+  const openLeaveEdit = useCallback(
+    (member: Member) => {
+      setLeaveEditing(member);
+      setLeaveDraftDays(String(leaveByUserId[member.userId] ?? 0));
+    },
+    [leaveByUserId],
+  );
+
+  const closeLeaveEdit = useCallback(() => {
+    if (leaveSaving) return;
+    setLeaveEditing(null);
+  }, [leaveSaving]);
+
+  async function handleLeaveSave() {
+    if (!leaveEditing) return;
+    const next = Number(leaveDraftDays);
+    if (!Number.isFinite(next) || next < 0) {
+      toast.error('Enter leave days as a number ≥ 0');
+      return;
+    }
+    const leaveDays = Math.round(next * 2) / 2;
+    setLeaveSaving(true);
+    try {
+      await api(
+        `/utilisation/leave/${leaveEditing.userId}?yearMonth=${leaveMonth}`,
+        {
+          method: 'PUT',
+          body: { leaveDays },
+        },
+      );
+      setLeaveByUserId((prev) => ({
+        ...prev,
+        [leaveEditing.userId]: leaveDays,
+      }));
+      toast.success(
+        `Leave updated for ${leaveEditing.user.name || leaveEditing.user.email}`,
+      );
+      setLeaveEditing(null);
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Could not save leave'));
+    } finally {
+      setLeaveSaving(false);
+    }
+  }
 
   const membersById = useMemo(() => {
     const map = new Map<string, Member>();
@@ -300,6 +396,15 @@ export default function TeamPage() {
       <div className="mb-4 space-y-3">
         <div className="flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1 text-xs text-slate">
+            Leave month
+            <Input
+              type="month"
+              className="w-44"
+              value={leaveMonth}
+              onChange={(e) => setLeaveMonth(e.target.value)}
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-slate">
             Status
             <Select
               className="w-44"
@@ -388,6 +493,9 @@ export default function TeamPage() {
             canEdit={canEdit}
             currentMembershipId={currentMembershipId}
             approvingId={approveLoading ? approving?.id ?? null : null}
+            leaveByUserId={leaveByUserId}
+            canEditLeave={canEditLeaveRow}
+            onEditLeave={openLeaveEdit}
             onEdit={openEdit}
             onApprove={setApproving}
             onDeactivate={setDeactivating}
@@ -480,6 +588,49 @@ export default function TeamPage() {
             onCancel={closeModal}
           />
         ) : null}
+      </Modal>
+
+      <Modal
+        open={Boolean(leaveEditing)}
+        title="Edit leave"
+        description={
+          leaveEditing
+            ? `Leave days for ${leaveEditing.user.name || leaveEditing.user.email} in ${leaveMonth}. Half days allowed.`
+            : undefined
+        }
+        onClose={closeLeaveEdit}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={leaveSaving}
+              onClick={closeLeaveEdit}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              loading={leaveSaving}
+              disabled={leaveSaving}
+              onClick={() => void handleLeaveSave()}
+            >
+              Save
+            </Button>
+          </div>
+        }
+      >
+        <FormField label="Leave days" htmlFor="leave-days">
+          <Input
+            id="leave-days"
+            type="number"
+            min={0}
+            step={0.5}
+            value={leaveDraftDays}
+            disabled={leaveSaving}
+            onChange={(e) => setLeaveDraftDays(e.target.value)}
+          />
+        </FormField>
       </Modal>
 
       <ConfirmDialog

@@ -199,29 +199,45 @@ export type BudgetReportResponse = {
   projects: BudgetReportProjectRow[];
 };
 
-/** GET /reports/utilisation — STEP 3 billable utilisation */
+/** GET /reports/utilisation — planned − leave×8 capacity sheet */
 export type UtilisationPersonRow = {
   userId: string;
   userName: string | null;
   userEmail: string;
-  trackedMinutes: number;
-  billableMinutes: number;
-  nonBillableMinutes: number;
+  plannedHours: number;
+  leaveDays: number;
+  leaveHours: number;
+  availableHours: number;
   trackedHours: string;
-  billableHours: string;
-  availableMinutes: number;
-  availableHours: string;
-  trackedUtilisationPct: number | null;
-  billableUtilisationPct: number | null;
-  calendarSource: 'user' | 'organisation' | 'weekday_fallback';
+  utilisationPct: number | null;
 };
 
 export type UtilisationReportResponse = {
-  dateFrom: string;
-  dateTo: string;
-  policy: 'approved_only';
-  availableHoursPolicy: string;
+  yearMonth: string;
+  plannedHours: number | null;
+  missingCapacity?: boolean;
   people: UtilisationPersonRow[];
+};
+
+export type UtilisationMonthResponse = {
+  yearMonth: string;
+  plannedHours: number | null;
+};
+
+export type UtilisationMonthListItem = {
+  yearMonth: string;
+  plannedHours: number;
+};
+
+export type LeaveEntryRow = {
+  userId: string;
+  leaveDays: number;
+  note: string | null;
+};
+
+export type LeaveListResponse = {
+  yearMonth: string;
+  entries: LeaveEntryRow[];
 };
 
 export type ApprovalsReportSliceRow = {

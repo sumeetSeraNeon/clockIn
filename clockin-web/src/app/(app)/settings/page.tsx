@@ -22,7 +22,12 @@ import {
 } from '@/lib/notification-prefs';
 import { COMMON_TIMEZONES, ensureTimezoneOption } from '@/lib/timezones';
 import { usePermissions } from '@/lib/use-permissions';
-import type { MeResponse, UpdateMeInput } from '@/types/api';
+import type {
+  MeResponse,
+  UpdateMeInput,
+  UtilisationMonthListItem,
+  UtilisationMonthResponse,
+} from '@/types/api';
 
 type SettingsTab = 'account' | 'security' | 'notifications' | 'organisation';
 
@@ -33,6 +38,11 @@ type OrganisationSettings = {
   currency: string;
   managersCanSeeMargin?: boolean;
 };
+
+function currentYearMonth(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
 
 /**
  * Personal Settings (everyone) + Organisation currency (rate:edit).
@@ -69,6 +79,15 @@ export default function SettingsPage() {
   );
   const [savingOrg, setSavingOrg] = useState(false);
 
+  const [capacityMonth, setCapacityMonth] = useState(currentYearMonth);
+  const [plannedHours, setPlannedHours] = useState('');
+  const [loadingCapacity, setLoadingCapacity] = useState(false);
+  const [savingCapacity, setSavingCapacity] = useState(false);
+  const [recentMonths, setRecentMonths] = useState<UtilisationMonthListItem[]>(
+    [],
+  );
+  const [recentReloadKey, setRecentReloadKey] = useState(0);
+
   useEffect(() => {
     setName(me?.user.name ?? '');
     setTimezone(ensureTimezoneOption(me?.user.timezone));
@@ -84,6 +103,51 @@ export default function SettingsPage() {
     me?.organisation?.currency,
     me?.organisation?.managersCanSeeMargin,
   ]);
+
+  useEffect(() => {
+    if (!canEditOrg || tab !== 'organisation') return;
+    let cancelled = false;
+    async function loadCapacity() {
+      setLoadingCapacity(true);
+      try {
+        const res = await api<UtilisationMonthResponse>(
+          `/utilisation/months/${capacityMonth}`,
+        );
+        if (!cancelled) {
+          setPlannedHours(
+            res.plannedHours != null ? String(res.plannedHours) : '',
+          );
+        }
+      } catch {
+        if (!cancelled) setPlannedHours('');
+      } finally {
+        if (!cancelled) setLoadingCapacity(false);
+      }
+    }
+    void loadCapacity();
+    return () => {
+      cancelled = true;
+    };
+  }, [canEditOrg, tab, capacityMonth]);
+
+  useEffect(() => {
+    if (!canEditOrg || tab !== 'organisation') return;
+    let cancelled = false;
+    async function loadRecent() {
+      try {
+        const rows = await api<UtilisationMonthListItem[]>(
+          '/utilisation/months',
+        );
+        if (!cancelled) setRecentMonths(rows ?? []);
+      } catch {
+        if (!cancelled) setRecentMonths([]);
+      }
+    }
+    void loadRecent();
+    return () => {
+      cancelled = true;
+    };
+  }, [canEditOrg, tab, recentReloadKey]);
 
   async function handleSaveProfile(event?: FormEvent) {
     event?.preventDefault();
@@ -172,6 +236,35 @@ export default function SettingsPage() {
       toast.error(getErrorMessage(err, 'Could not save organisation settings'));
     } finally {
       setSavingOrg(false);
+    }
+  }
+
+  async function handleSaveCapacity(event?: FormEvent) {
+    event?.preventDefault();
+    if (!canEditOrg) return;
+    const hours = Number(plannedHours);
+    if (!Number.isFinite(hours) || hours < 0) {
+      toast.error('Enter planned hours as a number ≥ 0');
+      return;
+    }
+    setSavingCapacity(true);
+    try {
+      const res = await api<UtilisationMonthResponse>(
+        `/utilisation/months/${capacityMonth}`,
+        {
+          method: 'PUT',
+          body: { plannedHours: hours },
+        },
+      );
+      setPlannedHours(
+        res.plannedHours != null ? String(res.plannedHours) : String(hours),
+      );
+      setRecentReloadKey((k) => k + 1);
+      toast.success(`Capacity saved for ${capacityMonth}`);
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Could not save monthly capacity'));
+    } finally {
+      setSavingCapacity(false);
     }
   }
 
@@ -443,6 +536,80 @@ export default function SettingsPage() {
               </span>
             </label>
           </form>
+
+          <div className="max-w-lg space-y-4 border-t border-border/80 pt-6">
+            <div>
+              <h3 className="text-sm font-semibold text-ink">
+                Monthly capacity
+              </h3>
+              <p className="mt-1 text-sm text-slate">
+                Working hours for everyone this month (for example 160). Used
+                in Reports → Utilisation. Change the month to view or edit
+                earlier values.
+              </p>
+            </div>
+            <form
+              onSubmit={(e) => void handleSaveCapacity(e)}
+              className="space-y-4"
+            >
+              <FormField label="Month" htmlFor="capacity-month">
+                <Input
+                  id="capacity-month"
+                  type="month"
+                  value={capacityMonth}
+                  disabled={savingCapacity || loadingCapacity}
+                  onChange={(e) => setCapacityMonth(e.target.value)}
+                />
+              </FormField>
+              <FormField label="Planned hours" htmlFor="planned-hours">
+                <Input
+                  id="planned-hours"
+                  type="number"
+                  min={0}
+                  step={0.5}
+                  value={plannedHours}
+                  disabled={savingCapacity || loadingCapacity}
+                  placeholder="e.g. 160"
+                  onChange={(e) => setPlannedHours(e.target.value)}
+                />
+              </FormField>
+              <Button
+                type="submit"
+                loading={savingCapacity}
+                disabled={savingCapacity || loadingCapacity}
+              >
+                Save capacity
+              </Button>
+            </form>
+            {recentMonths.length > 0 ? (
+              <div className="space-y-2">
+                <p className="text-xs font-medium uppercase tracking-wide text-slate">
+                  Recent months
+                </p>
+                <ul className="divide-y divide-border/80 rounded-lg border border-border/80">
+                  {recentMonths.map((row) => (
+                    <li key={row.yearMonth}>
+                      <button
+                        type="button"
+                        className={cn(
+                          'flex w-full items-center justify-between px-3 py-2 text-left text-sm transition hover:bg-paper',
+                          row.yearMonth === capacityMonth
+                            ? 'bg-paper font-medium text-ink'
+                            : 'text-navy',
+                        )}
+                        onClick={() => setCapacityMonth(row.yearMonth)}
+                      >
+                        <span>{row.yearMonth}</span>
+                        <span className="tabular-nums text-slate">
+                          {row.plannedHours}h
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
         </section>
       ) : null}
     </div>

@@ -312,9 +312,18 @@ export function useReportApprovals(
   return { data, loading, error, reload };
 }
 
-/** STEP 3 — billable utilisation from GET /reports/utilisation */
+export type UtilisationFiltersState = {
+  yearMonth: string;
+  departmentId: string | 'all';
+  userId: string | 'all';
+  managerId: string | 'all';
+  clientId: string | 'all';
+  projectId: string | 'all';
+};
+
+/** Utilisation from GET /reports/utilisation?yearMonth=YYYY-MM */
 export function useReportUtilisation(
-  filters: ReportFiltersState,
+  filters: UtilisationFiltersState,
   enabled: boolean,
 ) {
   const [data, setData] = useState<UtilisationReportResponse | null>(null);
@@ -325,7 +334,7 @@ export function useReportUtilisation(
   const reload = useCallback(() => setReloadKey((k) => k + 1), []);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !filters.yearMonth) return;
     let cancelled = false;
 
     async function load() {
@@ -333,7 +342,18 @@ export function useReportUtilisation(
       setError(null);
       try {
         const params = new URLSearchParams();
-        appendCommon(params, filters);
+        params.set('yearMonth', filters.yearMonth);
+        if (filters.departmentId !== 'all') {
+          params.set('departmentId', filters.departmentId);
+        }
+        if (filters.userId !== 'all') params.set('userId', filters.userId);
+        if (filters.managerId !== 'all') {
+          params.set('managerId', filters.managerId);
+        }
+        if (filters.clientId !== 'all') params.set('clientId', filters.clientId);
+        if (filters.projectId !== 'all') {
+          params.set('projectId', filters.projectId);
+        }
         const result = await api<UtilisationReportResponse>(
           `/reports/utilisation?${params.toString()}`,
         );
@@ -358,12 +378,12 @@ export function useReportUtilisation(
     };
   }, [
     enabled,
-    filters.dateFrom,
-    filters.dateTo,
+    filters.yearMonth,
+    filters.departmentId,
+    filters.userId,
+    filters.managerId,
     filters.clientId,
     filters.projectId,
-    filters.userId,
-    filters.departmentId,
     reloadKey,
   ]);
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ApprovalsReportPanel } from '@/components/reports/ApprovalsReportPanel';
 import { CrReportPanel } from '@/components/reports/CrReportPanel';
 import { DepartmentRosterPanel } from '@/components/reports/DepartmentRosterPanel';
@@ -28,6 +28,7 @@ import {
   useReportSummary,
   useReportUtilisation,
   type ReportFiltersState,
+  type UtilisationFiltersState,
 } from '@/lib/use-reports';
 import { useAuth } from '@/lib/auth-context';
 import { usePermissions } from '@/lib/use-permissions';
@@ -66,6 +67,11 @@ function defaultFilters(): ReportFiltersState {
   };
 }
 
+function currentYearMonth(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
 /**
  * List 12 — Reports (summary, detailed, CSV, utilisation estimate).
  */
@@ -81,6 +87,14 @@ export default function ReportsPage() {
 
   const [tab, setTab] = useState<Tab>('summary');
   const [filters, setFilters] = useState<ReportFiltersState>(defaultFilters);
+  const [utilFilters, setUtilFilters] = useState<UtilisationFiltersState>({
+    yearMonth: currentYearMonth(),
+    departmentId: 'all',
+    userId: 'all',
+    managerId: 'all',
+    clientId: 'all',
+    projectId: 'all',
+  });
   const [page, setPage] = useState(1);
 
   const [clients, setClients] = useState<Client[]>([]);
@@ -105,9 +119,29 @@ export default function ReportsPage() {
     canView && tab === 'approvals',
   );
   const utilisation = useReportUtilisation(
-    filters,
+    utilFilters,
     canView && tab === 'utilisation',
   );
+
+  const utilManagerOptions = useMemo(() => {
+    const opts: { id: string; label: string }[] = [];
+    const seen = new Set<string>();
+    const byId = new Map(members.map((m) => [m.id, m]));
+    for (const m of members) {
+      if (!m.managerId || seen.has(m.managerId)) continue;
+      seen.add(m.managerId);
+      const manager = byId.get(m.managerId);
+      opts.push({
+        id: m.managerId,
+        label: manager?.user.name || manager?.user.email || 'Manager',
+      });
+    }
+    return opts.sort((a, b) => a.label.localeCompare(b.label));
+  }, [members]);
+
+  function patchUtilFilters(patch: Partial<UtilisationFiltersState>) {
+    setUtilFilters((prev) => ({ ...prev, ...patch }));
+  }
   const cr = useReportCr(filters, canView && tab === 'cr');
 
   useEffect(() => {
@@ -239,21 +273,25 @@ export default function ReportsPage() {
     }
 
     if (tab === 'utilisation') {
-      if (!utilisation.data || utilisation.data.people.length === 0) {
+      if (
+        !utilisation.data ||
+        utilisation.data.missingCapacity ||
+        utilisation.data.people.length === 0
+      ) {
         toast.error('Nothing to export');
         return;
       }
       downloadCsv(
-        `clockin-utilisation-${filters.dateFrom}-${filters.dateTo}.csv`,
+        `clockin-utilisation-${utilisation.data.yearMonth}.csv`,
         utilisation.data.people.map((row) => ({
-          person: row.userName || row.userEmail,
+          resource: row.userName || row.userEmail,
           email: row.userEmail,
-          trackedHours: row.trackedHours,
-          billableHours: row.billableHours,
-          availableHours: row.availableHours,
-          billableUtilisationPct: row.billableUtilisationPct,
-          trackedUtilisationPct: row.trackedUtilisationPct,
-          calendarSource: row.calendarSource,
+          hours: row.plannedHours,
+          leaveDays: row.leaveDays,
+          leaveHours: row.leaveHours,
+          total: row.availableHours,
+          timeTracked: row.trackedHours,
+          utilisationPct: row.utilisationPct,
         })),
       );
       toast.success('CSV downloaded');
@@ -327,7 +365,7 @@ export default function ReportsPage() {
     <div className="mx-auto max-w-6xl space-y-6">
       <PageHeader
         title="Reports"
-        description="Profitability (approved revenue − cost), budget burn vs timeline, and billable utilisation. Money needs rate:view."
+        description="Profitability (approved revenue − cost), budget burn vs timeline, and monthly utilisation. Money needs rate:view."
         helpKey="reports"
         actions={
           <Button type="button" variant="secondary" onClick={handleExportCsv}>
@@ -364,24 +402,121 @@ export default function ReportsPage() {
       </div>
 
       <div className="flex flex-wrap items-end gap-3 rounded-lg border border-border/80 bg-card px-4 py-4 sm:px-5">
-        <label className="flex flex-col gap-1 text-xs text-slate">
-          From
-          <Input
-            type="date"
-            value={filters.dateFrom}
-            onChange={(e) => patchFilters({ dateFrom: e.target.value })}
-            className="w-auto"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-xs text-slate">
-          To
-          <Input
-            type="date"
-            value={filters.dateTo}
-            onChange={(e) => patchFilters({ dateTo: e.target.value })}
-            className="w-auto"
-          />
-        </label>
+        {tab === 'utilisation' ? (
+          <>
+            <label className="flex flex-col gap-1 text-xs text-slate">
+              Month
+              <Input
+                type="month"
+                value={utilFilters.yearMonth}
+                onChange={(e) => patchUtilFilters({ yearMonth: e.target.value })}
+                className="w-auto"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-slate">
+              Client
+              <Select
+                className="min-w-[160px]"
+                value={utilFilters.clientId}
+                onChange={(e) => patchUtilFilters({ clientId: e.target.value })}
+              >
+                <option value="all">All clients</option>
+                {clients.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-slate">
+              Project
+              <Select
+                className="min-w-[160px]"
+                value={utilFilters.projectId}
+                onChange={(e) =>
+                  patchUtilFilters({ projectId: e.target.value })
+                }
+              >
+                <option value="all">All projects</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-slate">
+              Department
+              <Select
+                className="min-w-[160px]"
+                value={utilFilters.departmentId}
+                onChange={(e) =>
+                  patchUtilFilters({ departmentId: e.target.value })
+                }
+              >
+                <option value="all">All departments</option>
+                {departments.map((department) => (
+                  <option key={department.id} value={department.id}>
+                    {department.name}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-slate">
+              Manager
+              <Select
+                className="min-w-[160px]"
+                value={utilFilters.managerId}
+                onChange={(e) =>
+                  patchUtilFilters({ managerId: e.target.value })
+                }
+              >
+                <option value="all">All managers</option>
+                {utilManagerOptions.map((opt) => (
+                  <option key={opt.id} value={opt.id}>
+                    {opt.label}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-slate">
+              Person
+              <Select
+                className="min-w-[160px]"
+                value={utilFilters.userId}
+                onChange={(e) => patchUtilFilters({ userId: e.target.value })}
+              >
+                <option value="all">Anyone</option>
+                {members.map((m) => (
+                  <option key={m.id} value={m.userId}>
+                    {m.user.name || m.user.email}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          </>
+        ) : (
+          <>
+            <label className="flex flex-col gap-1 text-xs text-slate">
+              From
+              <Input
+                type="date"
+                value={filters.dateFrom}
+                onChange={(e) => patchFilters({ dateFrom: e.target.value })}
+                className="w-auto"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-slate">
+              To
+              <Input
+                type="date"
+                value={filters.dateTo}
+                onChange={(e) => patchFilters({ dateTo: e.target.value })}
+                className="w-auto"
+              />
+            </label>
+          </>
+        )}
 
         {tab === 'summary' ? (
           <label className="flex flex-col gap-1 text-xs text-slate">
@@ -405,69 +540,73 @@ export default function ReportsPage() {
           </label>
         ) : null}
 
-        <label className="flex flex-col gap-1 text-xs text-slate">
-          Client
-          <Select
-            className="min-w-[160px]"
-            value={filters.clientId}
-            onChange={(e) => patchFilters({ clientId: e.target.value })}
-          >
-            <option value="all">All clients</option>
-            {clients.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </Select>
-        </label>
+        {tab !== 'utilisation' ? (
+          <>
+            <label className="flex flex-col gap-1 text-xs text-slate">
+              Client
+              <Select
+                className="min-w-[160px]"
+                value={filters.clientId}
+                onChange={(e) => patchFilters({ clientId: e.target.value })}
+              >
+                <option value="all">All clients</option>
+                {clients.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </Select>
+            </label>
 
-        <label className="flex flex-col gap-1 text-xs text-slate">
-          Project
-          <Select
-            className="min-w-[160px]"
-            value={filters.projectId}
-            onChange={(e) => patchFilters({ projectId: e.target.value })}
-          >
-            <option value="all">All projects</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </Select>
-        </label>
+            <label className="flex flex-col gap-1 text-xs text-slate">
+              Project
+              <Select
+                className="min-w-[160px]"
+                value={filters.projectId}
+                onChange={(e) => patchFilters({ projectId: e.target.value })}
+              >
+                <option value="all">All projects</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </Select>
+            </label>
 
-        <label className="flex flex-col gap-1 text-xs text-slate">
-          Department
-          <Select
-            className="min-w-[160px]"
-            value={filters.departmentId}
-            onChange={(e) => patchFilters({ departmentId: e.target.value })}
-          >
-            <option value="all">All departments</option>
-            {departments.map((department) => (
-              <option key={department.id} value={department.id}>
-                {department.name}
-              </option>
-            ))}
-          </Select>
-        </label>
+            <label className="flex flex-col gap-1 text-xs text-slate">
+              Department
+              <Select
+                className="min-w-[160px]"
+                value={filters.departmentId}
+                onChange={(e) => patchFilters({ departmentId: e.target.value })}
+              >
+                <option value="all">All departments</option>
+                {departments.map((department) => (
+                  <option key={department.id} value={department.id}>
+                    {department.name}
+                  </option>
+                ))}
+              </Select>
+            </label>
 
-        <label className="flex flex-col gap-1 text-xs text-slate">
-          Person
-          <Select
-            className="min-w-[160px]"
-            value={filters.userId}
-            onChange={(e) => patchFilters({ userId: e.target.value })}
-          >
-            <option value="all">Anyone</option>
-            {members.map((m) => (
-              <option key={m.id} value={m.userId}>
-                {m.user.name || m.user.email}
-              </option>
-            ))}
-          </Select>
-        </label>
+            <label className="flex flex-col gap-1 text-xs text-slate">
+              Person
+              <Select
+                className="min-w-[160px]"
+                value={filters.userId}
+                onChange={(e) => patchFilters({ userId: e.target.value })}
+              >
+                <option value="all">Anyone</option>
+                {members.map((m) => (
+                  <option key={m.id} value={m.userId}>
+                    {m.user.name || m.user.email}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          </>
+        ) : null}
 
         {tab === 'detailed' ? (
           <>

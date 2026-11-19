@@ -2,8 +2,8 @@
 
 import { useMemo } from 'react';
 import { ResponsiveBar } from '@nivo/bar';
+import { EmptyState } from '@/components/common/EmptyState';
 import { InfoTip } from '@/components/common/InfoTip';
-import { formatHoursMinutes } from '@/lib/format-duration';
 import { CHART_COLORS, nivoTheme } from '@/lib/nivo-theme';
 import type { UtilisationReportResponse } from '@/types/api';
 
@@ -12,55 +12,69 @@ type UtilisationPanelProps = {
 };
 
 /**
- * STEP 3 — billable utilisation: billable ÷ available (calendar or weekday×8).
- * Also shows tracked utilisation for the split.
+ * Utilisation sheet: approved tracked ÷ (planned − leave×8).
  */
 export function UtilisationPanel({ report }: UtilisationPanelProps) {
+  const missingCapacity =
+    report.missingCapacity === true || report.plannedHours == null;
+
   const chartData = useMemo(() => {
+    if (missingCapacity) return [];
     return [...report.people]
       .map((p) => ({
         name: (p.userName || p.userEmail || 'Person').slice(0, 18),
-        'Billable %': p.billableUtilisationPct ?? 0,
-        'Tracked %': p.trackedUtilisationPct ?? 0,
+        'Util %': p.utilisationPct ?? 0,
       }))
-      .sort((a, b) => b['Billable %'] - a['Billable %']);
-  }, [report.people]);
+      .sort((a, b) => b['Util %'] - a['Util %']);
+  }, [missingCapacity, report.people]);
+
+  if (missingCapacity) {
+    return (
+      <EmptyState
+        title="Set monthly capacity"
+        description={`Add planned hours for ${report.yearMonth} in Settings → Organisation before viewing utilisation.`}
+      />
+    );
+  }
 
   return (
     <section className="space-y-6 rounded-lg border border-border/80 bg-card px-5 py-5 sm:px-6 sm:py-6">
-      <div className="flex items-center gap-2">
-        <h2 className="text-base font-semibold tracking-tight text-ink">
-          Billable utilisation
-        </h2>
-        <InfoTip title="Billable utilisation">
-          <p>
-            Billable hours ÷ available hours (working calendar when set, else
-            weekdays × 8h).
-          </p>
-          <p>
-            Uses <strong className="font-medium text-ink">approved</strong> time
-            only. Tracked % shows total approved hours vs available for the
-            overload split.
-          </p>
-        </InfoTip>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <h2 className="text-base font-semibold tracking-tight text-ink">
+            Utilisation
+          </h2>
+          <InfoTip title="Utilisation">
+            <p>
+              Available hours = planned hours − leave days × 8. Utilisation =
+              approved tracked hours ÷ available × 100.
+            </p>
+            <p>
+              Planned hours are set in Settings for the month. Leave days are
+              entered on Team. Department, person, and manager narrow who
+              appears. Client or project only changes tracked hours (planned
+              and leave stay full-month).
+            </p>
+          </InfoTip>
+        </div>
+        <p className="text-sm text-slate">
+          {report.yearMonth} · planned {report.plannedHours}h
+        </p>
       </div>
 
       {chartData.length === 0 ? (
-        <p className="text-sm text-slate">
-          No people with approved time in range.
-        </p>
+        <p className="text-sm text-slate">No active people in scope.</p>
       ) : (
         <>
           <div className="h-72">
             <ResponsiveBar
               data={chartData}
               theme={nivoTheme}
-              keys={['Billable %', 'Tracked %']}
+              keys={['Util %']}
               indexBy="name"
-              groupMode="grouped"
               margin={{ top: 16, right: 16, bottom: 64, left: 40 }}
-              padding={0.25}
-              colors={[CHART_COLORS.coral, CHART_COLORS.slate]}
+              padding={0.3}
+              colors={[CHART_COLORS.coral]}
               borderRadius={2}
               enableLabel={false}
               axisBottom={{
@@ -73,40 +87,25 @@ export function UtilisationPanel({ report }: UtilisationPanelProps) {
                 tickPadding: 6,
                 format: (v) => `${v}%`,
               }}
-              legends={[
-                {
-                  dataFrom: 'keys',
-                  anchor: 'bottom',
-                  direction: 'row',
-                  translateY: 56,
-                  itemWidth: 100,
-                  itemHeight: 16,
-                  symbolSize: 10,
-                  symbolShape: 'circle',
-                },
-              ]}
               valueFormat={(v) => `${Number(v).toFixed(0)}%`}
             />
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] border-collapse text-left text-sm">
+            <table className="w-full min-w-[640px] border-collapse text-left text-sm">
               <thead>
                 <tr className="border-b border-navy/15 text-xs uppercase tracking-wide text-slate">
-                  <th className="py-2 pr-3 font-medium">Person</th>
+                  <th className="py-2 pr-3 font-medium">Resource</th>
+                  <th className="py-2 pr-3 font-medium tabular-nums">Hours</th>
+                  <th className="py-2 pr-3 font-medium tabular-nums">Leave</th>
                   <th className="py-2 pr-3 font-medium tabular-nums">
-                    Tracked
+                    Leave hours
                   </th>
+                  <th className="py-2 pr-3 font-medium tabular-nums">Total</th>
                   <th className="py-2 pr-3 font-medium tabular-nums">
-                    Billable
+                    Time tracked
                   </th>
-                  <th className="py-2 pr-3 font-medium tabular-nums">
-                    Available
-                  </th>
-                  <th className="py-2 pr-3 font-medium tabular-nums">
-                    Billable %
-                  </th>
-                  <th className="py-2 font-medium tabular-nums">Tracked %</th>
+                  <th className="py-2 font-medium tabular-nums">Util %</th>
                 </tr>
               </thead>
               <tbody>
@@ -116,37 +115,34 @@ export function UtilisationPanel({ report }: UtilisationPanelProps) {
                       <p className="font-medium text-navy">
                         {row.userName || row.userEmail}
                       </p>
-                      <p className="text-xs text-slate">
-                        {row.calendarSource === 'weekday_fallback'
-                          ? 'Weekday × 8h'
-                          : row.calendarSource === 'user'
-                            ? 'User calendar'
-                            : 'Org calendar'}
-                      </p>
+                      {row.userName ? (
+                        <p className="text-xs text-slate">{row.userEmail}</p>
+                      ) : null}
                     </td>
                     <td className="py-2.5 pr-3 tabular-nums text-navy">
-                      {formatHoursMinutes(row.trackedMinutes)}
+                      {row.plannedHours}
                     </td>
                     <td className="py-2.5 pr-3 tabular-nums text-navy">
-                      {formatHoursMinutes(row.billableMinutes)}
+                      {row.leaveDays}
                     </td>
                     <td className="py-2.5 pr-3 tabular-nums text-slate">
-                      {row.availableHours}h
+                      {row.leaveHours}
                     </td>
-                    <td className="py-2.5 pr-3 tabular-nums font-medium text-navy">
-                      {row.billableUtilisationPct != null
-                        ? `${row.billableUtilisationPct}%`
-                        : '—'}
+                    <td className="py-2.5 pr-3 tabular-nums text-navy">
+                      {row.availableHours}
+                    </td>
+                    <td className="py-2.5 pr-3 tabular-nums text-navy">
+                      {row.trackedHours}
                     </td>
                     <td
-                      className={`py-2.5 tabular-nums ${
-                        (row.trackedUtilisationPct ?? 0) > 100
-                          ? 'font-medium text-coral'
-                          : 'text-slate'
+                      className={`py-2.5 tabular-nums font-medium ${
+                        (row.utilisationPct ?? 0) > 100
+                          ? 'text-coral'
+                          : 'text-navy'
                       }`}
                     >
-                      {row.trackedUtilisationPct != null
-                        ? `${row.trackedUtilisationPct}%`
+                      {row.utilisationPct != null
+                        ? `${row.utilisationPct}%`
                         : '—'}
                     </td>
                   </tr>

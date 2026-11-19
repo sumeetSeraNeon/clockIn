@@ -86,7 +86,7 @@ export class ReportsController {
     );
   }
 
-  /** STEP 3 — billable utilisation per person */
+  /** Monthly utilisation: tracked ÷ (planned − leave×8) */
   @Get('utilisation')
   @RequirePermission('report', 'view')
   utilisation(

@@ -65,6 +65,8 @@ model Organisation {
   expenses               Expense[]
   timeOffPolicies        TimeOffPolicy[]
   timeOffRequests        TimeOffRequest[]
+  utilisationMonths      UtilisationMonth[]
+  leaveEntries           LeaveEntry[]
   forecasts              Forecast[]
   alertRules             AlertRule[]
   notifications          Notification[]
@@ -111,6 +113,7 @@ model User {
   timesheetPeriods   TimesheetPeriod[]
   expenses           Expense[]
   timeOffRequests    TimeOffRequest[]
+  leaveEntries       LeaveEntry[]
   notifications      Notification[]
   contractorProfiles ContractorProfile[]
   aiInteractions     AiInteraction[]
@@ -648,6 +651,44 @@ model Holiday {
 
   @@index([organisationId])
   @@map("holidays")
+}
+
+/// Org planned hours for a calendar month (utilisation capacity).
+model UtilisationMonth {
+  id             String   @id @default(uuid())
+  organisationId String   @map("organisation_id")
+  /// YYYY-MM
+  yearMonth      String   @map("year_month")
+  plannedHours   Decimal  @map("planned_hours") @db.Decimal(8, 2)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+
+  @@unique([organisationId, yearMonth])
+  @@index([organisationId])
+  @@map("utilisation_months")
+}
+
+/// Leave days for a person in a calendar month (half days allowed).
+model LeaveEntry {
+  id             String   @id @default(uuid())
+  organisationId String   @map("organisation_id")
+  userId         String   @map("user_id")
+  /// YYYY-MM
+  yearMonth      String   @map("year_month")
+  leaveDays      Decimal  @map("leave_days") @db.Decimal(6, 2)
+  note           String?
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+
+  @@unique([organisationId, userId, yearMonth])
+  @@index([organisationId])
+  @@index([userId])
+  @@map("leave_entries")
 }
 
 /// Immutable history. Writes from day one; never update or delete rows.

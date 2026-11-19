@@ -6,6 +6,7 @@ import {
   IsInt,
   IsOptional,
   IsUUID,
+  Matches,
   Max,
   Min,
 } from 'class-validator';
@@ -146,13 +147,24 @@ export class ReportApprovalsQueryDto {
   departmentId?: string;
 }
 
-/** STEP 3 — billable utilisation per person */
+/** Utilisation — spreadsheet formula for a calendar month */
 export class ReportUtilisationQueryDto {
-  @IsDateString()
-  dateFrom!: string;
+  /** YYYY-MM */
+  @Matches(/^\d{4}-\d{2}$/)
+  yearMonth!: string;
 
-  @IsDateString()
-  dateTo!: string;
+  @IsOptional()
+  @IsUUID()
+  departmentId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  userId?: string;
+
+  /** Line manager membership id */
+  @IsOptional()
+  @IsUUID()
+  managerId?: string;
 
   @IsOptional()
   @IsUUID()
@@ -161,14 +173,6 @@ export class ReportUtilisationQueryDto {
   @IsOptional()
   @IsUUID()
   projectId?: string;
-
-  @IsOptional()
-  @IsUUID()
-  userId?: string;
-
-  @IsOptional()
-  @IsUUID()
-  departmentId?: string;
 }
 
 /** Change Request dashboard — ticket value KPIs + CR-linked approved time */

@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { AuthMembership } from '../auth/auth.types';
-import { can } from '../auth/permissions';
+import { can, scopeFor } from '../auth/permissions';
 import { VisibilityService } from '../auth/visibility.service';
 import {
   buildPaginatedResult,
@@ -12,6 +12,7 @@ import { mapPrismaError } from '../common/prisma-errors';
 import { PrismaService } from '../prisma/prisma.service';
 import { RatesService } from '../rates/rates.service';
 import { DepartmentsService } from '../departments/departments.service';
+import { utilisationFromHours } from '../utilisation/utilisation-math';
 import {
   ReportApprovalsQueryDto,
   ReportBudgetQueryDto,
@@ -673,8 +674,8 @@ export class ReportsService {
   }
 
   /**
-   * STEP 3 Rank 3 — billable utilisation: billable ÷ available hours per person.
-   * Available from working_calendar when set, else weekday × 8.
+   * Utilisation: approved tracked ÷ (planned − leaveDays×8) for active members.
+   * Planned hours come from utilisation_months; missing → empty state.
    */
   async utilisation(
     organisationId: string,
@@ -682,114 +683,188 @@ export class ReportsService {
     userId: string,
     query: ReportUtilisationQueryDto,
   ) {
-    this.assertDateRange(query.dateFrom, query.dateTo);
+    const yearMonth = query.yearMonth;
+    if (!/^\d{4}-\d{2}$/.test(yearMonth)) {
+      throw new BadRequestException('yearMonth must be YYYY-MM');
+    }
+    const monthNum = Number(yearMonth.slice(5, 7));
+    if (monthNum < 1 || monthNum > 12) {
+      throw new BadRequestException('yearMonth month must be 01–12');
+    }
 
-    const userIds = await this.scopedUserIds(
+    const capacity = await this.prisma.utilisationMonth.findUnique({
+      where: {
+        organisationId_yearMonth: { organisationId, yearMonth },
+      },
+    });
+    if (!capacity) {
+      return {
+        yearMonth,
+        plannedHours: null as number | null,
+        missingCapacity: true as const,
+        people: [] as Array<{
+          userId: string;
+          userName: string | null;
+          userEmail: string;
+          plannedHours: number;
+          leaveDays: number;
+          leaveHours: number;
+          availableHours: number;
+          trackedHours: string;
+          utilisationPct: number | null;
+        }>,
+      };
+    }
+
+    const plannedHours = Number(capacity.plannedHours);
+    const year = Number(yearMonth.slice(0, 4));
+    const lastDay = new Date(Date.UTC(year, monthNum, 0)).getUTCDate();
+    const dateFrom = `${yearMonth}-01`;
+    const dateTo = `${yearMonth}-${String(lastDay).padStart(2, '0')}`;
+
+    const reportScope = scopeFor(membership.permissions, 'report', 'view');
+    let membershipFilter: Prisma.MembershipWhereInput = {
       organisationId,
-      query.departmentId,
-      query.userId,
-    );
-    const lines = await this.fetchLines(organisationId, membership, userId, {
-      dateFrom: query.dateFrom,
-      dateTo: query.dateTo,
-      clientId: query.clientId,
-      projectId: query.projectId,
-      userIds,
-      entryStatus: 'approved',
+      status: 'active',
+    };
+    if (!reportScope) {
+      membershipFilter = { ...membershipFilter, id: { in: [] } };
+    } else if (reportScope === 'own') {
+      membershipFilter = { ...membershipFilter, userId };
+    } else if (reportScope === 'managed') {
+      const ids = await this.visibility.managedMembershipIds(
+        organisationId,
+        membership.id,
+      );
+      membershipFilter = { ...membershipFilter, id: { in: ids } };
+    }
+
+    if (query.managerId) {
+      membershipFilter = { ...membershipFilter, managerId: query.managerId };
+    }
+
+    if (query.departmentId) {
+      const departmentUserIds = await this.departments.userIdsInDepartment(
+        organisationId,
+        query.departmentId,
+      );
+      if (query.userId) {
+        membershipFilter = {
+          ...membershipFilter,
+          userId: departmentUserIds.includes(query.userId)
+            ? query.userId
+            : { in: [] },
+        };
+      } else {
+        membershipFilter = {
+          ...membershipFilter,
+          userId: { in: departmentUserIds },
+        };
+      }
+    } else if (query.userId) {
+      membershipFilter = { ...membershipFilter, userId: query.userId };
+    }
+
+    const memberships = await this.prisma.membership.findMany({
+      where: membershipFilter,
+      select: {
+        userId: true,
+        user: { select: { id: true, name: true, email: true } },
+      },
     });
 
-    type PersonAcc = {
-      userId: string;
-      userName: string | null;
-      userEmail: string;
-      trackedMinutes: number;
-      billableMinutes: number;
-    };
-    const byUser = new Map<string, PersonAcc>();
-
-    for (const raw of lines) {
-      const line = this.normalizeLine(raw);
-      const uid = line.timeEntry.userId;
-      let acc = byUser.get(uid);
-      if (!acc) {
-        acc = {
-          userId: uid,
-          userName: line.timeEntry.user.name,
-          userEmail: line.timeEntry.user.email,
-          trackedMinutes: 0,
-          billableMinutes: 0,
-        };
-        byUser.set(uid, acc);
+    const peopleByUser = new Map<
+      string,
+      { userId: string; userName: string | null; userEmail: string }
+    >();
+    for (const m of memberships) {
+      if (!peopleByUser.has(m.userId)) {
+        peopleByUser.set(m.userId, {
+          userId: m.userId,
+          userName: m.user.name,
+          userEmail: m.user.email,
+        });
       }
-      acc.trackedMinutes += line.durationMinutes;
-      if (line.billable) {
-        acc.billableMinutes += line.durationMinutes;
+    }
+    const userIds = [...peopleByUser.keys()];
+
+    const trackedByUser = new Map<string, number>();
+    if (userIds.length > 0) {
+      const lines = await this.prisma.timeLine.findMany({
+        where: {
+          organisationId,
+          ...(query.clientId ? { clientId: query.clientId } : {}),
+          ...(query.projectId ? { projectId: query.projectId } : {}),
+          timeEntry: {
+            organisationId,
+            status: 'approved',
+            userId: { in: userIds },
+            entryDate: {
+              gte: new Date(`${dateFrom}T00:00:00.000Z`),
+              lte: new Date(`${dateTo}T23:59:59.999Z`),
+            },
+          },
+        },
+        select: {
+          durationMinutes: true,
+          timeEntry: { select: { userId: true } },
+        },
+      });
+      for (const line of lines) {
+        const uid = line.timeEntry.userId;
+        trackedByUser.set(
+          uid,
+          (trackedByUser.get(uid) ?? 0) + line.durationMinutes,
+        );
       }
     }
 
-    const calendars = await this.prisma.workingCalendar.findMany({
-      where: { organisationId },
-      orderBy: { effectiveFrom: 'desc' },
-    });
-    const orgDefault = calendars.find((c) => c.userId == null) ?? null;
-    const byUserCal = new Map(
-      calendars
-        .filter((c) => c.userId != null)
-        .map((c) => [c.userId as string, c]),
+    const leaveRows =
+      userIds.length === 0
+        ? []
+        : await this.prisma.leaveEntry.findMany({
+            where: {
+              organisationId,
+              yearMonth,
+              userId: { in: userIds },
+            },
+            select: { userId: true, leaveDays: true },
+          });
+    const leaveByUser = new Map(
+      leaveRows.map((r) => [r.userId, Number(r.leaveDays)]),
     );
 
-    const people = [...byUser.values()]
+    const people = [...peopleByUser.values()]
       .map((p) => {
-        const cal = byUserCal.get(p.userId) ?? orgDefault;
-        const availableMinutes = this.availableMinutesInRange(
-          query.dateFrom,
-          query.dateTo,
-          cal,
-        );
-        const trackedUtilisationPct =
-          availableMinutes > 0
-            ? Number(
-                ((p.trackedMinutes / availableMinutes) * 100).toFixed(1),
-              )
-            : null;
-        const billableUtilisationPct =
-          availableMinutes > 0
-            ? Number(
-                ((p.billableMinutes / availableMinutes) * 100).toFixed(1),
-              )
-            : null;
+        const leaveDays = leaveByUser.get(p.userId) ?? 0;
+        const trackedMinutes = trackedByUser.get(p.userId) ?? 0;
+        const trackedHoursNum = trackedMinutes / 60;
+        const trackedHours = this.minutesToHours(trackedMinutes);
+        const { leaveHours, availableHours, utilisationPct } =
+          utilisationFromHours(plannedHours, leaveDays, trackedHoursNum);
         return {
           userId: p.userId,
           userName: p.userName,
           userEmail: p.userEmail,
-          trackedMinutes: p.trackedMinutes,
-          billableMinutes: p.billableMinutes,
-          nonBillableMinutes: p.trackedMinutes - p.billableMinutes,
-          trackedHours: this.minutesToHours(p.trackedMinutes),
-          billableHours: this.minutesToHours(p.billableMinutes),
-          availableMinutes,
-          availableHours: this.minutesToHours(availableMinutes),
-          trackedUtilisationPct,
-          /** Primary STEP 3 metric */
-          billableUtilisationPct,
-          calendarSource: cal
-            ? cal.userId
-              ? ('user' as const)
-              : ('organisation' as const)
-            : ('weekday_fallback' as const),
+          plannedHours,
+          leaveDays,
+          leaveHours,
+          availableHours,
+          trackedHours,
+          utilisationPct,
         };
       })
-      .sort(
-        (a, b) =>
-          (b.billableUtilisationPct ?? 0) - (a.billableUtilisationPct ?? 0),
-      );
+      .sort((a, b) => {
+        if (a.utilisationPct == null && b.utilisationPct == null) return 0;
+        if (a.utilisationPct == null) return 1;
+        if (b.utilisationPct == null) return -1;
+        return b.utilisationPct - a.utilisationPct;
+      });
 
     return {
-      dateFrom: query.dateFrom,
-      dateTo: query.dateTo,
-      policy: 'approved_only' as const,
-      availableHoursPolicy:
-        'working_calendar_or_weekday_x8' as const,
+      yearMonth,
+      plannedHours,
+      missingCapacity: false as const,
       people,
     };
   }

@@ -19,6 +19,7 @@ import { TasksModule } from './tasks/tasks.module';
 import { TicketsModule } from './tickets/tickets.module';
 import { TimeModule } from './time/time.module';
 import { TimesheetsModule } from './timesheets/timesheets.module';
+import { UtilisationModule } from './utilisation/utilisation.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { TimesheetsModule } from './timesheets/timesheets.module';
     ReportsModule,
     RolesModule,
     ImportsModule,
+    UtilisationModule,
   ],
   controllers: [AppController],
   providers: [AppService],

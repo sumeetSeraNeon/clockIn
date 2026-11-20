@@ -1,20 +1,73 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { ResponsiveBar } from '@nivo/bar';
 import { ResponsivePie } from '@nivo/pie';
 import { Stat } from '@/app/(app)/dashboard/Stat';
 import { InfoTip } from '@/components/common/InfoTip';
+import { Select } from '@/components/ui/Select';
 import { formatHoursMinutes } from '@/lib/format-duration';
 import { formatMoney } from '@/lib/format-money';
 import { CHART_COLORS, CHART_PALETTE, nivoTheme } from '@/lib/nivo-theme';
-import type { ReportSummaryResponse } from '@/types/api';
+import type {
+  Member,
+  ReportSummaryGroup,
+  ReportSummaryResponse,
+  UtilisationPersonRow,
+} from '@/types/api';
+
+type PerformanceMetric = 'approved' | 'billable' | 'utilisation';
 
 type ReportSummaryPanelProps = {
   report: ReportSummaryResponse;
+  /** Fixed groupBy=project for billable table */
+  projectGroups?: ReportSummaryGroup[];
+  /** Fixed groupBy=task for billable table */
+  taskGroups?: ReportSummaryGroup[];
+  /** Fixed groupBy=user for top people (hours) */
+  userGroups?: ReportSummaryGroup[];
+  /** Fixed groupBy=department for top depts (hours) */
+  departmentGroups?: ReportSummaryGroup[];
+  /** Person utilisation for metric=utilisation */
+  utilisationPeople?: UtilisationPersonRow[];
+  /** Members with departments — for department util averages */
+  members?: Member[];
 };
 
-export function ReportSummaryPanel({ report }: ReportSummaryPanelProps) {
+type RankRow = { key: string; label: string; value: number; display: string };
+
+function topByMinutes(
+  groups: ReportSummaryGroup[],
+  field: 'durationMinutes' | 'billableMinutes',
+  limit = 10,
+): RankRow[] {
+  return [...groups]
+    .filter((g) => (g[field] ?? 0) > 0)
+    .sort((a, b) => (b[field] ?? 0) - (a[field] ?? 0))
+    .slice(0, limit)
+    .map((g) => ({
+      key: g.key,
+      label: g.label || 'Unassigned',
+      value: g[field] ?? 0,
+      display: formatHoursMinutes(g[field] ?? 0),
+    }));
+}
+
+function billablePct(billable: number, total: number): number {
+  if (total <= 0) return 0;
+  return Math.round((billable / total) * 100);
+}
+
+export function ReportSummaryPanel({
+  report,
+  projectGroups = [],
+  taskGroups = [],
+  userGroups = [],
+  departmentGroups = [],
+  utilisationPeople = [],
+  members = [],
+}: ReportSummaryPanelProps) {
+  const [metric, setMetric] = useState<PerformanceMetric>('approved');
   const { totals, groups, groupBy, reconcile } = report;
   const commercial = report.commercial === true;
   const showProfitability =
@@ -55,6 +108,94 @@ export function ReportSummaryPanel({ report }: ReportSummaryPanelProps) {
           'Non-billable': Number((g.nonBillableMinutes / 60).toFixed(2)),
         })),
     [groups],
+  );
+
+  const utilByUserId = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const p of utilisationPeople) {
+      if (p.utilisationPct != null) map.set(p.userId, p.utilisationPct);
+    }
+    return map;
+  }, [utilisationPeople]);
+
+  const topPeople = useMemo((): RankRow[] => {
+    if (metric === 'utilisation') {
+      return [...utilisationPeople]
+        .filter((p) => p.utilisationPct != null && Number.isFinite(p.utilisationPct))
+        .sort((a, b) => (b.utilisationPct ?? 0) - (a.utilisationPct ?? 0))
+        .slice(0, 10)
+        .map((p) => ({
+          key: p.userId,
+          label: p.userName || p.userEmail,
+          value: p.utilisationPct ?? 0,
+          display: `${(p.utilisationPct ?? 0).toFixed(0)}%`,
+        }));
+    }
+    return topByMinutes(
+      userGroups,
+      metric === 'billable' ? 'billableMinutes' : 'durationMinutes',
+    );
+  }, [metric, utilisationPeople, userGroups]);
+
+  const topDepartments = useMemo((): RankRow[] => {
+    if (metric === 'utilisation') {
+      const buckets = new Map<
+        string,
+        { label: string; sum: number; count: number }
+      >();
+      for (const m of members) {
+        const pct = utilByUserId.get(m.userId);
+        if (pct == null || !Number.isFinite(pct)) continue;
+        const depts =
+          m.departments && m.departments.length > 0
+            ? m.departments
+            : m.department
+              ? [{ id: `legacy-${m.department}`, name: m.department }]
+              : [];
+        for (const d of depts) {
+          const cur = buckets.get(d.id) ?? {
+            label: d.name,
+            sum: 0,
+            count: 0,
+          };
+          cur.sum += pct;
+          cur.count += 1;
+          buckets.set(d.id, cur);
+        }
+      }
+      return [...buckets.entries()]
+        .map(([key, b]) => {
+          const avg = b.count > 0 ? b.sum / b.count : 0;
+          return {
+            key,
+            label: b.label,
+            value: avg,
+            display: `${avg.toFixed(0)}%`,
+          };
+        })
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 10);
+    }
+    return topByMinutes(
+      departmentGroups,
+      metric === 'billable' ? 'billableMinutes' : 'durationMinutes',
+    );
+  }, [metric, members, utilByUserId, departmentGroups]);
+
+  const projectBillableRows = useMemo(
+    () =>
+      [...projectGroups]
+        .filter((g) => g.durationMinutes > 0)
+        .sort((a, b) => b.durationMinutes - a.durationMinutes),
+    [projectGroups],
+  );
+
+  const taskBillableRows = useMemo(
+    () =>
+      [...taskGroups]
+        .filter((g) => g.durationMinutes > 0)
+        .sort((a, b) => b.durationMinutes - a.durationMinutes),
+    [taskGroups],
   );
 
   return (
@@ -292,6 +433,192 @@ export function ReportSummaryPanel({ report }: ReportSummaryPanelProps) {
           )}
         </section>
       </div>
+
+      <section className="rounded-lg border border-border/80 bg-card px-5 py-5 sm:px-6 sm:py-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold tracking-tight text-ink">
+              Top performance
+            </h2>
+            <p className="mt-1 text-sm text-slate">
+              Ranked departments and people for the selected metric (top 10).
+            </p>
+          </div>
+          <label className="flex flex-col gap-1 text-xs text-slate">
+            Metric
+            <Select
+              className="min-w-[180px]"
+              value={metric}
+              onChange={(e) =>
+                setMetric(e.target.value as PerformanceMetric)
+              }
+            >
+              <option value="approved">Approved hours</option>
+              <option value="billable">Billable hours</option>
+              <option value="utilisation">Utilisation %</option>
+            </Select>
+          </label>
+        </div>
+        <div className="mt-4 grid gap-6 sm:grid-cols-2">
+          <div>
+            <h3 className="text-xs font-medium uppercase tracking-wide text-slate">
+              Departments
+            </h3>
+            {topDepartments.length === 0 ? (
+              <p className="mt-2 text-sm text-slate">No data for this metric.</p>
+            ) : (
+              <ol className="mt-2 divide-y divide-border/60">
+                {topDepartments.map((row, i) => (
+                  <li
+                    key={row.key}
+                    className="flex items-baseline justify-between gap-3 py-2 text-sm"
+                  >
+                    <span className="min-w-0 truncate text-ink">
+                      <span className="mr-2 tabular-nums text-slate">
+                        {i + 1}.
+                      </span>
+                      {row.label}
+                    </span>
+                    <span className="shrink-0 font-medium tabular-nums text-navy">
+                      {row.display}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+          <div>
+            <h3 className="text-xs font-medium uppercase tracking-wide text-slate">
+              People
+            </h3>
+            {topPeople.length === 0 ? (
+              <p className="mt-2 text-sm text-slate">No data for this metric.</p>
+            ) : (
+              <ol className="mt-2 divide-y divide-border/60">
+                {topPeople.map((row, i) => (
+                  <li
+                    key={row.key}
+                    className="flex items-baseline justify-between gap-3 py-2 text-sm"
+                  >
+                    <span className="min-w-0 truncate text-ink">
+                      <span className="mr-2 tabular-nums text-slate">
+                        {i + 1}.
+                      </span>
+                      {row.label}
+                    </span>
+                    <span className="shrink-0 font-medium tabular-nums text-navy">
+                      {row.display}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {(projectBillableRows.length > 0 || taskBillableRows.length > 0) && (
+        <section className="space-y-4 rounded-lg border border-border/80 bg-card px-5 py-5 sm:px-6 sm:py-6">
+          <div>
+            <h2 className="text-base font-semibold tracking-tight text-ink">
+              Billable breakdown
+            </h2>
+            <p className="mt-1 text-sm text-slate">
+              Approved billable vs non-billable by project and task.
+            </p>
+          </div>
+          {projectBillableRows.length > 0 ? (
+            <div>
+              <h3 className="text-xs font-medium uppercase tracking-wide text-slate">
+                By project
+              </h3>
+              <div className="mt-2 overflow-x-auto">
+                <table className="w-full min-w-[28rem] text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-border/60 text-xs uppercase tracking-wide text-slate">
+                      <th className="py-2 pr-3 font-medium">Project</th>
+                      <th className="py-2 pr-3 font-medium">Billable</th>
+                      <th className="py-2 pr-3 font-medium">Non-billable</th>
+                      <th className="py-2 pr-3 font-medium">Total</th>
+                      <th className="py-2 font-medium">Billable %</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/50">
+                    {projectBillableRows.map((g) => (
+                      <tr key={g.key}>
+                        <td className="py-2 pr-3 font-medium text-ink">
+                          {g.label || 'Unassigned'}
+                        </td>
+                        <td className="py-2 pr-3 tabular-nums text-coral">
+                          {formatHoursMinutes(g.billableMinutes)}
+                        </td>
+                        <td className="py-2 pr-3 tabular-nums text-navy">
+                          {formatHoursMinutes(g.nonBillableMinutes)}
+                        </td>
+                        <td className="py-2 pr-3 tabular-nums text-ink">
+                          {formatHoursMinutes(g.durationMinutes)}
+                        </td>
+                        <td className="py-2 tabular-nums text-slate">
+                          {billablePct(
+                            g.billableMinutes,
+                            g.durationMinutes,
+                          )}
+                          %
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
+          {taskBillableRows.length > 0 ? (
+            <div>
+              <h3 className="text-xs font-medium uppercase tracking-wide text-slate">
+                By task
+              </h3>
+              <div className="mt-2 overflow-x-auto">
+                <table className="w-full min-w-[28rem] text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-border/60 text-xs uppercase tracking-wide text-slate">
+                      <th className="py-2 pr-3 font-medium">Task</th>
+                      <th className="py-2 pr-3 font-medium">Billable</th>
+                      <th className="py-2 pr-3 font-medium">Non-billable</th>
+                      <th className="py-2 pr-3 font-medium">Total</th>
+                      <th className="py-2 font-medium">Billable %</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/50">
+                    {taskBillableRows.map((g) => (
+                      <tr key={g.key}>
+                        <td className="py-2 pr-3 font-medium text-ink">
+                          {g.label || 'Unassigned'}
+                        </td>
+                        <td className="py-2 pr-3 tabular-nums text-coral">
+                          {formatHoursMinutes(g.billableMinutes)}
+                        </td>
+                        <td className="py-2 pr-3 tabular-nums text-navy">
+                          {formatHoursMinutes(g.nonBillableMinutes)}
+                        </td>
+                        <td className="py-2 pr-3 tabular-nums text-ink">
+                          {formatHoursMinutes(g.durationMinutes)}
+                        </td>
+                        <td className="py-2 tabular-nums text-slate">
+                          {billablePct(
+                            g.billableMinutes,
+                            g.durationMinutes,
+                          )}
+                          %
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
+        </section>
+      )}
 
       {groups.length > 0 ? (
         <section className="rounded-lg border border-border/80 bg-card px-5 py-5 sm:px-6 sm:py-6">

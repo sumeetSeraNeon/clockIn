@@ -85,14 +85,10 @@ export class TimesheetsService {
       period?.id,
     );
 
-    // Can submit remaining drafts even after a partial (per-task) submit
-    const periodClosed =
-      period != null &&
-      (period.status === 'approved' || period.status === 'locked');
+    // Hard seal only for admin-style `locked`. Approved days stay open for new drafts + re-submit.
+    const hardLocked = period != null && period.status === 'locked';
     const canSubmitBase =
-      !periodClosed &&
-      draftCount > 0 &&
-      entryStats.runningCount === 0;
+      !hardLocked && draftCount > 0 && entryStats.runningCount === 0;
 
     return {
       period: period ? this.toResponse(period) : null,
@@ -101,8 +97,7 @@ export class TimesheetsService {
       ...entryStats,
       conflictDays,
       canSubmit: canSubmitBase && conflictDays.length === 0,
-      // FIX 2 — only fully closed periods lock the day for new entries
-      locked: periodClosed,
+      locked: hardLocked,
     };
   }
 
@@ -152,10 +147,8 @@ export class TimesheetsService {
       },
     });
 
-    if (period && (period.status === 'approved' || period.status === 'locked')) {
-      throw new BadRequestException(
-        `This period is already ${period.status}`,
-      );
+    if (period && period.status === 'locked') {
+      throw new BadRequestException('This period is locked and cannot be submitted');
     }
 
     const conflictDays = await this.lockedDaysInRange(
@@ -185,6 +178,7 @@ export class TimesheetsService {
         },
       });
     } else {
+      // Re-open approved periods when submitting new drafts for another approval round
       period = await this.prisma.timesheetPeriod.update({
         where: { id: period.id },
         data: {
@@ -1007,8 +1001,8 @@ export class TimesheetsService {
   }
 
   /**
-   * FIX 7 / FIX 2 — block creates when day is approved or locked.
-   * Submitted (incl. per-task) still allows adding more draft entries.
+   * Block creates only when the day is hard-locked.
+   * Approved periods stay open for new draft entries (re-submit later).
    */
   async assertDateUnlocked(
     organisationId: string,
@@ -1025,7 +1019,7 @@ export class TimesheetsService {
       where: {
         organisationId,
         userId,
-        status: { in: ['approved', 'locked'] },
+        status: 'locked',
         periodStart: { lte: day },
         periodEnd: { gte: day },
       },
@@ -1034,7 +1028,7 @@ export class TimesheetsService {
 
     if (locked) {
       throw new ForbiddenException(
-        `This date is locked (${locked.status}). Waiting for approval or already approved.`,
+        'This date is locked and cannot accept new time entries.',
       );
     }
   }
@@ -1053,26 +1047,13 @@ export class TimesheetsService {
       );
     }
 
-    // Rejected (or draft) lines must be editable after a manager rejects them,
-    // even while the overall period is still `submitted` (other lines pending).
-    // Only fully closed periods (approved / locked) keep the day sealed.
+    // Draft / rejected stay editable unless the day is hard-locked.
     if (entry.status === 'rejected' || entry.status === 'draft') {
-      const day = this.dateOnly(entry.entryDate.toISOString().slice(0, 10));
-      const sealed = await this.prisma.timesheetPeriod.findFirst({
-        where: {
-          organisationId,
-          userId: entry.userId,
-          status: { in: ['approved', 'locked'] },
-          periodStart: { lte: day },
-          periodEnd: { gte: day },
-        },
-        select: { id: true, status: true },
-      });
-      if (sealed) {
-        throw new ForbiddenException(
-          `This date is locked (${sealed.status}). Waiting for approval or already approved.`,
-        );
-      }
+      await this.assertDateUnlocked(
+        organisationId,
+        entry.userId,
+        entry.entryDate,
+      );
       return;
     }
 

@@ -9,6 +9,7 @@ import {
   isoRangeFromAddValues,
   type AddTimeValues,
 } from '@/components/time/AddTimeForm';
+import { DayHourSlots } from '@/components/time/DayHourSlots';
 import {
   TimesheetPanel,
   type TimesheetMode,
@@ -22,13 +23,19 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { api } from '@/lib/api-client';
 import {
+  dateParamsInRange,
+  formatDisplayDate,
+  formatDisplayDateRange,
   formatWeekLabel,
   toDateParam,
+  weekdayShort,
   weekDayParams,
   weekRange,
 } from '@/lib/date-range';
+import { suggestNextRange } from '@/lib/day-hour-slots';
 import { getErrorMessage } from '@/lib/get-error-message';
 import { formatHoursMinutes } from '@/lib/format-duration';
+import { wallIsoNowOnDate } from '@/lib/wall-clock';
 import {
   findRunningEntry,
   useTimeEntries,
@@ -51,6 +58,8 @@ type ModalKind =
       type: 'add-time';
       taskId?: string;
       entryDate?: string;
+      startTime?: string;
+      endTime?: string;
       ticketId?: string;
       projectId?: string;
       clientId?: string;
@@ -85,6 +94,8 @@ function TimePageInner() {
     toDateParam(initialWeek.from),
   );
   const [customTo, setCustomTo] = useState(() => toDateParam(initialWeek.to));
+  /** Selected day for the horizontal slot bar (week/period). */
+  const [slotDay, setSlotDay] = useState(() => toDateParam(new Date()));
 
   const [modal, setModal] = useState<ModalKind>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -110,7 +121,6 @@ function TimePageInner() {
   const weekLocked = Boolean(weekSheet?.locked);
   const dayLocked = Boolean(daySheet?.locked);
   const customLocked = Boolean(customSheet?.locked);
-  const canMutateTime = canEdit && !weekLocked;
 
   const weekDays = useMemo(() => weekDayParams(weekAnchor), [weekAnchor]);
   const weekFrom = weekDays[0];
@@ -200,11 +210,11 @@ function TimePageInner() {
       return;
     }
 
-    if (taskId && canMutateTime) {
+    if (taskId && canEdit) {
       setPendingTrackTaskId(taskId);
       router.replace('/time', { scroll: false });
     }
-  }, [searchParams, canMutateTime, router]);
+  }, [searchParams, canEdit, router]);
 
   useEffect(() => {
     let cancelled = false;
@@ -398,6 +408,7 @@ function TimePageInner() {
       const body: CreateTimeEntryInput = {
         entryDate: today,
         source: 'timer',
+        startTime: wallIsoNowOnDate(today),
         line: {
           durationMinutes: 1,
           description: values.description.trim() || undefined,
@@ -442,7 +453,11 @@ function TimePageInner() {
     try {
       await api(`/time-entries/${running.id}/stop`, {
         method: 'PATCH',
-        body: {},
+        body: {
+          endTime: wallIsoNowOnDate(
+            running.entryDate?.slice(0, 10) || today,
+          ),
+        },
       });
       toast.success('Timer stopped');
       setConfirmAction(null);
@@ -505,12 +520,8 @@ function TimePageInner() {
         method: 'PATCH',
         body: {
           entryDate: values.entryDate,
-          ...(values.mode === 'range'
-            ? {
-                startTime: range.startTime,
-                endTime: range.endTime,
-              }
-            : {}),
+          startTime: range.startTime,
+          endTime: range.endTime,
         } satisfies UpdateTimeEntryInput,
       });
       await api(`/time-lines/${line.id}`, {
@@ -552,6 +563,36 @@ function TimePageInner() {
     mode === 'day' ? daySheet : mode === 'week' ? weekSheet : customSheet;
   const periodLocked =
     mode === 'day' ? dayLocked : mode === 'week' ? weekLocked : customLocked;
+  const canMutateTime = canEdit && !periodLocked;
+
+  const periodDayList = useMemo(() => {
+    if (mode === 'day') return [today];
+    if (mode === 'week') return weekDays;
+    return dateParamsInRange(customRange.from, customRange.to);
+  }, [mode, today, weekDays, customRange.from, customRange.to]);
+
+  useEffect(() => {
+    if (mode === 'day') {
+      setSlotDay(today);
+      return;
+    }
+    if (mode === 'week') {
+      setSlotDay(weekDays.includes(today) ? today : weekFrom);
+      return;
+    }
+    setSlotDay((prev) =>
+      periodDayList.includes(prev) ? prev : (periodDayList[0] ?? customRange.from),
+    );
+  }, [
+    mode,
+    today,
+    weekDays,
+    weekFrom,
+    customRange.from,
+    periodDayList,
+  ]);
+
+  const activeSlotDay = mode === 'day' ? today : slotDay;
 
   const todayTotalMinutes = useMemo(
     () =>
@@ -584,6 +625,36 @@ function TimePageInner() {
   const nearDailyCap = !atDailyCap && dailyRemaining <= 60;
   const timerBlockingSubmit = Boolean(running);
 
+  function openAddTime(opts?: {
+    taskId?: string;
+    entryDate?: string;
+    startTime?: string;
+    endTime?: string;
+  }) {
+    const day = opts?.entryDate ?? activeSlotDay;
+    if (day > today) {
+      toast.error('Cannot log time for a future date');
+      return;
+    }
+    if (day === today && atDailyCap) {
+      toast.error(
+        'Daily 8h limit reached — edit or remove time before adding more.',
+      );
+      return;
+    }
+    const suggested =
+      opts?.startTime && opts?.endTime
+        ? { startTime: opts.startTime, endTime: opts.endTime }
+        : suggestNextRange(periodEntries, day);
+    setModal({
+      type: 'add-time',
+      taskId: opts?.taskId,
+      entryDate: day,
+      startTime: suggested.startTime,
+      endTime: suggested.endTime,
+    });
+  }
+
   return (
     <div className="mx-auto max-w-6xl space-y-5">
       <PageHeader
@@ -599,7 +670,7 @@ function TimePageInner() {
             <div className="flex flex-wrap items-center gap-2">
               {mode === 'day' ? (
                 <h2 className="text-lg font-semibold tracking-tight text-ink">
-                  Today · {today}
+                  Today · {formatDisplayDate(today)}
                 </h2>
               ) : mode === 'week' ? (
                 <h2 className="text-lg font-semibold tracking-tight text-ink">
@@ -607,7 +678,7 @@ function TimePageInner() {
                 </h2>
               ) : (
                 <h2 className="text-lg font-semibold tracking-tight text-ink">
-                  {customRange.from} – {customRange.to}
+                  {formatDisplayDateRange(customRange.from, customRange.to)}
                 </h2>
               )}
               {periodLocked ? (
@@ -676,8 +747,10 @@ function TimePageInner() {
                   ? 'This period is locked — entries are read-only.'
                   : activeSheet?.conflictDays &&
                       activeSheet.conflictDays.length > 0
-                    ? `Some days already submitted (${activeSheet.conflictDays.join(', ')}).`
-                    : 'Submit when you have draft time. You can submit again after adding or fixing entries.'}
+                    ? `Some days already submitted (${activeSheet.conflictDays
+                        .map((d) => formatDisplayDate(d))
+                        .join(', ')}).`
+                    : 'Submit draft time when ready. After approval you can still add drafts and submit again.'}
             </p>
           </div>
 
@@ -702,8 +775,8 @@ function TimePageInner() {
                 type="button"
                 variant="secondary"
                 size="sm"
-                disabled={atDailyCap}
-                onClick={() => setModal({ type: 'add-time' })}
+                disabled={atDailyCap && mode === 'day'}
+                onClick={() => openAddTime()}
               >
                 Add time
               </Button>
@@ -800,55 +873,85 @@ function TimePageInner() {
           </Button>
         </div>
       ) : (
-        <TimesheetPanel
-          mode={mode}
-          tasks={tasks}
-          projectsById={projectsById}
-          entries={periodEntries}
-          canEdit={canMutateTime && !periodLocked}
-          canSubmit={
-            Boolean(activeSheet?.canSubmit) &&
-            !periodLocked &&
-            !timerBlockingSubmit
-          }
-          submittingTaskId={submittingTaskId}
-          timerBusy={starting || stopping}
-          runningTaskId={runningTaskId}
-          defaultEntryDate={
-            mode === 'day'
-              ? today
-              : mode === 'week'
-                ? weekFrom
-                : customRange.from
-          }
-          onAddTime={(taskId, entryDate) => {
-            const day = entryDate ?? today;
-            if (day > today) {
-              toast.error('Cannot log time for a future date');
-              return;
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate">
+                Day slots · {formatDisplayDate(activeSlotDay)}
+              </p>
+            </div>
+            {mode !== 'day' ? (
+              <div className="flex flex-wrap gap-1.5">
+                {periodDayList.map((day) => (
+                  <button
+                    key={day}
+                    type="button"
+                    onClick={() => setSlotDay(day)}
+                    className={`rounded-lg px-2.5 py-1.5 text-left text-xs font-medium transition ring-1 ${
+                      activeSlotDay === day
+                        ? 'bg-card text-ink shadow-sm ring-border'
+                        : 'bg-paper/60 text-slate ring-border/40 hover:text-ink'
+                    }`}
+                  >
+                    <span className="block">{weekdayShort(day)}</span>
+                    <span className="block tabular-nums opacity-80">
+                      {formatDisplayDate(day)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            <DayHourSlots
+              entryDate={activeSlotDay}
+              entries={periodEntries}
+              projectsById={projectsById}
+              tasks={tasks}
+              disabled={!canMutateTime}
+              onAddRange={(range) =>
+                openAddTime({
+                  entryDate: range.entryDate,
+                  startTime: range.startTime,
+                  endTime: range.endTime,
+                })
+              }
+            />
+          </div>
+          <TimesheetPanel
+            mode={mode}
+            tasks={tasks}
+            projectsById={projectsById}
+            entries={periodEntries}
+            canEdit={canMutateTime}
+            canSubmit={
+              Boolean(activeSheet?.canSubmit) &&
+              !periodLocked &&
+              !timerBlockingSubmit
             }
-            if (day === today && atDailyCap) {
-              toast.error(
-                'Daily 8h limit reached — edit or remove time before adding more.',
-              );
-              return;
-            }
-            setModal({ type: 'add-time', taskId, entryDate: day });
-          }}
-          onEditEntry={(entry) => setModal({ type: 'edit-entry', entry })}
-          onDeleteEntry={(entry) => setDeleting(entry)}
-          onStartTimer={(taskId) => {
-            void handleStart({ description: '', taskId });
-          }}
-          onSubmitTask={(taskId) => {
-            const task = tasks.find((t) => t.id === taskId);
-            setConfirmAction({
-              kind: 'submit-task',
-              taskId,
-              taskName: task?.name ?? 'this task',
-            });
-          }}
-        />
+            submittingTaskId={submittingTaskId}
+            timerBusy={starting || stopping}
+            runningTaskId={runningTaskId}
+            defaultEntryDate={activeSlotDay}
+            onAddTime={(taskId, entryDate) => {
+              openAddTime({
+                taskId,
+                entryDate: entryDate ?? activeSlotDay,
+              });
+            }}
+            onEditEntry={(entry) => setModal({ type: 'edit-entry', entry })}
+            onDeleteEntry={(entry) => setDeleting(entry)}
+            onStartTimer={(taskId) => {
+              void handleStart({ description: '', taskId });
+            }}
+            onSubmitTask={(taskId) => {
+              const task = tasks.find((t) => t.id === taskId);
+              setConfirmAction({
+                kind: 'submit-task',
+                taskId,
+                taskName: task?.name ?? 'this task',
+              });
+            }}
+          />
+        </div>
       )}
 
       <Modal
@@ -874,7 +977,15 @@ function TimePageInner() {
             defaultProjectId={modal.projectId}
             defaultClientId={modal.clientId}
             defaultTicketId={modal.ticketId}
-            defaultDate={modal.entryDate ?? today}
+            defaultDate={
+              modal.entryDate ??
+              (mode === 'period' ? customRange.from : today)
+            }
+            defaultRange={
+              modal.startTime && modal.endTime
+                ? { startTime: modal.startTime, endTime: modal.endTime }
+                : null
+            }
             existingEntries={[...periodEntries, ...todayEntries]}
             submitting={submitting}
             submitLabel="Add entry"
@@ -925,7 +1036,7 @@ function TimePageInner() {
               ? 'Submit this week?'
               : 'Submit this period?'
         }
-        description={`Only current draft and rejected entries for ${periodFrom === periodTo ? periodFrom : `${periodFrom} – ${periodTo}`} will be submitted. Already-submitted lines stay as they are. You can add more drafts later and submit again.`}
+        description={`Only current draft and rejected entries for ${formatDisplayDateRange(periodFrom, periodTo)} will be submitted. Already-submitted lines stay as they are. You can add more drafts later and submit again.`}
         confirmLabel="Submit"
         loading={submittingPeriod}
         onConfirm={() => runConfirmedAction()}

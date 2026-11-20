@@ -6,6 +6,7 @@ import {
   DataTable,
   type DataTableColumn,
 } from '@/components/common/DataTable';
+import { formatDisplayDate } from '@/lib/date-range';
 import type { MemberSummary, Project, Task } from '@/types/api';
 
 type TasksTableProps = {
@@ -33,11 +34,7 @@ function formatHours(value: string | number | null | undefined) {
 
 function formatShortDate(iso: string | null | undefined) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  return formatDisplayDate(iso);
 }
 
 function personLabel(

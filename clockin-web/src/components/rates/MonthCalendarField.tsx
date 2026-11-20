@@ -7,6 +7,7 @@ import {
   IconChevronRight,
 } from '@/components/ui/icons';
 import { cn } from '@/lib/cn';
+import { formatDisplayYearMonth } from '@/lib/date-range';
 
 const MONTHS = [
   'Jan',
@@ -85,10 +86,9 @@ export function MonthCalendarField({
     };
   }, [open]);
 
-  const display = new Date(year, month - 1, 1).toLocaleDateString('en-GB', {
-    month: 'long',
-    year: 'numeric',
-  });
+  const display = formatDisplayYearMonth(
+    `${year}-${String(month).padStart(2, '0')}`,
+  );
 
   function choose(nextYear: number, nextMonth: number) {
     if (nextYear < minYear || nextYear > maxYear) return;

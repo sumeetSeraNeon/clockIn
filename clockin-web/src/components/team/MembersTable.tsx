@@ -13,9 +13,6 @@ type MembersTableProps = {
   canEdit: boolean;
   currentMembershipId: string | null;
   approvingId: string | null;
-  leaveByUserId: Record<string, number>;
-  canEditLeave: (member: Member) => boolean;
-  onEditLeave: (member: Member) => void;
   onEdit: (member: Member) => void;
   onApprove: (member: Member) => void;
   onDeactivate: (member: Member) => void;
@@ -50,9 +47,6 @@ export function MembersTable({
   canEdit,
   currentMembershipId,
   approvingId,
-  leaveByUserId,
-  canEditLeave,
-  onEditLeave,
   onEdit,
   onApprove,
   onDeactivate,
@@ -102,31 +96,6 @@ export function MembersTable({
           <span className="truncate text-slate">
             {manager?.user.name || manager?.user.email || 'Assigned'}
           </span>
-        );
-      },
-    },
-    {
-      id: 'leave',
-      header: 'Leave (days)',
-      cell: (row) => {
-        const editable = canEditLeave(row) && row.status === 'active';
-        const value = leaveByUserId[row.userId] ?? 0;
-        return (
-          <div className="flex items-center gap-2">
-            <span className="tabular-nums text-navy">
-              {value === 0 ? '—' : value}
-            </span>
-            {editable ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => onEditLeave(row)}
-              >
-                Edit
-              </Button>
-            ) : null}
-          </div>
         );
       },
     },

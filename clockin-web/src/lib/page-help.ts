@@ -38,8 +38,8 @@ export const PAGE_HELP: Record<PageHelpKey, PageHelp> = {
     title: 'Timesheet',
     paragraphs: [
       'Log time on tasks you can access, then submit a day, week, or custom period for approval.',
-      'Use Client → Project → Task to find work. The timer sits in this flow; submitted or approved periods lock for edit.',
-      'You can submit more than once — new drafts after a submit can be submitted again. Calendar is for overview, not the main submit path.',
+      'The day slots bar shows 24 hours as twelve 2-hour blocks in one row. In Week or Period, pick a day chip to switch which day the bar shows. Click a free segment to add time (start and end only).',
+      'Approved periods stay open for new drafts — submit again for another approval round. Already approved entries stay read-only. Calendar is for overview.',
     ],
   },
   calendar: {
@@ -92,9 +92,8 @@ export const PAGE_HELP: Record<PageHelpKey, PageHelp> = {
     title: 'Team',
     paragraphs: [
       'People in the organisation: invites, roles, line manager, and status.',
-      'Pick a month, then use Edit on Leave (days) to confirm changes (half days allowed). Admins edit anyone; team managers edit their direct reports.',
       'Search by name or email. Admins can filter by manager. Pending people need approval before they can sign in.',
-      'You cannot deactivate yourself. Removing someone lets you invite that email again.',
+      'Leave days are managed under Settings → Organisation. You cannot deactivate yourself. Removing someone lets you invite that email again.',
     ],
   },
   departments: {
@@ -117,16 +116,16 @@ export const PAGE_HELP: Record<PageHelpKey, PageHelp> = {
     title: 'Reports',
     paragraphs: [
       'Hours, billable mix, budget burn, utilisation, Change Requests (CR tab), and (when you have rate access) money views.',
+      'Summary includes top performance (approved hours, billable hours, or utilisation) by department and person, plus project/task billable breakdown.',
       'Utilisation uses a calendar month: approved tracked ÷ (planned hours − leave days × 8). Filter by department, person, manager, client, or project. Client/project only affect tracked hours.',
-      'Revenue and profitability use approved time. The CR tab uses opened-in-range values, open-CR aging, and approved time on Change Requests.',
-      'Pick a date range (or a month on Utilisation), then use the tabs to switch report types.',
+      'Revenue and profitability use approved time. Pick a date range (or a month on Utilisation), then use the tabs to switch report types.',
     ],
   },
   settings: {
     title: 'Settings',
     paragraphs: [
       'Your account: profile, password, and notification preferences.',
-      'Organisation defaults (currency, manager margin visibility, and monthly planned hours) appear only if you manage the org. Change the capacity month to view or edit earlier values.',
+      'Organisation defaults (currency, manager margin visibility, monthly planned hours, and leave) appear when you manage the org or leave. Use Manage leave for a searchable, paginated people list. Admins edit capacity; admins and team managers edit leave for people they can manage.',
       'Personal settings are available to everyone; org sections stay permission-gated.',
     ],
   },

@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import { ResponsiveBar } from '@nivo/bar';
 import { EmptyState } from '@/components/common/EmptyState';
 import { InfoTip } from '@/components/common/InfoTip';
+import { formatDisplayYearMonth } from '@/lib/date-range';
 import { CHART_COLORS, nivoTheme } from '@/lib/nivo-theme';
 import type { UtilisationReportResponse } from '@/types/api';
 
@@ -32,7 +33,7 @@ export function UtilisationPanel({ report }: UtilisationPanelProps) {
     return (
       <EmptyState
         title="Set monthly capacity"
-        description={`Add planned hours for ${report.yearMonth} in Settings → Organisation before viewing utilisation.`}
+        description={`Add planned hours for ${formatDisplayYearMonth(report.yearMonth)} in Settings → Organisation before viewing utilisation.`}
       />
     );
   }
@@ -58,7 +59,8 @@ export function UtilisationPanel({ report }: UtilisationPanelProps) {
           </InfoTip>
         </div>
         <p className="text-sm text-slate">
-          {report.yearMonth} · planned {report.plannedHours}h
+          {formatDisplayYearMonth(report.yearMonth)} · planned{' '}
+          {report.plannedHours}h
         </p>
       </div>
 

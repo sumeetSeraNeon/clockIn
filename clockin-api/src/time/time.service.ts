@@ -125,7 +125,8 @@ export class TimeService {
         );
       }
       const start =
-        startTime ?? new Date(`${dto.entryDate.slice(0, 10)}T09:00:00`);
+        startTime ??
+        new Date(`${dto.entryDate.slice(0, 10)}T09:00:00.000Z`);
       startTime = start;
       endTime = new Date(start.getTime() + mins * 60_000);
     }

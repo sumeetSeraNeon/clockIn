@@ -3,6 +3,10 @@
 import { useMemo } from 'react';
 import { ResponsivePie } from '@nivo/pie';
 import { InfoTip } from '@/components/common/InfoTip';
+import {
+  formatDisplayDate,
+  formatDisplayDateRange,
+} from '@/lib/date-range';
 import { CHART_COLORS, nivoTheme } from '@/lib/nivo-theme';
 import type { ApprovalsReportResponse } from '@/types/api';
 
@@ -26,7 +30,7 @@ function daysBetween(from: string | null, to: string | null): number | null {
 
 function formatDate(iso: string | null) {
   if (!iso) return '—';
-  return iso.slice(0, 10);
+  return formatDisplayDate(iso);
 }
 
 function agingBucket(days: number | null): string {
@@ -213,7 +217,7 @@ export function ApprovalsReportPanel({ report }: ApprovalsReportPanelProps) {
                     </td>
                     <td className="py-3 pr-3 tabular-nums text-slate">
                       {row.periodStart && row.periodEnd
-                        ? `${row.periodStart} – ${row.periodEnd}`
+                        ? formatDisplayDateRange(row.periodStart, row.periodEnd)
                         : '—'}
                     </td>
                     <td className="py-3 pr-3 capitalize text-navy">

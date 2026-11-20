@@ -18,6 +18,11 @@ import {
   formatEntryCalendarTitle,
   isEntryLocked,
 } from '@/lib/entry-display';
+import {
+  clockFromLocalDate,
+  wallIsoFromDateAndClock,
+  wallIsoToLocalDate,
+} from '@/lib/wall-clock';
 import type { Project, Task, TimeEntry } from '@/types/api';
 
 export type CalendarView = 'timeGridDay' | 'timeGridWeek' | 'dayGridMonth';
@@ -73,15 +78,26 @@ function entryToEvent(
   let start: Date;
   let end: Date;
   const durationMs = Math.max(entryDurationMinutes(entry), 15) * 60_000;
+  const day = entry.entryDate.slice(0, 10);
 
   if (entry.startTime) {
-    start = new Date(entry.startTime);
+    start =
+      wallIsoToLocalDate(entry.startTime, day) ??
+      new Date(entry.startTime);
     end = entry.endTime
-      ? new Date(entry.endTime)
+      ? (wallIsoToLocalDate(entry.endTime, day) ??
+        new Date(entry.endTime))
       : new Date(start.getTime() + durationMs);
   } else {
-    const day = entry.entryDate.slice(0, 10);
-    start = new Date(`${day}T09:00:00`);
+    start = new Date(
+      Number(day.slice(0, 4)),
+      Number(day.slice(5, 7)) - 1,
+      Number(day.slice(8, 10)),
+      9,
+      0,
+      0,
+      0,
+    );
     end = new Date(start.getTime() + durationMs);
   }
 
@@ -200,10 +216,17 @@ export function TimeCalendar({
             1,
             Math.round((end.getTime() - start.getTime()) / 60_000),
           );
+          const entryDate = toDateParam(start);
           onSelectCreate({
-            entryDate: toDateParam(start),
-            startTime: start.toISOString(),
-            endTime: end.toISOString(),
+            entryDate,
+            startTime: wallIsoFromDateAndClock(
+              entryDate,
+              clockFromLocalDate(start),
+            ),
+            endTime: wallIsoFromDateAndClock(
+              entryDate,
+              clockFromLocalDate(end),
+            ),
             durationMinutes,
           });
           arg.view.calendar.unselect();
@@ -225,10 +248,19 @@ export function TimeCalendar({
             return;
           }
           try {
+            const entryDate = toDateParam(start);
             await onEventMove(entry, {
-              entryDate: toDateParam(start),
-              startTime: start.toISOString(),
-              endTime: end ? end.toISOString() : null,
+              entryDate,
+              startTime: wallIsoFromDateAndClock(
+                entryDate,
+                clockFromLocalDate(start),
+              ),
+              endTime: end
+                ? wallIsoFromDateAndClock(
+                    entryDate,
+                    clockFromLocalDate(end),
+                  )
+                : null,
             });
           } catch {
             arg.revert();
@@ -247,10 +279,17 @@ export function TimeCalendar({
             return;
           }
           try {
+            const entryDate = toDateParam(start);
             await onEventMove(entry, {
-              entryDate: toDateParam(start),
-              startTime: start.toISOString(),
-              endTime: end.toISOString(),
+              entryDate,
+              startTime: wallIsoFromDateAndClock(
+                entryDate,
+                clockFromLocalDate(start),
+              ),
+              endTime: wallIsoFromDateAndClock(
+                entryDate,
+                clockFromLocalDate(end),
+              ),
             });
           } catch {
             arg.revert();

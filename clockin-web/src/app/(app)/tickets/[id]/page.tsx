@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/Button';
 import { IconChevronLeft } from '@/components/ui/icons';
 import { api } from '@/lib/api-client';
 import { cn } from '@/lib/cn';
+import { formatDisplayDate } from '@/lib/date-range';
 import { formatDayLineTimeLabel } from '@/lib/entry-display';
 import { formatHoursMinutes } from '@/lib/format-duration';
 import { getErrorMessage } from '@/lib/get-error-message';
@@ -43,11 +44,7 @@ function statusLabel(status: string) {
 }
 
 function formatEntryDay(iso: string) {
-  return new Date(`${iso}T12:00:00`).toLocaleDateString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  });
+  return formatDisplayDate(iso);
 }
 
 function lineStatusVariant(

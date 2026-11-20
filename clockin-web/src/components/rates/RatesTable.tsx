@@ -4,6 +4,7 @@ import {
   DataTable,
   type DataTableColumn,
 } from '@/components/common/DataTable';
+import { formatDisplayDate } from '@/lib/date-range';
 import { formatMoney } from '@/lib/format-money';
 import { rateTiming } from '@/lib/use-rates';
 import type { Rate } from '@/types/api';
@@ -18,7 +19,7 @@ function label(value: string) {
 
 function formatDate(value: string | null) {
   if (!value) return '—';
-  return value.slice(0, 10);
+  return formatDisplayDate(value);
 }
 
 export function RatesTable({ rates }: RatesTableProps) {

@@ -4,6 +4,7 @@ import {
   DataTable,
   type DataTableColumn,
 } from '@/components/common/DataTable';
+import { formatDisplayDate } from '@/lib/date-range';
 import { formatHoursMinutes } from '@/lib/format-duration';
 import { formatMoney } from '@/lib/format-money';
 import type { ReportDetailedLine } from '@/types/api';
@@ -13,10 +14,6 @@ type ReportDetailedTableProps = {
   /** When false, hide revenue/rate columns (PM / no rate:view). */
   commercial?: boolean;
 };
-
-function formatDate(value: string) {
-  return value.slice(0, 10);
-}
 
 export function ReportDetailedTable({
   rows,
@@ -28,7 +25,7 @@ export function ReportDetailedTable({
       header: 'Date',
       cell: (row) => (
         <span className="tabular-nums text-slate">
-          {formatDate(String(row.entryDate))}
+          {formatDisplayDate(String(row.entryDate))}
         </span>
       ),
     },

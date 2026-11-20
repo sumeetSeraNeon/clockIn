@@ -44,17 +44,79 @@ export function weekDayParams(ref = new Date()): string[] {
   });
 }
 
+/** Inclusive YYYY-MM-DD list from `from` through `to` (local). */
+export function dateParamsInRange(from: string, to: string): string[] {
+  const start = parseDateParam(from.slice(0, 10));
+  const end = parseDateParam(to.slice(0, 10));
+  if (end < start) return [];
+  const out: string[] = [];
+  const cursor = new Date(start);
+  while (cursor <= end) {
+    out.push(toDateParam(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return out;
+}
+
 /** Normalise API date (ISO or YYYY-MM-DD) to YYYY-MM-DD. */
 export function toDateKey(value: string): string {
   return value.slice(0, 10);
 }
 
 export function formatWeekLabel(from: Date, to: Date): string {
-  const opts: Intl.DateTimeFormatOptions = {
-    day: 'numeric',
-    month: 'short',
-  };
-  const a = from.toLocaleDateString(undefined, opts);
-  const b = to.toLocaleDateString(undefined, opts);
-  return `${a} – ${b}`;
+  return formatDisplayDateRange(toDateParam(from), toDateParam(to));
+}
+
+const MONTH_SHORT = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+] as const;
+
+/** User-facing label: `2026-Nov-04` from YYYY-MM-DD or Date. */
+export function formatDisplayDate(value: string | Date): string {
+  const key =
+    typeof value === 'string' ? value.slice(0, 10) : toDateParam(value);
+  const d = parseDateParam(key);
+  const y = d.getFullYear();
+  const mon = MONTH_SHORT[d.getMonth()] ?? 'Jan';
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${mon}-${day}`;
+}
+
+/** Single day or `2026-Nov-04 – 2026-Nov-19`. */
+export function formatDisplayDateRange(
+  from: string | Date,
+  to?: string | Date | null,
+): string {
+  const a = formatDisplayDate(from);
+  if (to == null) return a;
+  const fromKey =
+    typeof from === 'string' ? from.slice(0, 10) : toDateParam(from);
+  const toKey = typeof to === 'string' ? to.slice(0, 10) : toDateParam(to);
+  if (fromKey === toKey) return a;
+  return `${a} – ${formatDisplayDate(to)}`;
+}
+
+/** Weekday short label for a YYYY-MM-DD (local), e.g. Mon. */
+export function weekdayShort(value: string): string {
+  return parseDateParam(value.slice(0, 10)).toLocaleDateString(undefined, {
+    weekday: 'short',
+  });
+}
+
+/** User-facing month label from `YYYY-MM` → `2026-Nov`. */
+export function formatDisplayYearMonth(yearMonth: string): string {
+  const [y, m] = yearMonth.slice(0, 7).split('-');
+  const mon = MONTH_SHORT[Number(m) - 1] ?? m;
+  return `${y}-${mon}`;
 }

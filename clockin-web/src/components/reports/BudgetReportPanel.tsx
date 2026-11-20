@@ -3,6 +3,7 @@
 import { useMemo } from 'react';
 import { ResponsiveBar } from '@nivo/bar';
 import { InfoTip } from '@/components/common/InfoTip';
+import { formatDisplayDate } from '@/lib/date-range';
 import { CHART_COLORS, nivoTheme } from '@/lib/nivo-theme';
 import type { BudgetReportResponse, BudgetReportProjectRow } from '@/types/api';
 
@@ -173,7 +174,13 @@ export function BudgetReportPanel({ report }: BudgetReportPanelProps) {
                   <td className="py-3 pr-3">
                     <p className="font-medium text-navy">{row.projectName}</p>
                     <p className="text-xs text-slate">
-                      {[row.projectCode, row.startDate, row.endDate]
+                      {[
+                        row.projectCode,
+                        row.startDate
+                          ? formatDisplayDate(row.startDate)
+                          : null,
+                        row.endDate ? formatDisplayDate(row.endDate) : null,
+                      ]
                         .filter(Boolean)
                         .join(' · ') || 'No dates'}
                     </p>

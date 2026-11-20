@@ -18,6 +18,10 @@ import {
   formatDayLineTimeLabel,
   ticketTypeLabel,
 } from '@/lib/entry-display';
+import {
+  formatDisplayDate,
+  formatDisplayDateRange,
+} from '@/lib/date-range';
 import { formatHoursMinutes } from '@/lib/format-duration';
 import { getErrorMessage } from '@/lib/get-error-message';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
@@ -53,25 +57,17 @@ const TD = 'px-3 py-3 align-top text-sm';
 
 function formatRange(start: string | null, end: string | null) {
   if (!start || !end) return 'Period unavailable';
-  const a = new Date(`${start}T12:00:00`);
-  const b = new Date(`${end}T12:00:00`);
-  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) {
+  if (
+    Number.isNaN(new Date(`${start}T12:00:00`).getTime()) ||
+    Number.isNaN(new Date(`${end}T12:00:00`).getTime())
+  ) {
     return 'Period unavailable';
   }
-  const opts: Intl.DateTimeFormatOptions = {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  };
-  return `${a.toLocaleDateString(undefined, opts)} – ${b.toLocaleDateString(undefined, opts)}`;
+  return formatDisplayDateRange(start, end);
 }
 
 function formatDay(iso: string) {
-  return new Date(`${iso}T12:00:00`).toLocaleDateString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  });
+  return formatDisplayDate(iso);
 }
 
 function formatDateTime(iso: string | null | undefined) {

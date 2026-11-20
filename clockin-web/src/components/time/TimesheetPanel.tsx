@@ -14,6 +14,7 @@ import {
   isEntryLocked,
   isEntryRunning,
 } from '@/lib/entry-display';
+import { formatDisplayDate } from '@/lib/date-range';
 import { formatHoursMinutes } from '@/lib/format-duration';
 import type { Project, Task, TimeEntry } from '@/types/api';
 
@@ -68,7 +69,8 @@ type SheetTree = {
 };
 
 /**
- * Day/Week sheet — Client → Project → Task (only tasks with time).
+ * Day/Week sheet — Client → Project → Task.
+ * Projects with no tasks/time still appear so the project is visible.
  */
 export function TimesheetPanel({
   mode,
@@ -153,23 +155,28 @@ export function TimesheetPanel({
     }
 
     const clientMap = new Map<string, ClientNode>();
-    for (const g of byTask.values()) {
-      const pid = g.projectId ?? 'unknown-project';
-      let client = clientMap.get(g.clientId);
+
+    function ensureProject(
+      projectId: string,
+      projectName: string,
+      clientId: string,
+      clientName: string,
+    ): ProjectNode {
+      let client = clientMap.get(clientId);
       if (!client) {
         client = {
-          clientId: g.clientId,
-          clientName: g.clientName,
+          clientId,
+          clientName,
           totalMinutes: 0,
           projects: [],
         };
-        clientMap.set(g.clientId, client);
+        clientMap.set(clientId, client);
       }
-      let project = client.projects.find((p) => p.projectId === pid);
+      let project = client.projects.find((p) => p.projectId === projectId);
       if (!project) {
         project = {
-          projectId: pid,
-          projectName: g.projectName,
+          projectId,
+          projectName,
           totalMinutes: 0,
           approvedCount: 0,
           totalCount: 0,
@@ -177,6 +184,17 @@ export function TimesheetPanel({
         };
         client.projects.push(project);
       }
+      return project;
+    }
+
+    for (const g of byTask.values()) {
+      const pid = g.projectId ?? 'unknown-project';
+      const project = ensureProject(
+        pid,
+        g.projectName,
+        g.clientId,
+        g.clientName,
+      );
       project.tasks.push({
         taskId: g.taskId,
         taskName: g.taskName,
@@ -189,7 +207,16 @@ export function TimesheetPanel({
       project.approvedCount += g.entries.filter(
         (e) => e.status === 'approved',
       ).length;
+      const client = clientMap.get(g.clientId)!;
       client.totalMinutes += g.totalMinutes;
+    }
+
+    // Seed active projects that have no time (and maybe no tasks) this period.
+    for (const project of projectsById.values()) {
+      if (project.status && project.status !== 'active') continue;
+      const clientId = project.client?.id ?? project.clientId ?? 'unknown-client';
+      const clientName = project.client?.name?.trim() || 'Client';
+      ensureProject(project.id, project.name, clientId, clientName);
     }
 
     const clients = [...clientMap.values()]
@@ -216,11 +243,15 @@ export function TimesheetPanel({
     setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
   }
 
-  function isOpen(key: string, defaultOpen = true) {
+  function isOpen(key: string, defaultOpen = false) {
     return expanded[key] ?? defaultOpen;
   }
 
-  if (tasks.length === 0 && entries.length === 0) {
+  if (
+    tasks.length === 0 &&
+    entries.length === 0 &&
+    projectsById.size === 0
+  ) {
     return (
       <div className="rounded-xl border border-border/50 bg-card/60 px-5 py-8 text-center">
         <p className="text-sm font-medium text-ink">No project tasks yet</p>
@@ -235,10 +266,11 @@ export function TimesheetPanel({
     mode === 'day' ? 'today' : mode === 'week' ? 'this week' : 'this period';
   const noTimeLogged = entries.length === 0;
   const periodTotalLabel = mode === 'day' ? "Today's total" : 'Period total';
+  const hasProjectTree = tree.clients.length > 0;
 
   function renderTaskSection(group: TaskNode): ReactNode {
     const key = `task-${group.taskId ?? 'unassigned'}`;
-    const open = isOpen(key, true);
+    const open = isOpen(key, false);
     const hasEntries = group.entries.length > 0;
     const sortedEntries = [...group.entries].sort((a, b) => {
       const aT = a.startTime ? new Date(a.startTime).getTime() : 0;
@@ -265,7 +297,7 @@ export function TimesheetPanel({
                 const running = isEntryRunning(entry);
                 const note = entryDescription(entry);
                 const ticketInfo = entryTicketInfo(entry);
-                const dateLabel = entry.entryDate.slice(0, 10);
+                const dateLabel = formatDisplayDate(entry.entryDate);
 
                 return (
                   <li
@@ -409,11 +441,13 @@ export function TimesheetPanel({
             </Button>
           ) : null}
         </div>
-      ) : (
+      ) : null}
+
+      {hasProjectTree || tree.unassigned ? (
         <div className="overflow-hidden rounded-xl border border-border/50 bg-card/70 shadow-sm shadow-navy/[0.03]">
           {tree.clients.map((client) => {
             const clientKey = `client-${client.clientId}`;
-            const clientOpen = isOpen(clientKey, true);
+            const clientOpen = isOpen(clientKey, false);
             return (
               <div
                 key={client.clientId}
@@ -430,7 +464,7 @@ export function TimesheetPanel({
                 {clientOpen
                   ? client.projects.map((project) => {
                       const projectKey = `project-${project.projectId}`;
-                      const projectOpen = isOpen(projectKey, true);
+                      const projectOpen = isOpen(projectKey, false);
                       return (
                         <div
                           key={project.projectId}
@@ -450,8 +484,29 @@ export function TimesheetPanel({
 
                           {projectOpen ? (
                             <div>
-                              {project.tasks.map((task) =>
-                                renderTaskSection(task),
+                              {project.tasks.length > 0 ? (
+                                project.tasks.map((task) =>
+                                  renderTaskSection(task),
+                                )
+                              ) : (
+                                <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 pl-10 text-sm text-slate">
+                                  <p>No tasks / no time on this project yet.</p>
+                                  {canEdit ? (
+                                    <Button
+                                      type="button"
+                                      variant="secondary"
+                                      size="sm"
+                                      onClick={() =>
+                                        onAddTime(
+                                          undefined,
+                                          defaultEntryDate,
+                                        )
+                                      }
+                                    >
+                                      Add time
+                                    </Button>
+                                  ) : null}
+                                </div>
                               )}
                             </div>
                           ) : null}
@@ -469,7 +524,7 @@ export function TimesheetPanel({
             </div>
           ) : null}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

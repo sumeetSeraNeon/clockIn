@@ -107,6 +107,34 @@ export default function ReportsPage() {
     filters,
     canView && tab === 'summary',
   );
+  const summaryProjects = useReportSummary(
+    { ...filters, groupBy: 'project' },
+    canView && tab === 'summary',
+  );
+  const summaryTasks = useReportSummary(
+    { ...filters, groupBy: 'task' },
+    canView && tab === 'summary',
+  );
+  const summaryUsers = useReportSummary(
+    { ...filters, groupBy: 'user' },
+    canView && tab === 'summary',
+  );
+  const summaryDepartments = useReportSummary(
+    { ...filters, groupBy: 'department' },
+    canView && tab === 'summary',
+  );
+  const summaryUtilYearMonth = filters.dateTo.slice(0, 7);
+  const summaryUtilisation = useReportUtilisation(
+    {
+      yearMonth: summaryUtilYearMonth,
+      departmentId: filters.departmentId,
+      userId: filters.userId,
+      managerId: 'all',
+      clientId: filters.clientId,
+      projectId: filters.projectId,
+    },
+    canView && tab === 'summary',
+  );
   const detailed = useReportDetailed(
     filters,
     page,
@@ -729,7 +757,15 @@ export default function ReportsPage() {
           </Button>
         </div>
       ) : tab === 'summary' && summary.data ? (
-        <ReportSummaryPanel report={summary.data} />
+        <ReportSummaryPanel
+          report={summary.data}
+          projectGroups={summaryProjects.data?.groups ?? []}
+          taskGroups={summaryTasks.data?.groups ?? []}
+          userGroups={summaryUsers.data?.groups ?? []}
+          departmentGroups={summaryDepartments.data?.groups ?? []}
+          utilisationPeople={summaryUtilisation.data?.people ?? []}
+          members={members}
+        />
       ) : tab === 'utilisation' && utilisation.data ? (
         <UtilisationPanel report={utilisation.data} />
       ) : tab === 'budget' && budget.data ? (

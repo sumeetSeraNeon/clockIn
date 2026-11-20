@@ -26,6 +26,7 @@ import { api } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { isMemberOnlyRole } from '@/lib/app-nav';
 import { cn } from '@/lib/cn';
+import { formatDisplayDate } from '@/lib/date-range';
 import { formatMoney } from '@/lib/format-money';
 import { getErrorMessage } from '@/lib/get-error-message';
 import { useTickets } from '@/lib/use-tickets';
@@ -714,13 +715,7 @@ function statusLabel(status: string) {
 
 function formatDate(value: string | null | undefined) {
   if (!value) return '—';
-  const d = new Date(`${value.slice(0, 10)}T12:00:00`);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  return formatDisplayDate(value);
 }
 
 function formatBudgetHours(value: string | number | null | undefined) {

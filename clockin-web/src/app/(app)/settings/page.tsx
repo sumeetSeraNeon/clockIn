@@ -6,6 +6,7 @@ import { CurrencySelect } from '@/components/common/CurrencySelect';
 import { FormField } from '@/components/common/FormField';
 import { PageHeader } from '@/components/common/PageHeader';
 import { useToast } from '@/components/common/Toast';
+import { OrganisationLeavePanel } from '@/components/settings/OrganisationLeavePanel';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -13,6 +14,7 @@ import { useAuth } from '@/lib/auth-context';
 import { api } from '@/lib/api-client';
 import { cn } from '@/lib/cn';
 import { ensureCurrencyOption } from '@/lib/currencies';
+import { formatDisplayYearMonth } from '@/lib/date-range';
 import { getFirebaseAuth } from '@/lib/firebase';
 import { getErrorMessage } from '@/lib/get-error-message';
 import {
@@ -51,8 +53,13 @@ function currentYearMonth(): string {
 export default function SettingsPage() {
   const toast = useToast();
   const { me, refreshMe, changePassword } = useAuth();
-  const { can } = usePermissions();
+  const { can, highestRole } = usePermissions();
   const canEditOrg = can('rate', 'edit');
+  const canEditLeave =
+    highestRole === 'owner' ||
+    highestRole === 'admin' ||
+    highestRole === 'team_manager';
+  const showOrganisation = canEditOrg || canEditLeave;
 
   const [tab, setTab] = useState<SettingsTab>('account');
   const [name, setName] = useState(me?.user.name ?? '');
@@ -260,7 +267,9 @@ export default function SettingsPage() {
         res.plannedHours != null ? String(res.plannedHours) : String(hours),
       );
       setRecentReloadKey((k) => k + 1);
-      toast.success(`Capacity saved for ${capacityMonth}`);
+      toast.success(
+        `Capacity saved for ${formatDisplayYearMonth(capacityMonth)}`,
+      );
     } catch (err) {
       toast.error(getErrorMessage(err, 'Could not save monthly capacity'));
     } finally {
@@ -277,17 +286,17 @@ export default function SettingsPage() {
       { id: 'security', label: 'Security' },
       { id: 'notifications', label: 'Notifications' },
     ];
-    if (canEditOrg) {
+    if (showOrganisation) {
       list.push({ id: 'organisation', label: 'Organisation' });
     }
     return list;
-  }, [canEditOrg]);
+  }, [showOrganisation]);
 
   useEffect(() => {
-    if (tab === 'organisation' && !canEditOrg) {
+    if (tab === 'organisation' && !showOrganisation) {
       setTab('account');
     }
-  }, [tab, canEditOrg]);
+  }, [tab, showOrganisation]);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -487,129 +496,169 @@ export default function SettingsPage() {
         </section>
       ) : null}
 
-      {tab === 'organisation' && canEditOrg ? (
-        <section className="space-y-4">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <p className="text-sm text-slate">
-              {orgName} defaults. Clients can override currency on their form.
-            </p>
-            <Button
-              type="button"
-              loading={savingOrg}
-              disabled={savingOrg}
-              onClick={() => void handleSaveOrg()}
-            >
-              Save organisation
-            </Button>
-          </div>
-
-          <form
-            onSubmit={(e) => void handleSaveOrg(e)}
-            className="max-w-lg space-y-4"
-          >
-            <FormField label="Default currency" htmlFor="org-currency">
-              <CurrencySelect
-                id="org-currency"
-                value={currency}
-                onChange={setCurrency}
-                disabled={savingOrg}
-              />
-            </FormField>
-            <label className="flex cursor-pointer items-start gap-3 text-sm text-ink">
-              <input
-                type="checkbox"
-                className="mt-0.5 h-4 w-4 accent-coral"
-                checked={managersCanSeeMargin}
-                disabled={savingOrg}
-                onChange={(e) => setManagersCanSeeMargin(e.target.checked)}
-              />
-              <span>
-                <span className="font-medium">
-                  Allow managers to see margin
-                </span>
-                <span className="mt-0.5 block text-slate">
-                  Off by default. When on, project and team managers see
-                  revenue and margin on the dashboard and reports. Admins and
-                  owners always see money. Members never do. Rates stay
-                  admin-only.
-                </span>
-              </span>
-            </label>
-          </form>
-
-          <div className="max-w-lg space-y-4 border-t border-border/80 pt-6">
-            <div>
-              <h3 className="text-sm font-semibold text-ink">
-                Monthly capacity
-              </h3>
-              <p className="mt-1 text-sm text-slate">
-                Working hours for everyone this month (for example 160). Used
-                in Reports → Utilisation. Change the month to view or edit
-                earlier values.
-              </p>
-            </div>
-            <form
-              onSubmit={(e) => void handleSaveCapacity(e)}
-              className="space-y-4"
-            >
-              <FormField label="Month" htmlFor="capacity-month">
-                <Input
-                  id="capacity-month"
-                  type="month"
-                  value={capacityMonth}
-                  disabled={savingCapacity || loadingCapacity}
-                  onChange={(e) => setCapacityMonth(e.target.value)}
-                />
-              </FormField>
-              <FormField label="Planned hours" htmlFor="planned-hours">
-                <Input
-                  id="planned-hours"
-                  type="number"
-                  min={0}
-                  step={0.5}
-                  value={plannedHours}
-                  disabled={savingCapacity || loadingCapacity}
-                  placeholder="e.g. 160"
-                  onChange={(e) => setPlannedHours(e.target.value)}
-                />
-              </FormField>
-              <Button
-                type="submit"
-                loading={savingCapacity}
-                disabled={savingCapacity || loadingCapacity}
-              >
-                Save capacity
-              </Button>
-            </form>
-            {recentMonths.length > 0 ? (
-              <div className="space-y-2">
-                <p className="text-xs font-medium uppercase tracking-wide text-slate">
-                  Recent months
-                </p>
-                <ul className="divide-y divide-border/80 rounded-lg border border-border/80">
-                  {recentMonths.map((row) => (
-                    <li key={row.yearMonth}>
-                      <button
-                        type="button"
-                        className={cn(
-                          'flex w-full items-center justify-between px-3 py-2 text-left text-sm transition hover:bg-paper',
-                          row.yearMonth === capacityMonth
-                            ? 'bg-paper font-medium text-ink'
-                            : 'text-navy',
-                        )}
-                        onClick={() => setCapacityMonth(row.yearMonth)}
-                      >
-                        <span>{row.yearMonth}</span>
-                        <span className="tabular-nums text-slate">
-                          {row.plannedHours}h
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+      {tab === 'organisation' && showOrganisation ? (
+        <section className="max-w-3xl space-y-5">
+          {canEditOrg ? (
+            <div className="rounded-xl border border-border/80 bg-card p-4 sm:p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-ink">Defaults</h3>
+                  <p className="mt-0.5 text-sm text-slate">
+                    {orgName} · clients can override currency
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  loading={savingOrg}
+                  disabled={savingOrg}
+                  onClick={() => void handleSaveOrg()}
+                >
+                  Save organisation
+                </Button>
               </div>
-            ) : null}
-          </div>
+              <form
+                onSubmit={(e) => void handleSaveOrg(e)}
+                className="mt-4 grid gap-4 sm:grid-cols-2"
+              >
+                <FormField label="Default currency" htmlFor="org-currency">
+                  <CurrencySelect
+                    id="org-currency"
+                    value={currency}
+                    onChange={setCurrency}
+                    disabled={savingOrg}
+                  />
+                </FormField>
+                <label className="flex cursor-pointer items-start gap-3 text-sm text-ink sm:pt-6">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4 accent-coral"
+                    checked={managersCanSeeMargin}
+                    disabled={savingOrg}
+                    onChange={(e) =>
+                      setManagersCanSeeMargin(e.target.checked)
+                    }
+                  />
+                  <span>
+                    <span className="font-medium">
+                      Allow managers to see margin
+                    </span>
+                    <span className="mt-0.5 block text-xs text-slate">
+                      Admins/owners always see money; members never do.
+                    </span>
+                  </span>
+                </label>
+              </form>
+            </div>
+          ) : (
+            <p className="text-sm text-slate">
+              Manage leave for people you manage. Capacity and org defaults stay
+              with admins.
+            </p>
+          )}
+
+          {(canEditOrg || canEditLeave) && (
+            <div className="rounded-xl border border-border/80 bg-card p-4 sm:p-5">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-ink">
+                    Capacity & leave
+                  </h3>
+                  <p className="mt-0.5 text-sm text-slate">
+                    Shared month for utilisation planning
+                  </p>
+                </div>
+                <label className="flex w-40 flex-col gap-1 text-xs text-slate">
+                  Month
+                  <Input
+                    id="capacity-month"
+                    type="month"
+                    value={capacityMonth}
+                    disabled={canEditOrg && (savingCapacity || loadingCapacity)}
+                    onChange={(e) => setCapacityMonth(e.target.value)}
+                  />
+                </label>
+              </div>
+
+              <div
+                className={cn(
+                  'mt-4 grid gap-5',
+                  canEditOrg && canEditLeave
+                    ? 'sm:grid-cols-2 sm:gap-6'
+                    : 'grid-cols-1',
+                )}
+              >
+                {canEditOrg ? (
+                  <form
+                    onSubmit={(e) => void handleSaveCapacity(e)}
+                    className="space-y-3"
+                  >
+                    <p className="text-xs font-medium uppercase tracking-wide text-slate">
+                      Planned hours
+                    </p>
+                    <FormField label="Hours" htmlFor="planned-hours">
+                      <Input
+                        id="planned-hours"
+                        type="number"
+                        min={0}
+                        step={0.5}
+                        value={plannedHours}
+                        disabled={savingCapacity || loadingCapacity}
+                        placeholder="e.g. 160"
+                        onChange={(e) => setPlannedHours(e.target.value)}
+                      />
+                    </FormField>
+                    <Button
+                      type="submit"
+                      size="sm"
+                      loading={savingCapacity}
+                      disabled={savingCapacity || loadingCapacity}
+                    >
+                      Save capacity
+                    </Button>
+                    {recentMonths.length > 0 ? (
+                      <ul className="max-h-36 overflow-y-auto divide-y divide-border/80 rounded-lg border border-border/80">
+                        {recentMonths.slice(0, 6).map((row) => (
+                          <li key={row.yearMonth}>
+                            <button
+                              type="button"
+                              className={cn(
+                                'flex w-full items-center justify-between px-3 py-1.5 text-left text-sm transition hover:bg-paper',
+                                row.yearMonth === capacityMonth
+                                  ? 'bg-paper font-medium text-ink'
+                                  : 'text-navy',
+                              )}
+                              onClick={() => setCapacityMonth(row.yearMonth)}
+                            >
+                              <span>
+                                {formatDisplayYearMonth(row.yearMonth)}
+                              </span>
+                              <span className="tabular-nums text-slate">
+                                {row.plannedHours}h
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </form>
+                ) : null}
+
+                {canEditLeave ? (
+                  <div
+                    className={cn(
+                      canEditOrg && 'border-t border-border/60 pt-4 sm:border-t-0 sm:border-l sm:pl-6 sm:pt-0',
+                    )}
+                  >
+                    <OrganisationLeavePanel
+                      yearMonth={capacityMonth}
+                      hideMonthControl
+                    />
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          )}
         </section>
       ) : null}
     </div>

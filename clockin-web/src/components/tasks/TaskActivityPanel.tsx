@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { api } from '@/lib/api-client';
+import { formatDisplayDate } from '@/lib/date-range';
 import { entryStatusLabel } from '@/lib/entry-display';
 import { formatHoursMinutes } from '@/lib/format-duration';
 import type { Paginated, Task, TimeEntry, TimeLine } from '@/types/api';
@@ -32,13 +33,7 @@ function linesForTask(entry: TimeEntry, taskId: string): TimeLine[] {
 }
 
 function formatEntryDate(iso: string) {
-  const d = new Date(iso.includes('T') ? iso : `${iso}T12:00:00`);
-  return d.toLocaleDateString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  return formatDisplayDate(iso);
 }
 
 function statusBadgeVariant(

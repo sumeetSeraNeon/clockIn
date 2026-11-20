@@ -1,4 +1,5 @@
 import { formatHoursMinutes } from '@/lib/format-duration';
+import { formatWallClock } from '@/lib/wall-clock';
 import type { TimeEntry, TicketType } from '@/types/api';
 import { TICKET_TYPE_LABELS } from '@/types/api';
 
@@ -62,12 +63,9 @@ export function isEntryLocked(entry: TimeEntry): boolean {
   );
 }
 
+/** Wall-clock display from stored ISO (UTC components = HH:mm on entry date). */
 export function formatEntryClock(iso: string | null | undefined): string | null {
-  if (!iso) return null;
-  return new Date(iso).toLocaleTimeString(undefined, {
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+  return formatWallClock(iso);
 }
 
 /** e.g. "9:00 AM – 10:30 AM · 1h 30m" or "Running" or "1h 30m" */

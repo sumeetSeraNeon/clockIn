@@ -4,6 +4,7 @@ import {
   DataTable,
   type DataTableColumn,
 } from '@/components/common/DataTable';
+import { formatDisplayDate } from '@/lib/date-range';
 import { formatMoney } from '@/lib/format-money';
 import { rateTiming } from '@/lib/use-rates';
 import type { ProjectPersonRateRow } from '@/lib/rate-pairs';
@@ -83,7 +84,7 @@ export function ProjectPersonRatesTable({
       header: 'From',
       cell: (row) => (
         <span className="tabular-nums text-slate">
-          {row.effectiveFrom ?? '—'}
+          {row.effectiveFrom ? formatDisplayDate(row.effectiveFrom) : '—'}
         </span>
       ),
     },
@@ -92,7 +93,7 @@ export function ProjectPersonRatesTable({
       header: 'To',
       cell: (row) => (
         <span className="tabular-nums text-slate">
-          {row.effectiveTo ?? 'Open'}
+          {row.effectiveTo ? formatDisplayDate(row.effectiveTo) : 'Open'}
         </span>
       ),
     },

@@ -14,6 +14,7 @@ import { IconChevronLeft } from '@/components/ui/icons';
 import { api } from '@/lib/api-client';
 import { isMemberOnlyRole } from '@/lib/app-nav';
 import { cn } from '@/lib/cn';
+import { formatDisplayDate } from '@/lib/date-range';
 import { getErrorMessage } from '@/lib/get-error-message';
 import { usePermissions } from '@/lib/use-permissions';
 import type {
@@ -44,11 +45,7 @@ function formatHours(value: string | number | null | undefined) {
 
 function formatShortDate(iso: string | null | undefined) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  return formatDisplayDate(iso);
 }
 
 /**

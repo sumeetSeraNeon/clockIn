@@ -179,7 +179,12 @@ export class ImportsService {
       ]);
       for (const c of batchClients.values()) {
         if (!clients.some((x) => x.id === c.id)) {
-          clients.push({ id: c.id, name: c.name, status: 'active' });
+          clients.push({
+            id: c.id,
+            name: c.name,
+            status: 'active',
+            currency: null,
+          });
         }
       }
 
@@ -306,7 +311,12 @@ export class ImportsService {
 
       for (const c of batchClients.values()) {
         if (!clients.some((x) => x.id === c.id)) {
-          clients.push({ id: c.id, name: c.name, status: 'active' });
+          clients.push({
+            id: c.id,
+            name: c.name,
+            status: 'active',
+            currency: null,
+          });
         }
       }
       for (const p of batchProjects.values()) {
@@ -908,14 +918,16 @@ export class ImportsService {
   private async loadClients(
     organisationId: string,
     membership: AuthMembership,
-  ): Promise<{ id: string; name: string; status: string }[]> {
+  ): Promise<
+    { id: string; name: string; status: string; currency: string | null }[]
+  > {
     const visibilityWhere = await this.visibility.clientWhere(
       organisationId,
       membership,
     );
     return this.prisma.client.findMany({
       where: { organisationId, ...visibilityWhere },
-      select: { id: true, name: true, status: true },
+      select: { id: true, name: true, status: true, currency: true },
       orderBy: { name: 'asc' },
     });
   }
@@ -1047,6 +1059,16 @@ export class ImportsService {
     const departments = await this.loadDepartments(organisationId);
     const projects = await this.loadProjects(organisationId, membership);
     const canWriteCrValue = can(membership.permissions, 'rate', 'view');
+    const org = await this.prisma.organisation.findUnique({
+      where: { id: organisationId },
+      select: { currency: true },
+    });
+    const orgCurrency = (org?.currency?.trim() || 'GBP').toUpperCase();
+    const clientsById = new Map(clients.map((c) => [c.id, c] as const));
+    const resolveCrCurrency = (clientId: string): string => {
+      const fromClient = clientsById.get(clientId)?.currency?.trim();
+      return (fromClient || orgCurrency).toUpperCase();
+    };
 
     const validated = this.validateTicketRows(
       rows,
@@ -1134,11 +1156,7 @@ export class ImportsService {
             : existing.crValue;
         const crValueCurrency = !isChangeRequest
           ? null
-          : canWriteCrValue
-            ? (row.parsed.crValueCurrency != null
-                ? row.parsed.crValueCurrency
-                : existing.crValueCurrency)
-            : existing.crValueCurrency;
+          : resolveCrCurrency(row.matchedClientId);
         const saved = await this.prisma.ticket.update({
           where: { id: existing.id },
           data: {
@@ -1180,10 +1198,9 @@ export class ImportsService {
           ...data,
           crValue:
             isChangeRequest && canWriteCrValue ? row.parsed.crValue : null,
-          crValueCurrency:
-            isChangeRequest && canWriteCrValue
-              ? row.parsed.crValueCurrency
-              : null,
+          crValueCurrency: isChangeRequest
+            ? resolveCrCurrency(row.matchedClientId)
+            : null,
           openedAt: data.openedAt ?? new Date(),
           resolvedAt:
             data.resolvedAt ??
@@ -1212,7 +1229,7 @@ export class ImportsService {
 
   private validateTicketRows(
     rows: TicketImportRowInput[],
-    clients: { id: string; name: string }[],
+    clients: { id: string; name: string; currency?: string | null }[],
     tickets: Map<string, { id: string; reference: string }>,
     departments: { id: string; name: string }[],
     projects: {
@@ -1413,7 +1430,8 @@ export class ImportsService {
           }
           crValue = parsedValue;
         }
-        crValueCurrency = blankToNull(row.crValueCurrency);
+        // Currency is always client (then org at commit) — ignore spreadsheet.
+        crValueCurrency = matchedClient.currency?.trim() || null;
       }
 
       const dateFields: Array<[string, string | null | undefined]> = [

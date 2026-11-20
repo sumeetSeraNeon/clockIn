@@ -11,7 +11,7 @@ import { ListSkeleton } from '@/components/common/Skeleton';
 import { useToast } from '@/components/common/Toast';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
+import { SearchableSelect } from '@/components/ui/SearchableSelect';
 import { api } from '@/lib/api-client';
 import { getErrorMessage } from '@/lib/get-error-message';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
@@ -291,18 +291,35 @@ export default function DepartmentsPage() {
                 {canEdit ? (
                   <div className="flex flex-wrap items-end gap-2">
                     <FormField label="Add person" htmlFor="dept-add" className="min-w-[200px] flex-1">
-                      <Select
+                      <SearchableSelect
                         id="dept-add"
                         value={addMembershipId}
-                        onChange={(e) => setAddMembershipId(e.target.value)}
-                      >
-                        <option value="">Choose a person</option>
-                        {addOptions.map((member) => (
-                          <option key={member.id} value={member.id}>
-                            {member.user.name || member.user.email}
-                          </option>
-                        ))}
-                      </Select>
+                        onChange={(id) => setAddMembershipId(id)}
+                        disabled={saving || addOptions.length === 0}
+                        placeholder={
+                          addOptions.length === 0
+                            ? 'Everyone eligible is already added'
+                            : 'Search people…'
+                        }
+                        selectedLabel={
+                          addOptions.find((m) => m.id === addMembershipId)
+                            ?.user.name ||
+                          addOptions.find((m) => m.id === addMembershipId)
+                            ?.user.email ||
+                          null
+                        }
+                        loadOptions={async () =>
+                          addOptions.map((m) => ({
+                            id: m.id,
+                            label: m.user.name || m.user.email,
+                            meta: m.user.name ? m.user.email : undefined,
+                          }))
+                        }
+                        loadKey={[...addOptions.map((m) => m.id)].sort().join(',')}
+                        allowClear
+                        clearLabel="Choose a person"
+                        aria-label="Add person"
+                      />
                     </FormField>
                     <Button
                       type="button"

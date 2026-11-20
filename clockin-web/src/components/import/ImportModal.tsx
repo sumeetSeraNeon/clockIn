@@ -943,16 +943,11 @@ export function ImportModal({
                                               })
                                             }
                                           />
-                                          <EditField
-                                            label="CR Currency"
-                                            value={draft.crValueCurrency}
-                                            disabled={isRemoved}
-                                            onChange={(v) =>
-                                              updateDraft(draft.rowKey, {
-                                                crValueCurrency: v,
-                                              })
-                                            }
-                                          />
+                                          <p className="text-xs text-slate sm:col-span-2 lg:col-span-1">
+                                            Currency comes from the client (or
+                                            organisation default) — not from the
+                                            sheet.
+                                          </p>
                                         </>
                                       );
                                     })()}

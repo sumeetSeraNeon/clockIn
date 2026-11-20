@@ -5,6 +5,7 @@ import { FormField } from '@/components/common/FormField';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { useAuth } from '@/lib/auth-context';
 import { cn } from '@/lib/cn';
 import type {
   Client,
@@ -70,7 +71,6 @@ type FormState = {
   workstream: string;
   crApprovalStatus: CrApprovalStatus;
   crValue: string;
-  crValueCurrency: string;
   dueAt: string;
 };
 
@@ -96,7 +96,6 @@ const EMPTY: FormState = {
   workstream: '',
   crApprovalStatus: 'pending',
   crValue: '',
-  crValueCurrency: 'GBP',
   dueAt: '',
 };
 
@@ -147,6 +146,8 @@ export function TicketForm({
   onSubmit,
   onCancel,
 }: TicketFormProps) {
+  const { me } = useAuth();
+  const orgCurrency = me?.organisation?.currency?.trim() || 'GBP';
   const [form, setForm] = useState<FormState>(EMPTY);
   const [errors, setErrors] = useState<{
     clientId?: string;
@@ -183,7 +184,6 @@ export function TicketForm({
           initial.crValue != null && initial.crValue !== ''
             ? String(initial.crValue)
             : '',
-        crValueCurrency: initial.crValueCurrency ?? 'GBP',
         dueAt: toDatetimeLocalValue(initial.dueAt),
       });
     } else {
@@ -199,6 +199,13 @@ export function TicketForm({
     () => projects.filter((p) => p.clientId === form.clientId),
     [projects, form.clientId],
   );
+
+  const derivedCurrency = useMemo(() => {
+    const clientCur = clients
+      .find((c) => c.id === form.clientId)
+      ?.currency?.trim();
+    return clientCur || orgCurrency;
+  }, [clients, form.clientId, orgCurrency]);
 
   const isChangeRequest = form.ticketType === 'change_request';
 
@@ -272,8 +279,7 @@ export function TicketForm({
               ...(canViewCrValue && crValueNum !== undefined
                 ? {
                     crValue: crValueNum,
-                    crValueCurrency:
-                      form.crValueCurrency.trim() || 'GBP',
+                    crValueCurrency: derivedCurrency,
                   }
                 : {}),
             }
@@ -311,7 +317,7 @@ export function TicketForm({
                   crValue: form.crValue.trim()
                     ? (crValueNum ?? Number(form.crValue))
                     : null,
-                  crValueCurrency: form.crValueCurrency.trim() || null,
+                  crValueCurrency: derivedCurrency,
                 }
               : {}),
           }
@@ -550,11 +556,11 @@ export function TicketForm({
                   >
                     <Input
                       id="ticket-cr-currency"
-                      value={form.crValueCurrency}
-                      onChange={(e) =>
-                        setField('crValueCurrency', e.target.value)
-                      }
-                      placeholder="GBP"
+                      value={derivedCurrency}
+                      readOnly
+                      disabled
+                      aria-readonly="true"
+                      title="From client currency, or organisation default"
                     />
                   </FormField>
                 </>

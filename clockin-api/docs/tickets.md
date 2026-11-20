@@ -7,6 +7,8 @@ Excel import creates or updates by Ticket ID (`reference`).
 **Change Request** is a ticket with `ticketType = change_request`. The ticket
 `reference` is the CR number. Commercial fields (`crApprovalStatus`, `crValue`,
 `crValueCurrency`) apply only to that type. `crValue` is owner/admin only.
+`crValueCurrency` is always derived from the client currency, else the
+organisation default — it is not editable on the ticket form or import.
 
 ## Endpoints
 

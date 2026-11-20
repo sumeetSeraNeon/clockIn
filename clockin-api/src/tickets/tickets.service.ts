@@ -88,7 +88,10 @@ export class TicketsService {
       this.assertCrApprovalStatus(crApprovalStatus);
       const financial = this.resolveCrFinancialWrite(membership, dto, null);
       crValue = financial.crValue;
-      crValueCurrency = financial.crValueCurrency;
+      crValueCurrency = await this.resolveCrCurrency(
+        organisationId,
+        dto.clientId,
+      );
     } else if (
       dto.crApprovalStatus != null ||
       dto.crValue != null ||
@@ -397,8 +400,12 @@ export class TicketsService {
       const financial = this.resolveCrFinancialWrite(membership, dto, existing);
       if (financial.wrote) {
         data.crValue = financial.crValue;
-        data.crValueCurrency = financial.crValueCurrency;
       }
+      const clientIdForCurrency = dto.clientId ?? existing.clientId;
+      data.crValueCurrency = await this.resolveCrCurrency(
+        organisationId,
+        clientIdForCurrency,
+      );
     } else {
       data.crApprovalStatus = null;
       data.crValue = null;
@@ -478,8 +485,32 @@ export class TicketsService {
   }
 
   /**
+   * CR currency always comes from client, else organisation default.
+   * Per-ticket / DTO currency is ignored.
+   */
+  private async resolveCrCurrency(
+    organisationId: string,
+    clientId: string,
+  ): Promise<string> {
+    const client = await this.prisma.client.findFirst({
+      where: { id: clientId, organisationId },
+      select: { currency: true },
+    });
+    const fromClient = client?.currency?.trim();
+    if (fromClient) return fromClient.toUpperCase();
+
+    const org = await this.prisma.organisation.findUnique({
+      where: { id: organisationId },
+      select: { currency: true },
+    });
+    const fromOrg = org?.currency?.trim();
+    return (fromOrg || 'GBP').toUpperCase();
+  }
+
+  /**
    * Owner/admin may set CR value. Others may not change it.
-   * When fields are omitted, keep existing (update) or null (create).
+   * Currency is resolved separately from client/org (dto currency ignored).
+   * When value is omitted, keep existing (update) or null (create).
    */
   private resolveCrFinancialWrite(
     membership: AuthMembership,
@@ -488,16 +519,13 @@ export class TicketsService {
   ): {
     wrote: boolean;
     crValue: number | null;
-    crValueCurrency: string | null;
   } {
     const valueTouched = dto.crValue !== undefined;
-    const currencyTouched = dto.crValueCurrency !== undefined;
-    if (!valueTouched && !currencyTouched) {
+    if (!valueTouched) {
       return {
         wrote: false,
         crValue:
           existing?.crValue != null ? Number(existing.crValue) : null,
-        crValueCurrency: existing?.crValueCurrency ?? null,
       };
     }
 
@@ -508,19 +536,9 @@ export class TicketsService {
     }
 
     const crValue =
-      valueTouched
-        ? dto.crValue == null
-          ? null
-          : dto.crValue
-        : existing?.crValue != null
-          ? Number(existing.crValue)
-          : null;
-    const crValueCurrency =
-      currencyTouched
-        ? dto.crValueCurrency?.trim() || null
-        : existing?.crValueCurrency ?? null;
+      dto.crValue == null ? null : dto.crValue;
 
-    return { wrote: true, crValue, crValueCurrency };
+    return { wrote: true, crValue };
   }
 
   private async findByIdOrReference(

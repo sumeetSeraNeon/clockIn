@@ -11,7 +11,7 @@ import { Modal } from '@/components/common/Modal';
 import { useToast } from '@/components/common/Toast';
 import { RatePairForm } from '@/components/rates/RatePairForm';
 import { Button } from '@/components/ui/Button';
-import { Select } from '@/components/ui/Select';
+import { SearchableSelect } from '@/components/ui/SearchableSelect';
 import { api } from '@/lib/api-client';
 import { formatMoney } from '@/lib/format-money';
 import { getErrorMessage } from '@/lib/get-error-message';
@@ -409,22 +409,33 @@ export function ProjectTeamPanel({
         <div className="flex flex-wrap items-end gap-2">
           <label className="flex min-w-[220px] flex-1 flex-col gap-1 text-sm text-slate">
             Add person
-            <Select
+            <SearchableSelect
+              id="project-add-person"
               value={addingId}
-              onChange={(e) => setAddingId(e.target.value)}
+              onChange={(id) => setAddingId(id)}
               disabled={submitting || addOptions.length === 0}
-            >
-              <option value="">
-                {addOptions.length === 0
+              placeholder={
+                addOptions.length === 0
                   ? 'Everyone eligible is already on the team'
-                  : 'Select a person'}
-              </option>
-              {addOptions.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.user.name || m.user.email}
-                </option>
-              ))}
-            </Select>
+                  : 'Search people…'
+              }
+              selectedLabel={
+                addOptions.find((m) => m.id === addingId)?.user.name ||
+                addOptions.find((m) => m.id === addingId)?.user.email ||
+                null
+              }
+              loadOptions={async () =>
+                addOptions.map((m) => ({
+                  id: m.id,
+                  label: m.user.name || m.user.email,
+                  meta: m.user.name ? m.user.email : undefined,
+                }))
+              }
+              loadKey={[...addOptions.map((m) => m.id)].sort().join(',')}
+              allowClear
+              clearLabel="Select a person"
+              aria-label="Add person"
+            />
           </label>
           <Button
             type="button"

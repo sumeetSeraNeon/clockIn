@@ -33,7 +33,8 @@ type TimesheetPanelProps = {
   onAddTime: (taskId?: string, entryDate?: string) => void;
   onEditEntry: (entry: TimeEntry) => void;
   onDeleteEntry: (entry: TimeEntry) => void;
-  onStartTimer: (taskId: string) => void;
+  /** Omit or undefined when org timers are disabled */
+  onStartTimer?: (taskId: string) => void;
   /** FIX 2 — submit draft time for one task only */
   onSubmitTask?: (taskId: string) => void;
   defaultEntryDate: string;
@@ -389,15 +390,19 @@ export function TimesheetPanel({
                 >
                   {hasEntries ? 'Add more time' : 'Add time'}
                 </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={timerBusy || Boolean(runningTaskId)}
-                  onClick={() => onStartTimer(group.taskId!)}
-                >
-                  {runningTaskId === group.taskId ? 'Running' : 'Start timer'}
-                </Button>
+                {onStartTimer ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={timerBusy || Boolean(runningTaskId)}
+                    onClick={() => onStartTimer(group.taskId!)}
+                  >
+                    {runningTaskId === group.taskId
+                      ? 'Running'
+                      : 'Start timer'}
+                  </Button>
+                ) : null}
                 {onSubmitTask && group.draftCount > 0 ? (
                   <Button
                     type="button"

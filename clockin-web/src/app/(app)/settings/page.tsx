@@ -39,6 +39,7 @@ type OrganisationSettings = {
   code: string | null;
   currency: string;
   managersCanSeeMargin?: boolean;
+  timersEnabled?: boolean;
 };
 
 function currentYearMonth(): string {
@@ -84,6 +85,9 @@ export default function SettingsPage() {
   const [managersCanSeeMargin, setManagersCanSeeMargin] = useState(
     me?.organisation?.managersCanSeeMargin === true,
   );
+  const [timersEnabled, setTimersEnabled] = useState(
+    me?.organisation?.timersEnabled === true,
+  );
   const [savingOrg, setSavingOrg] = useState(false);
 
   const [capacityMonth, setCapacityMonth] = useState(currentYearMonth);
@@ -100,6 +104,7 @@ export default function SettingsPage() {
     setTimezone(ensureTimezoneOption(me?.user.timezone));
     setCurrency(ensureCurrencyOption(me?.organisation?.currency));
     setManagersCanSeeMargin(me?.organisation?.managersCanSeeMargin === true);
+    setTimersEnabled(me?.organisation?.timersEnabled === true);
     if (me?.user.id) {
       setNotifyPrefs(loadNotificationPrefs(me.user.id));
     }
@@ -109,6 +114,7 @@ export default function SettingsPage() {
     me?.user.timezone,
     me?.organisation?.currency,
     me?.organisation?.managersCanSeeMargin,
+    me?.organisation?.timersEnabled,
   ]);
 
   useEffect(() => {
@@ -231,13 +237,14 @@ export default function SettingsPage() {
         body: {
           currency: currency.toUpperCase(),
           managersCanSeeMargin,
+          timersEnabled,
         },
       });
       await refreshMe();
       toast.success(
         `Organisation saved · currency ${res.currency}${
           res.managersCanSeeMargin ? ' · managers can see margin' : ''
-        }`,
+        }${res.timersEnabled ? ' · timers on' : ''}`,
       );
     } catch (err) {
       toast.error(getErrorMessage(err, 'Could not save organisation settings'));
@@ -545,6 +552,22 @@ export default function SettingsPage() {
                     </span>
                     <span className="mt-0.5 block text-xs text-slate">
                       Admins/owners always see money; members never do.
+                    </span>
+                  </span>
+                </label>
+                <label className="flex cursor-pointer items-start gap-3 text-sm text-ink sm:col-span-2">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4 accent-coral"
+                    checked={timersEnabled}
+                    disabled={savingOrg}
+                    onChange={(e) => setTimersEnabled(e.target.checked)}
+                  />
+                  <span>
+                    <span className="font-medium">Allow timers</span>
+                    <span className="mt-0.5 block text-xs text-slate">
+                      Show Start timer on the timesheet. Off by default —
+                      people add time with start and end instead.
                     </span>
                   </span>
                 </label>

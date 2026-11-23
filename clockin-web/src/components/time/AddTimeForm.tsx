@@ -66,8 +66,10 @@ type AddTimeFormProps = {
   /** FIX 2 — other entries for overlap checks (same user/day). */
   existingEntries?: TimeEntry[];
   submitLabel?: string;
+  /** Hide Cancel (inline strip on timesheet). */
+  hideCancel?: boolean;
   onSubmit: (values: AddTimeValues) => Promise<void>;
-  onCancel: () => void;
+  onCancel?: () => void;
 };
 
 function partsFromMinutes(total: number) {
@@ -100,6 +102,7 @@ export function AddTimeForm({
   initialEntry = null,
   existingEntries = [],
   submitLabel = 'Save entry',
+  hideCancel = false,
   onSubmit,
   onCancel,
 }: AddTimeFormProps) {
@@ -439,14 +442,16 @@ export function AddTimeForm({
       {error ? <p className="text-sm text-danger">{error}</p> : null}
 
       <div className="flex justify-end gap-2 pt-1">
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={onCancel}
-          disabled={submitting}
-        >
-          Cancel
-        </Button>
+        {!hideCancel && onCancel ? (
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={onCancel}
+            disabled={submitting}
+          >
+            Cancel
+          </Button>
+        ) : null}
         <Button type="submit" loading={submitting} disabled={submitting}>
           {submitLabel}
         </Button>

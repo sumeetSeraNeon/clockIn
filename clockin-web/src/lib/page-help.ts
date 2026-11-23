@@ -38,8 +38,9 @@ export const PAGE_HELP: Record<PageHelpKey, PageHelp> = {
     title: 'Timesheet',
     paragraphs: [
       'Log time on tasks you can access, then submit a day, week, or custom period for approval.',
-      'The day slots bar shows 24 hours as twelve 2-hour blocks in one row. In Week or Period, pick a day chip to switch which day the bar shows. Click a free segment to add time (start and end only).',
-      'Approved periods stay open for new drafts — submit again for another approval round. Already approved entries stay read-only. Calendar is for overview.',
+      'Use Add time or click a free day slot to open the add form (start and end). In Week or Period, the first chip (Week / This period) shows the full tree; other chips filter to one day.',
+      'Long custom periods page day chips by month — use the month control next to Day slots. Admins can turn on timers under Settings → Organisation (Allow timers).',
+      'Approved periods stay open for new drafts — submit again for another approval round. Already approved entries stay read-only.',
     ],
   },
   calendar: {
@@ -125,7 +126,7 @@ export const PAGE_HELP: Record<PageHelpKey, PageHelp> = {
     title: 'Settings',
     paragraphs: [
       'Your account: profile, password, and notification preferences.',
-      'Organisation defaults (currency, manager margin visibility, monthly planned hours, and leave) appear when you manage the org or leave. Use Manage leave for a searchable, paginated people list. Admins edit capacity; admins and team managers edit leave for people they can manage.',
+      'Organisation defaults (currency, manager margin visibility, timers, monthly planned hours, and leave) appear when you manage the org or leave. Use Manage leave for a searchable, paginated people list. Admins edit capacity; admins and team managers edit leave for people they can manage.',
       'Personal settings are available to everyone; org sections stay permission-gated.',
     ],
   },

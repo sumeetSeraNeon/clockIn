@@ -40,6 +40,8 @@ export type MeOrganisation = {
   currency?: string | null;
   /** When true, managers with report:view see margin on dashboard/reports */
   managersCanSeeMargin?: boolean;
+  /** When true, timesheet shows Start timer; default is range add time */
+  timersEnabled?: boolean;
 };
 
 /** Response shape of GET /api/me */

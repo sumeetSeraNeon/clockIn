@@ -11,8 +11,22 @@ export type TimeEntriesQuery = {
   pageSize?: number;
 };
 
+/** Max pages per query (pageSize 100 → up to 5 000 entries). */
+const MAX_PAGES = 50;
+
+function mergeById(existing: TimeEntry[], incoming: TimeEntry[]): TimeEntry[] {
+  const byId = new Map<string, TimeEntry>();
+  for (const e of existing) byId.set(e.id, e);
+  for (const e of incoming) byId.set(e.id, e);
+  return [...byId.values()];
+}
+
+/**
+ * Load time entries for a date range. Keeps pageSize small per request,
+ * then fetches remaining pages until total is covered (or MAX_PAGES).
+ */
 export function useTimeEntries(query: TimeEntriesQuery) {
-  const page = query.page ?? 1;
+  const startPage = query.page ?? 1;
   const pageSize = query.pageSize ?? 50;
   const { dateFrom, dateTo } = query;
 
@@ -31,18 +45,37 @@ export function useTimeEntries(query: TimeEntriesQuery) {
       setLoading(true);
       setError(null);
       try {
-        const params = new URLSearchParams({
-          dateFrom,
-          dateTo,
-          page: String(page),
-          pageSize: String(pageSize),
-        });
-        const result = await api<Paginated<TimeEntry>>(
-          `/time-entries?${params.toString()}`,
-        );
+        let page = startPage;
+        let collected: TimeEntry[] = [];
+        let reportedTotal = 0;
+
+        while (page < startPage + MAX_PAGES) {
+          const params = new URLSearchParams({
+            dateFrom,
+            dateTo,
+            page: String(page),
+            pageSize: String(pageSize),
+          });
+          const result = await api<Paginated<TimeEntry>>(
+            `/time-entries?${params.toString()}`,
+          );
+          if (cancelled) return;
+
+          const batch = result.data ?? [];
+          reportedTotal = result.pagination?.total ?? reportedTotal;
+          collected = mergeById(collected, batch);
+
+          const done =
+            batch.length === 0 ||
+            collected.length >= reportedTotal ||
+            batch.length < pageSize;
+          if (done) break;
+          page += 1;
+        }
+
         if (!cancelled) {
-          setData(result.data ?? []);
-          setTotal(result.pagination?.total ?? 0);
+          setData(collected);
+          setTotal(reportedTotal);
         }
       } catch (err) {
         if (!cancelled) {
@@ -61,7 +94,7 @@ export function useTimeEntries(query: TimeEntriesQuery) {
     return () => {
       cancelled = true;
     };
-  }, [dateFrom, dateTo, page, pageSize, reloadKey]);
+  }, [dateFrom, dateTo, startPage, pageSize, reloadKey]);
 
   return { data, total, loading, error, reload };
 }

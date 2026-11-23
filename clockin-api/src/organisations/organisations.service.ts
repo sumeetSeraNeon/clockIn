@@ -28,6 +28,7 @@ export class OrganisationsService {
         code: true,
         currency: true,
         managersCanSeeMargin: true,
+        timersEnabled: true,
       },
     });
     if (!org) {
@@ -63,6 +64,9 @@ export class OrganisationsService {
           ...(dto.managersCanSeeMargin !== undefined
             ? { managersCanSeeMargin: dto.managersCanSeeMargin }
             : {}),
+          ...(dto.timersEnabled !== undefined
+            ? { timersEnabled: dto.timersEnabled }
+            : {}),
         },
         select: {
           id: true,
@@ -70,6 +74,7 @@ export class OrganisationsService {
           code: true,
           currency: true,
           managersCanSeeMargin: true,
+          timersEnabled: true,
         },
       });
 

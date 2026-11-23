@@ -23,14 +23,19 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { api } from '@/lib/api-client';
 import {
+  adjacentYearMonth,
   dateParamsInRange,
+  dateParamsInYearMonth,
   formatDisplayDate,
   formatDisplayDateRange,
+  formatDisplayYearMonth,
   formatWeekLabel,
   toDateParam,
   weekdayShort,
   weekDayParams,
   weekRange,
+  yearMonthFromDateParam,
+  yearMonthsInRange,
 } from '@/lib/date-range';
 import { suggestNextRange } from '@/lib/day-hour-slots';
 import { getErrorMessage } from '@/lib/get-error-message';
@@ -96,6 +101,12 @@ function TimePageInner() {
   const [customTo, setCustomTo] = useState(() => toDateParam(initialWeek.to));
   /** Selected day for the horizontal slot bar (week/period). */
   const [slotDay, setSlotDay] = useState(() => toDateParam(new Date()));
+  /** Tree focus: full range vs one day (YYYY-MM-DD). */
+  const [panelFocus, setPanelFocus] = useState<'range' | string>('range');
+  /** Period mode: which calendar month’s day chips to show (YYYY-MM). */
+  const [periodChipMonth, setPeriodChipMonth] = useState(() =>
+    yearMonthFromDateParam(toDateParam(new Date())),
+  );
 
   const [modal, setModal] = useState<ModalKind>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -152,6 +163,7 @@ function TimePageInner() {
 
   const {
     data: periodEntries,
+    total: periodTotal,
     loading,
     error,
     reload: reloadPeriod,
@@ -163,6 +175,7 @@ function TimePageInner() {
 
   const {
     data: todayEntries,
+    total: todayTotal,
     reload: reloadToday,
   } = useTimeEntries({
     dateFrom: today,
@@ -173,12 +186,18 @@ function TimePageInner() {
   // FIX 4 — always load current week for weekly total (even in Day mode)
   const {
     data: weekEntries,
+    total: weekTotal,
     reload: reloadWeek,
   } = useTimeEntries({
     dateFrom: weekFrom,
     dateTo: weekTo,
     pageSize: 100,
   });
+
+  const entriesPossiblyIncomplete =
+    (!loading && periodTotal > periodEntries.length) ||
+    todayTotal > todayEntries.length ||
+    weekTotal > weekEntries.length;
 
   const running =
     findRunningEntry(todayEntries) ??
@@ -198,7 +217,7 @@ function TimePageInner() {
     const clientId = searchParams.get('clientId') ?? undefined;
     if (!taskId && add !== '1' && !ticketId) return;
 
-    if ((add === '1' || ticketId) && canMutateTime) {
+    if ((add === '1' || ticketId) && canEdit) {
       setModal({
         type: 'add-time',
         taskId,
@@ -211,10 +230,14 @@ function TimePageInner() {
     }
 
     if (taskId && canEdit) {
-      setPendingTrackTaskId(taskId);
+      if (me?.organisation?.timersEnabled === true) {
+        setPendingTrackTaskId(taskId);
+      } else {
+        setModal({ type: 'add-time', taskId });
+      }
       router.replace('/time', { scroll: false });
     }
-  }, [searchParams, canEdit, router]);
+  }, [searchParams, canEdit, router, me?.organisation?.timersEnabled]);
 
   useEffect(() => {
     let cancelled = false;
@@ -571,17 +594,40 @@ function TimePageInner() {
     return dateParamsInRange(customRange.from, customRange.to);
   }, [mode, today, weekDays, customRange.from, customRange.to]);
 
+  const periodMonths = useMemo(
+    () =>
+      mode === 'period'
+        ? yearMonthsInRange(customRange.from, customRange.to)
+        : [],
+    [mode, customRange.from, customRange.to],
+  );
+
+  const chipDayList = useMemo(() => {
+    if (mode !== 'period') return periodDayList;
+    return dateParamsInYearMonth(periodDayList, periodChipMonth);
+  }, [mode, periodDayList, periodChipMonth]);
+
   useEffect(() => {
     if (mode === 'day') {
       setSlotDay(today);
       return;
     }
+    setPanelFocus('range');
     if (mode === 'week') {
       setSlotDay(weekDays.includes(today) ? today : weekFrom);
       return;
     }
+    const months = yearMonthsInRange(customRange.from, customRange.to);
+    const preferred =
+      periodDayList.includes(today)
+        ? yearMonthFromDateParam(today)
+        : (months[0] ?? yearMonthFromDateParam(customRange.from));
+    setPeriodChipMonth(preferred);
+    const daysInMonth = dateParamsInYearMonth(periodDayList, preferred);
     setSlotDay((prev) =>
-      periodDayList.includes(prev) ? prev : (periodDayList[0] ?? customRange.from),
+      daysInMonth.includes(prev)
+        ? prev
+        : (daysInMonth[0] ?? periodDayList[0] ?? customRange.from),
     );
   }, [
     mode,
@@ -589,10 +635,28 @@ function TimePageInner() {
     weekDays,
     weekFrom,
     customRange.from,
+    customRange.to,
     periodDayList,
   ]);
 
   const activeSlotDay = mode === 'day' ? today : slotDay;
+
+  const panelEntries = useMemo(() => {
+    if (mode === 'day' || panelFocus === 'range') return periodEntries;
+    return periodEntries.filter(
+      (e) => e.entryDate.slice(0, 10) === panelFocus,
+    );
+  }, [mode, panelFocus, periodEntries]);
+
+  const timersEnabled = me?.organisation?.timersEnabled === true;
+
+  /** Dedupe — period + today overlap when today is in range (was double-counting the 8h cap). */
+  const formExistingEntries = useMemo(() => {
+    const byId = new Map<string, TimeEntry>();
+    for (const entry of periodEntries) byId.set(entry.id, entry);
+    for (const entry of todayEntries) byId.set(entry.id, entry);
+    return [...byId.values()];
+  }, [periodEntries, todayEntries]);
 
   const todayTotalMinutes = useMemo(
     () =>
@@ -627,6 +691,9 @@ function TimePageInner() {
 
   function openAddTime(opts?: {
     taskId?: string;
+    projectId?: string;
+    clientId?: string;
+    ticketId?: string;
     entryDate?: string;
     startTime?: string;
     endTime?: string;
@@ -649,9 +716,26 @@ function TimePageInner() {
     setModal({
       type: 'add-time',
       taskId: opts?.taskId,
+      projectId: opts?.projectId,
+      clientId: opts?.clientId,
+      ticketId: opts?.ticketId,
       entryDate: day,
       startTime: suggested.startTime,
       endTime: suggested.endTime,
+    });
+  }
+
+  function shiftPeriodChipMonth(delta: -1 | 1) {
+    const next = adjacentYearMonth(periodMonths, periodChipMonth, delta);
+    if (!next) return;
+    setPeriodChipMonth(next);
+    const daysInMonth = dateParamsInYearMonth(periodDayList, next);
+    setSlotDay((prev) =>
+      daysInMonth.includes(prev) ? prev : (daysInMonth[0] ?? prev),
+    );
+    setPanelFocus((prev) => {
+      if (prev === 'range') return prev;
+      return daysInMonth.includes(prev) ? prev : 'range';
     });
   }
 
@@ -667,24 +751,57 @@ function TimePageInner() {
       <div className="space-y-3 border-b border-border/50 pb-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0 space-y-2.5">
-            <div className="flex flex-wrap items-center gap-2">
-              {mode === 'day' ? (
-                <h2 className="text-lg font-semibold tracking-tight text-ink">
-                  Today · {formatDisplayDate(today)}
-                </h2>
-              ) : mode === 'week' ? (
-                <h2 className="text-lg font-semibold tracking-tight text-ink">
-                  Week of {formatWeekLabel(weekBounds.from, weekBounds.to)}
-                </h2>
-              ) : (
-                <h2 className="text-lg font-semibold tracking-tight text-ink">
-                  {formatDisplayDateRange(customRange.from, customRange.to)}
-                </h2>
-              )}
-              {periodLocked ? (
-                <span className="text-xs font-medium uppercase tracking-wide text-slate">
-                  Locked
-                </span>
+            <div className="space-y-1.5">
+              <div className="flex flex-wrap items-center gap-2">
+                {mode === 'day' ? (
+                  <h2 className="text-lg font-semibold tracking-tight text-ink">
+                    Today · {formatDisplayDate(today)}
+                  </h2>
+                ) : mode === 'week' ? (
+                  <h2 className="text-lg font-semibold tracking-tight text-ink">
+                    Week of {formatWeekLabel(weekBounds.from, weekBounds.to)}
+                  </h2>
+                ) : (
+                  <h2 className="text-lg font-semibold tracking-tight text-ink">
+                    {formatDisplayDateRange(customRange.from, customRange.to)}
+                  </h2>
+                )}
+                {periodLocked ? (
+                  <span className="text-xs font-medium uppercase tracking-wide text-slate">
+                    Locked
+                  </span>
+                ) : null}
+              </div>
+              {mode === 'week' ? (
+                <div className="flex flex-wrap items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => shiftWeek(-1)}
+                  >
+                    Prev
+                  </Button>
+                  {!isCurrentWeek ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setWeekAnchor(new Date())}
+                    >
+                      This week
+                    </Button>
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => shiftWeek(1)}
+                    disabled={isCurrentWeek}
+                  >
+                    Next
+                  </Button>
+                </div>
               ) : null}
             </div>
 
@@ -754,7 +871,17 @@ function TimePageInner() {
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {canMutateTime ? (
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={atDailyCap && mode === 'day'}
+                onClick={() => openAddTime()}
+              >
+                Add time
+              </Button>
+            ) : null}
             {canEdit ? (
               <Button
                 type="button"
@@ -769,48 +896,6 @@ function TimePageInner() {
               >
                 Submit
               </Button>
-            ) : null}
-            {canMutateTime ? (
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                disabled={atDailyCap && mode === 'day'}
-                onClick={() => openAddTime()}
-              >
-                Add time
-              </Button>
-            ) : null}
-            {mode === 'week' ? (
-              <div className="flex items-center gap-1">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => shiftWeek(-1)}
-                >
-                  Prev
-                </Button>
-                {!isCurrentWeek ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setWeekAnchor(new Date())}
-                  >
-                    This week
-                  </Button>
-                ) : null}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => shiftWeek(1)}
-                  disabled={isCurrentWeek}
-                >
-                  Next
-                </Button>
-              </div>
             ) : null}
           </div>
         </div>
@@ -839,24 +924,33 @@ function TimePageInner() {
               limit.
             </p>
           ) : null}
+          {entriesPossiblyIncomplete ? (
+            <p className="text-sm text-slate">
+              Some entries could not be loaded — totals may be incomplete.
+            </p>
+          ) : null}
         </div>
       </div>
 
-      <TimerBar
-        running={running}
-        tasks={tasks}
-        projects={projects}
-        canEdit={canMutateTime && !dayLocked}
-        starting={starting}
-        stopping={stopping}
-        atDailyCap={atDailyCap}
-        preselectTaskId={pendingTrackTaskId}
-        onPreselectConsumed={() => setPendingTrackTaskId(null)}
-        onStart={handleStart}
-        onStop={async () => {
-          setConfirmAction({ kind: 'stop-timer' });
-        }}
-      />
+      {timersEnabled || running ? (
+        <TimerBar
+          running={running}
+          tasks={tasks}
+          projects={projects}
+          canEdit={
+            (canMutateTime && !dayLocked && timersEnabled) || Boolean(running)
+          }
+          starting={starting}
+          stopping={stopping}
+          atDailyCap={atDailyCap}
+          preselectTaskId={timersEnabled ? pendingTrackTaskId : null}
+          onPreselectConsumed={() => setPendingTrackTaskId(null)}
+          onStart={handleStart}
+          onStop={async () => {
+            setConfirmAction({ kind: 'stop-timer' });
+          }}
+        />
+      ) : null}
 
       {loading && periodEntries.length === 0 ? (
         <ListSkeleton rows={4} />
@@ -875,30 +969,92 @@ function TimePageInner() {
       ) : (
         <div className="space-y-4">
           <div className="space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-xs font-medium uppercase tracking-wide text-slate">
                 Day slots · {formatDisplayDate(activeSlotDay)}
               </p>
+              {mode === 'period' && periodMonths.length > 1 ? (
+                <div
+                  className="inline-flex items-stretch overflow-hidden rounded-lg border border-border bg-card shadow-sm"
+                  role="group"
+                  aria-label="Period month"
+                >
+                  <button
+                    type="button"
+                    className="border-r border-border bg-card px-3 py-2 text-sm font-semibold text-ink transition hover:bg-coral-tint hover:text-coral disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-card disabled:hover:text-ink"
+                    disabled={
+                      !adjacentYearMonth(periodMonths, periodChipMonth, -1)
+                    }
+                    onClick={() => shiftPeriodChipMonth(-1)}
+                    aria-label="Previous month"
+                  >
+                    ‹ Prev
+                  </button>
+                  <span className="flex min-w-[7rem] items-center justify-center bg-coral-tint/40 px-3 py-2 text-sm font-semibold tabular-nums text-coral">
+                    {formatDisplayYearMonth(periodChipMonth)}
+                  </span>
+                  <button
+                    type="button"
+                    className="border-l border-border bg-card px-3 py-2 text-sm font-semibold text-ink transition hover:bg-coral-tint hover:text-coral disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-card disabled:hover:text-ink"
+                    disabled={
+                      !adjacentYearMonth(periodMonths, periodChipMonth, 1)
+                    }
+                    onClick={() => shiftPeriodChipMonth(1)}
+                    aria-label="Next month"
+                  >
+                    Next ›
+                  </button>
+                </div>
+              ) : null}
             </div>
             {mode !== 'day' ? (
-              <div className="flex flex-wrap gap-1.5">
-                {periodDayList.map((day) => (
+              <div className="space-y-1.5">
+                <div className="flex flex-wrap gap-1.5">
                   <button
-                    key={day}
                     type="button"
-                    onClick={() => setSlotDay(day)}
+                    onClick={() => setPanelFocus('range')}
                     className={`rounded-lg px-2.5 py-1.5 text-left text-xs font-medium transition ring-1 ${
-                      activeSlotDay === day
-                        ? 'bg-card text-ink shadow-sm ring-border'
+                      panelFocus === 'range'
+                        ? 'bg-coral-tint text-coral shadow-sm ring-coral/40'
                         : 'bg-paper/60 text-slate ring-border/40 hover:text-ink'
                     }`}
                   >
-                    <span className="block">{weekdayShort(day)}</span>
-                    <span className="block tabular-nums opacity-80">
-                      {formatDisplayDate(day)}
+                    <span className="block">
+                      {mode === 'week' ? 'Week' : 'This period'}
                     </span>
+                    <span className="block opacity-80">All days</span>
                   </button>
-                ))}
+                  {chipDayList.map((day) => (
+                    <button
+                      key={day}
+                      type="button"
+                      onClick={() => {
+                        setPanelFocus(day);
+                        setSlotDay(day);
+                      }}
+                      className={`rounded-lg px-2.5 py-1.5 text-left text-xs font-medium transition ring-1 ${
+                        panelFocus === day
+                          ? 'bg-card text-ink shadow-sm ring-border'
+                          : 'bg-paper/60 text-slate ring-border/40 hover:text-ink'
+                      }`}
+                    >
+                      <span className="block">{weekdayShort(day)}</span>
+                      <span className="block tabular-nums opacity-80">
+                        {formatDisplayDate(day)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-slate">
+                  {panelFocus === 'range'
+                    ? mode === 'week'
+                      ? 'Showing full week'
+                      : 'Showing full period'
+                    : `Showing ${weekdayShort(panelFocus)} · ${formatDisplayDate(panelFocus)}`}
+                  {panelFocus === 'range'
+                    ? ` · slots for ${formatDisplayDate(activeSlotDay)}`
+                    : null}
+                </p>
               </div>
             ) : null}
             <DayHourSlots
@@ -920,7 +1076,7 @@ function TimePageInner() {
             mode={mode}
             tasks={tasks}
             projectsById={projectsById}
-            entries={periodEntries}
+            entries={panelEntries}
             canEdit={canMutateTime}
             canSubmit={
               Boolean(activeSheet?.canSubmit) &&
@@ -939,9 +1095,13 @@ function TimePageInner() {
             }}
             onEditEntry={(entry) => setModal({ type: 'edit-entry', entry })}
             onDeleteEntry={(entry) => setDeleting(entry)}
-            onStartTimer={(taskId) => {
-              void handleStart({ description: '', taskId });
-            }}
+            onStartTimer={
+              timersEnabled
+                ? (taskId) => {
+                    void handleStart({ description: '', taskId });
+                  }
+                : undefined
+            }
             onSubmitTask={(taskId) => {
               const task = tasks.find((t) => t.id === taskId);
               setConfirmAction({
@@ -986,7 +1146,7 @@ function TimePageInner() {
                 ? { startTime: modal.startTime, endTime: modal.endTime }
                 : null
             }
-            existingEntries={[...periodEntries, ...todayEntries]}
+            existingEntries={formExistingEntries}
             submitting={submitting}
             submitLabel="Add entry"
             onSubmit={handleAddTimeSubmit}
@@ -1007,7 +1167,7 @@ function TimePageInner() {
             tasks={tasks}
             projects={projects}
             initialEntry={modal.entry}
-            existingEntries={[...periodEntries, ...todayEntries]}
+            existingEntries={formExistingEntries}
             submitting={submitting}
             submitLabel="Save entry"
             onSubmit={handleEditEntrySubmit}

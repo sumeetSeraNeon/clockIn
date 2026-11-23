@@ -3,10 +3,33 @@ import {
   buildDayHourBuckets,
   busyFromEntries,
   formatHoursLabel,
+  formatSlotRange,
   freeClickRange,
   minutesFromClock,
+  slotAxisTickMinutes,
   suggestNextRange,
 } from './day-hour-slots';
+
+describe('formatSlotRange', () => {
+  it('formats 2h bucket ranges in 24h', () => {
+    expect(formatSlotRange(0, 120)).toBe('00:00–02:00');
+    expect(formatSlotRange(22 * 60, 24 * 60)).toBe('22:00–24:00');
+  });
+
+  it('formats partial ranges with minutes', () => {
+    expect(formatSlotRange(9 * 60 + 30, 14 * 60)).toBe('09:30–14:00');
+  });
+});
+
+describe('slotAxisTickMinutes', () => {
+  it('returns thirteen 2h boundary marks including 24:00', () => {
+    const ticks = slotAxisTickMinutes();
+    expect(ticks).toHaveLength(13);
+    expect(ticks[0]).toBe(0);
+    expect(ticks[1]).toBe(120);
+    expect(ticks[12]).toBe(24 * 60);
+  });
+});
 
 describe('minutesFromClock', () => {
   it('parses HH:mm', () => {
@@ -85,17 +108,17 @@ describe('buildDayHourBuckets', () => {
 });
 
 describe('freeClickRange', () => {
-  it('uses full remnant when under 2h', () => {
+  it('uses full remnant when under 1h', () => {
     expect(freeClickRange(9 * 60 + 30, 10 * 60)).toEqual({
       startTime: '09:30',
       endTime: '10:00',
     });
   });
 
-  it('caps remnant at 2h', () => {
+  it('caps remnant at 1h even inside a 2h free slot', () => {
     expect(freeClickRange(0, 4 * 60)).toEqual({
       startTime: '00:00',
-      endTime: '02:00',
+      endTime: '01:00',
     });
   });
 

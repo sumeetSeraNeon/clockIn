@@ -20,4 +20,9 @@ export class UpdateOrganisationDto {
   @IsOptional()
   @IsBoolean()
   managersCanSeeMargin?: boolean;
+
+  /** Allow Start timer on the timesheet (default off — range add time). */
+  @IsOptional()
+  @IsBoolean()
+  timersEnabled?: boolean;
 }

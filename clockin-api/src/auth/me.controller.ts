@@ -76,6 +76,7 @@ export class MeController {
         code: true,
         currency: true,
         managersCanSeeMargin: true,
+        timersEnabled: true,
       },
     });
 
@@ -115,6 +116,7 @@ export class MeController {
             code: organisation.code,
             currency: organisation.currency,
             managersCanSeeMargin: organisation.managersCanSeeMargin,
+            timersEnabled: organisation.timersEnabled,
           }
         : null,
       roles: membership.roles,

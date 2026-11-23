@@ -32,6 +32,8 @@ model Organisation {
   timezone  String   @default("UTC")
   /// When true, managers with report:view see margin/revenue (admins/owners always can via rate:view)
   managersCanSeeMargin Boolean @default(false) @map("managers_can_see_margin")
+  /// When true, timesheet shows Start timer; default is range-based add time only
+  timersEnabled Boolean @default(false) @map("timers_enabled")
   /// active | suspended
   status    String   @default("active")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz

@@ -13,16 +13,15 @@ export type CollapserLevel = 'client' | 'project' | 'task';
 
 type IconComp = ComponentType<{ className?: string }>;
 
-const LEVEL_STYLES: Record<
-  CollapserLevel,
-  {
-    Icon: IconComp;
-    button: string;
-    tile: string;
-    title: string;
-    hours: string;
-  }
-> = {
+type LevelStyle = {
+  Icon: IconComp;
+  button: string;
+  tile: string;
+  title: string;
+  hours: string;
+};
+
+const LEVEL_STYLES: Record<CollapserLevel, LevelStyle> = {
   client: {
     Icon: IconClients,
     button:
@@ -49,6 +48,26 @@ const LEVEL_STYLES: Record<
   },
 };
 
+/** Expanded client — coral so the viewing context stands out. */
+const CLIENT_OPEN_STYLE: LevelStyle = {
+  Icon: IconClients,
+  button:
+    'border-l-4 border-coral bg-coral/[0.12] px-4 py-3.5 hover:bg-coral/[0.16] sm:px-5',
+  tile: 'bg-coral/15 text-coral',
+  title: 'text-lg font-semibold tracking-tight text-coral',
+  hours: 'text-sm font-semibold text-coral',
+};
+
+/** Expanded project — lighter coral so it sits under the open client. */
+const PROJECT_OPEN_STYLE: LevelStyle = {
+  Icon: IconProjects,
+  button:
+    'border-l-4 border-coral/70 bg-coral/[0.08] px-4 py-3 pl-5 hover:bg-coral/[0.12] sm:px-5 sm:pl-7',
+  tile: 'bg-coral/10 text-coral',
+  title: 'text-base font-semibold tracking-tight text-coral',
+  hours: 'text-sm font-semibold text-coral',
+};
+
 type CollapserHeaderProps = {
   level: CollapserLevel;
   open: boolean;
@@ -72,7 +91,12 @@ export function CollapserHeader({
   metaTitle,
   onToggle,
 }: CollapserHeaderProps) {
-  const style = LEVEL_STYLES[level];
+  const style =
+    level === 'client' && open
+      ? CLIENT_OPEN_STYLE
+      : level === 'project' && open
+        ? PROJECT_OPEN_STYLE
+        : LEVEL_STYLES[level];
   const Icon = style.Icon;
 
   return (

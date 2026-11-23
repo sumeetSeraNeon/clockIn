@@ -14,6 +14,20 @@ export function clockFromMinutes(total: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
+/** UI-only 24h range for day-slot hover, e.g. `00:00–02:00`. */
+export function formatSlotRange(startMin: number, endMin: number): string {
+  return `${clockFromMinutes(startMin)}–${clockFromMinutes(endMin)}`;
+}
+
+/** 2h boundary ticks for the axis: 00:00, 02:00, … 24:00 (13 marks). */
+export function slotAxisTickMinutes(): number[] {
+  const ticks: number[] = [];
+  for (let m = 0; m <= DAY_MINUTES; m += SLOT_MINUTES) {
+    ticks.push(m);
+  }
+  return ticks;
+}
+
 export type BusyInterval = {
   startMin: number;
   endMin: number;
@@ -80,8 +94,11 @@ export function mergeBusy(intervals: BusyInterval[]): BusyInterval[] {
   return merged;
 }
 
+/** Prefill duration when clicking a free segment (modal shows 1h, slots stay 2h). */
+export const CLICK_PREFILL_MINUTES = 60;
+
 /**
- * Prefill range when clicking a free segment: remnant capped at one 2h slot.
+ * Prefill range when clicking a free segment: remnant capped at 1 hour.
  * End-of-day uses 23:59 (input type=time cannot be 24:00).
  */
 export function freeClickRange(
@@ -89,7 +106,7 @@ export function freeClickRange(
   segEnd: number,
 ): { startTime: string; endTime: string } {
   const startMin = Math.max(0, Math.min(DAY_MINUTES - 1, segStart));
-  let endMin = Math.min(segEnd, segStart + SLOT_MINUTES);
+  let endMin = Math.min(segEnd, segStart + CLICK_PREFILL_MINUTES);
   if (endMin <= startMin) {
     endMin = Math.min(DAY_MINUTES - 1, startMin + 1);
   }

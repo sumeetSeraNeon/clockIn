@@ -58,6 +58,43 @@ export function dateParamsInRange(from: string, to: string): string[] {
   return out;
 }
 
+/** `YYYY-MM` from a YYYY-MM-DD (or longer ISO) string. */
+export function yearMonthFromDateParam(day: string): string {
+  return day.slice(0, 7);
+}
+
+/** Distinct calendar months (`YYYY-MM`) spanned by an inclusive date range. */
+export function yearMonthsInRange(from: string, to: string): string[] {
+  const days = dateParamsInRange(from, to);
+  const months: string[] = [];
+  for (const d of days) {
+    const ym = yearMonthFromDateParam(d);
+    if (months[months.length - 1] !== ym) months.push(ym);
+  }
+  return months;
+}
+
+/** Keep only days whose month matches `yearMonth` (`YYYY-MM`). */
+export function dateParamsInYearMonth(
+  days: string[],
+  yearMonth: string,
+): string[] {
+  const ym = yearMonth.slice(0, 7);
+  return days.filter((d) => yearMonthFromDateParam(d) === ym);
+}
+
+/** Previous/next month within `months`, or null at the edge. */
+export function adjacentYearMonth(
+  months: string[],
+  current: string,
+  delta: -1 | 1,
+): string | null {
+  const ym = current.slice(0, 7);
+  const i = months.indexOf(ym);
+  if (i < 0) return months[0] ?? null;
+  return months[i + delta] ?? null;
+}
+
 /** Normalise API date (ISO or YYYY-MM-DD) to YYYY-MM-DD. */
 export function toDateKey(value: string): string {
   return value.slice(0, 10);
@@ -82,7 +119,7 @@ const MONTH_SHORT = [
   'Dec',
 ] as const;
 
-/** User-facing label: `2026-Nov-04` from YYYY-MM-DD or Date. */
+/** User-facing label: `04-Nov-2026` from YYYY-MM-DD or Date. */
 export function formatDisplayDate(value: string | Date): string {
   const key =
     typeof value === 'string' ? value.slice(0, 10) : toDateParam(value);
@@ -90,10 +127,10 @@ export function formatDisplayDate(value: string | Date): string {
   const y = d.getFullYear();
   const mon = MONTH_SHORT[d.getMonth()] ?? 'Jan';
   const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${mon}-${day}`;
+  return `${day}-${mon}-${y}`;
 }
 
-/** Single day or `2026-Nov-04 – 2026-Nov-19`. */
+/** Single day or `04-Nov-2026 – 19-Nov-2026`. */
 export function formatDisplayDateRange(
   from: string | Date,
   to?: string | Date | null,
@@ -114,9 +151,9 @@ export function weekdayShort(value: string): string {
   });
 }
 
-/** User-facing month label from `YYYY-MM` → `2026-Nov`. */
+/** User-facing month label from `YYYY-MM` → `Nov-2026`. */
 export function formatDisplayYearMonth(yearMonth: string): string {
   const [y, m] = yearMonth.slice(0, 7).split('-');
   const mon = MONTH_SHORT[Number(m) - 1] ?? m;
-  return `${y}-${mon}`;
+  return `${mon}-${y}`;
 }

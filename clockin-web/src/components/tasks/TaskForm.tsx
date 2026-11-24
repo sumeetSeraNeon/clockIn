@@ -1,12 +1,14 @@
 'use client';
 
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { FormField } from '@/components/common/FormField';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { api } from '@/lib/api-client';
+import { clientLabel } from '@/lib/client-label';
 import type {
+  Client,
   CreateTaskInput,
   MemberSummary,
   Project,
@@ -20,6 +22,8 @@ type TaskFormProps = {
   mode: 'create' | 'edit';
   initial?: Task | null;
   projects: Project[];
+  /** Optional — used for Client → Project cascade; otherwise derived from projects. */
+  clients?: Client[];
   /** Fallback org members when project team cannot be loaded */
   members: MemberSummary[];
   submitting: boolean;
@@ -36,6 +40,7 @@ type TaskFormProps = {
 };
 
 type FormState = {
+  clientId: string;
   projectId: string;
   name: string;
   status: TaskStatus;
@@ -45,6 +50,7 @@ type FormState = {
 };
 
 const EMPTY: FormState = {
+  clientId: '',
   projectId: '',
   name: '',
   status: 'open',
@@ -64,6 +70,7 @@ export function TaskForm({
   mode,
   initial,
   projects,
+  clients: clientsProp,
   members,
   submitting,
   canSetBillable = false,
@@ -74,9 +81,11 @@ export function TaskForm({
   onCancel,
 }: TaskFormProps) {
   const [form, setForm] = useState<FormState>(EMPTY);
-  const [errors, setErrors] = useState<{ name?: string; projectId?: string }>(
-    {},
-  );
+  const [errors, setErrors] = useState<{
+    name?: string;
+    projectId?: string;
+    clientId?: string;
+  }>({});
   const [assigneeOptions, setAssigneeOptions] = useState<MemberSummary[]>(
     members,
   );
@@ -84,6 +93,29 @@ export function TaskForm({
 
   const lockProject = Boolean(fixedProjectId);
   const compactCreate = mode === 'create' && lockProject;
+
+  const clientOptions = useMemo(() => {
+    if (clientsProp && clientsProp.length > 0) {
+      return [...clientsProp].sort((a, b) => a.name.localeCompare(b.name));
+    }
+    const byId = new Map<string, { id: string; name: string; code: string | null }>();
+    for (const p of projects) {
+      if (!p.clientId || byId.has(p.clientId)) continue;
+      byId.set(p.clientId, {
+        id: p.clientId,
+        name: p.client?.name ?? 'Client',
+        code: null,
+      });
+    }
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [clientsProp, projects]);
+
+  const projectOptions = useMemo(() => {
+    if (!form.clientId) return [];
+    return projects
+      .filter((p) => p.clientId === form.clientId)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [projects, form.clientId]);
 
   const selectedProject = projects.find((p) => p.id === form.projectId);
   const budgetHours =
@@ -99,7 +131,12 @@ export function TaskForm({
 
   useEffect(() => {
     if (mode === 'edit' && initial) {
+      const project =
+        projects.find((p) => p.id === initial.projectId) ??
+        initial.project ??
+        null;
       setForm({
+        clientId: project?.clientId ?? '',
         projectId: initial.projectId,
         name: initial.name ?? '',
         status: (initial.status as TaskStatus) || 'open',
@@ -112,10 +149,11 @@ export function TaskForm({
         billable: initial.billable ?? true,
       });
     } else {
-      const projectId = fixedProjectId || projects[0]?.id || '';
+      const projectId = fixedProjectId || '';
       const project = projects.find((p) => p.id === projectId);
       setForm({
         ...EMPTY,
+        clientId: project?.clientId ?? '',
         projectId,
         name: defaultName.trim(),
         billable: project?.billableByDefault ?? true,
@@ -162,6 +200,10 @@ export function TaskForm({
   function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => {
       const next = { ...prev, [key]: value };
+      if (key === 'clientId') {
+        next.projectId = '';
+        next.assigneeId = '';
+      }
       if (key === 'projectId') {
         next.assigneeId = '';
         if (value && !canSetBillable) {
@@ -176,8 +218,13 @@ export function TaskForm({
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     const name = form.name.trim();
-    const nextErrors: { name?: string; projectId?: string } = {};
+    const nextErrors: {
+      name?: string;
+      projectId?: string;
+      clientId?: string;
+    } = {};
     if (!name) nextErrors.name = 'Name is required.';
+    if (!lockProject && !form.clientId) nextErrors.clientId = 'Client is required.';
     if (!form.projectId) nextErrors.projectId = 'Project is required.';
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
@@ -212,29 +259,54 @@ export function TaskForm({
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
         {!lockProject ? (
-          <FormField
-            label="Project"
-            htmlFor="task-project"
-            error={errors.projectId}
-            required
-          >
-            <Select
-              id="task-project"
-              value={form.projectId}
-              onChange={(e) => setField('projectId', e.target.value)}
-              invalid={Boolean(errors.projectId)}
+          <>
+            <FormField
+              label="Client"
+              htmlFor="task-client"
+              error={errors.clientId}
               required
             >
-              <option value="" disabled>
-                Select a project
-              </option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
+              <Select
+                id="task-client"
+                value={form.clientId}
+                onChange={(e) => setField('clientId', e.target.value)}
+                invalid={Boolean(errors.clientId)}
+                required
+              >
+                <option value="">Select a client</option>
+                {clientOptions.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {clientLabel(c)}
+                  </option>
+                ))}
+              </Select>
+            </FormField>
+
+            <FormField
+              label="Project"
+              htmlFor="task-project"
+              error={errors.projectId}
+              required
+            >
+              <Select
+                id="task-project"
+                value={form.projectId}
+                onChange={(e) => setField('projectId', e.target.value)}
+                invalid={Boolean(errors.projectId)}
+                required
+                disabled={!form.clientId}
+              >
+                <option value="">
+                  {!form.clientId ? 'Select a client first' : 'Select a project'}
                 </option>
-              ))}
-            </Select>
-          </FormField>
+                {projectOptions.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </Select>
+            </FormField>
+          </>
         ) : null}
 
         <FormField
@@ -242,13 +314,13 @@ export function TaskForm({
           htmlFor="task-name"
           error={errors.name}
           required
-          className={lockProject ? 'sm:col-span-2' : undefined}
+          className={lockProject ? 'sm:col-span-2' : 'sm:col-span-2'}
         >
           <Input
             id="task-name"
             value={form.name}
             onChange={(e) => setField('name', e.target.value)}
-            placeholder="Implement login screen"
+            placeholder="Add task here"
             invalid={Boolean(errors.name)}
             required
           />

@@ -20,6 +20,7 @@ import {
   projectsForClient,
   projectsScopedToTasks,
 } from '@/lib/task-project-picker';
+import { clientLabel } from '@/lib/client-label';
 import { formatHoursMinutes } from '@/lib/format-duration';
 import { TaskSearchSelect } from '@/components/time/TaskSearchSelect';
 import { TicketOptionalSelect } from '@/components/time/TicketOptionalSelect';
@@ -33,6 +34,9 @@ import {
 
 export type AddTimeValues = {
   taskId: string;
+  /** Required for create when task is omitted (ticket-only). */
+  projectId: string;
+  clientId: string;
   /** Optional ticket on the time line (FIX 1). Empty = none. */
   ticketId: string;
   entryDate: string;
@@ -250,8 +254,8 @@ export function AddTimeForm({
       setError('Pick a project.');
       return;
     }
-    if (!taskId) {
-      setError('Pick a task.');
+    if (!taskId && !ticketId) {
+      setError('Pick a task, or select a ticket to log without a task.');
       return;
     }
     if (!startTime || !endTime) {
@@ -277,6 +281,8 @@ export function AddTimeForm({
     const parts = partsFromMinutes(mins);
     const draftValues: AddTimeValues = {
       taskId,
+      projectId,
+      clientId,
       ticketId,
       entryDate,
       description,
@@ -344,7 +350,7 @@ export function AddTimeForm({
             <option value="">Select client…</option>
             {clientOptions.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.name}
+                {clientLabel(c)}
               </option>
             ))}
           </Select>
@@ -379,6 +385,7 @@ export function AddTimeForm({
           onChange={setTaskId}
           disabled={submitting}
           selectedLabel={selectedTaskLabel}
+          required={false}
         />
 
         <TicketOptionalSelect

@@ -31,7 +31,7 @@ export function TaskSearchSelect({
   compact = false,
   id = 'task-search',
   className,
-  required = true,
+  required = false,
 }: TaskSearchSelectProps) {
   const [pickedLabel, setPickedLabel] = useState<string | null>(null);
 

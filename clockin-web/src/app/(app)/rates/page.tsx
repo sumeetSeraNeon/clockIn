@@ -17,6 +17,7 @@ import { Select } from '@/components/ui/Select';
 import { SearchField } from '@/components/common/SearchField';
 import { useAuth } from '@/lib/auth-context';
 import { api } from '@/lib/api-client';
+import { clientLabel } from '@/lib/client-label';
 import { getErrorMessage } from '@/lib/get-error-message';
 import {
   fallbackScopeRates,
@@ -71,7 +72,6 @@ export default function RatesPage() {
   const [month, setMonth] = useState(currentMonthValue);
   const [nameQuery, setNameQuery] = useState('');
   const [modalMode, setModalMode] = useState<AddModalMode>(null);
-  const [lookupOpen, setLookupOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const [clients, setClients] = useState<Client[]>([]);
@@ -79,19 +79,18 @@ export default function RatesPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
 
-  const { data, total, totalPages, pageSize, loading, error, reload } =
-    useRates({
-      page,
-      pageSize: 100,
-      rateType,
-      scope,
-      clientId,
-      projectId,
-      userId,
-      current: tab === 'current' ? true : undefined,
-      month: tab === 'track' ? month : undefined,
-      q: nameQuery,
-    });
+  const { data, pageSize, loading, error, reload } = useRates({
+    page,
+    pageSize: 100,
+    rateType,
+    scope,
+    clientId,
+    projectId,
+    userId,
+    current: tab === 'current' ? true : undefined,
+    month: tab === 'track' ? month : undefined,
+    q: nameQuery,
+  });
 
   const pairRows = useMemo(
     () =>
@@ -108,6 +107,11 @@ export default function RatesPage() {
     scope === 'project' ||
     scope === 'user' ||
     scope === 'task';
+
+  const visiblePairCount = showPairSection ? pairRows.length : 0;
+  const visibleFallbackCount =
+    showFallbacks && fallbackRows.length > 0 ? fallbackRows.length : 0;
+  const visibleTotal = visiblePairCount + visibleFallbackCount;
 
   const isEmpty =
     (showPairSection ? pairRows.length === 0 : true) &&
@@ -216,29 +220,20 @@ export default function RatesPage() {
         description={`${orgName} · ${orgCurrency}`}
         helpKey="rates"
         actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => setLookupOpen(true)}
-            >
-              Check rate
-            </Button>
-            {canEdit ? (
-              <>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => setModalMode('advanced')}
-                >
-                  Advanced
-                </Button>
-                <Button type="button" onClick={() => setModalMode('pair')}>
-                  Set project rates
-                </Button>
-              </>
-            ) : null}
-          </div>
+          canEdit ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setModalMode('advanced')}
+              >
+                Advanced
+              </Button>
+              <Button type="button" onClick={() => setModalMode('pair')}>
+                Set project rates
+              </Button>
+            </div>
+          ) : undefined
         }
       />
 
@@ -320,7 +315,7 @@ export default function RatesPage() {
             <option value="all">All clients</option>
             {clients.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.name}
+                {clientLabel(c)}
               </option>
             ))}
           </Select>
@@ -441,23 +436,19 @@ export default function RatesPage() {
             </section>
           ) : null}
 
-          {showFallbacks ? (
+          {showFallbacks && fallbackRows.length > 0 ? (
             <section className="space-y-3 border-t border-navy/10 pt-6">
               <h2 className="text-base font-semibold tracking-tight text-navy">
                 Other rates
               </h2>
-              {fallbackRows.length === 0 ? (
-                <p className="text-sm text-slate">No other rates.</p>
-              ) : (
-                <RatesTable rates={fallbackRows} />
-              )}
+              <RatesTable rates={fallbackRows} />
             </section>
           ) : null}
 
           <Pagination
             page={page}
-            totalPages={totalPages}
-            total={total}
+            totalPages={Math.max(1, Math.ceil(visibleTotal / pageSize))}
+            total={visibleTotal}
             pageSize={pageSize}
             onPageChange={setPage}
           />
@@ -500,189 +491,6 @@ export default function RatesPage() {
           onCancel={() => setModalMode(null)}
         />
       </Modal>
-
-      <Modal
-        open={lookupOpen}
-        title="Check effective rate"
-        description="Uses the same lookup as reports: most-specific matching rate on a date."
-        onClose={() => setLookupOpen(false)}
-        size="lg"
-      >
-        <RateLookupPanel
-          clients={clients}
-          projects={projects}
-          tasks={tasks}
-          members={members}
-          onClose={() => setLookupOpen(false)}
-        />
-      </Modal>
-    </div>
-  );
-}
-
-function RateLookupPanel({
-  clients,
-  projects,
-  tasks,
-  members,
-  onClose,
-}: {
-  clients: Client[];
-  projects: Project[];
-  tasks: Task[];
-  members: Member[];
-  onClose: () => void;
-}) {
-  const [rateType, setRateType] = useState<RateType>('billable');
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [clientId, setClientId] = useState('');
-  const [projectId, setProjectId] = useState('');
-  const [userId, setUserId] = useState('');
-  const [taskId, setTaskId] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{
-    amount: string | null;
-    currency: string | null;
-    matchedScope: string | null;
-  } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const projectTasks = useMemo(
-    () =>
-      projectId ? tasks.filter((t) => t.projectId === projectId) : tasks,
-    [tasks, projectId],
-  );
-
-  async function runLookup() {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await api<{
-        amount: string | null;
-        currency: string | null;
-        matchedScope: string | null;
-      }>('/rates/lookup', {
-        method: 'POST',
-        body: {
-          rateType,
-          date,
-          ...(clientId ? { clientId } : {}),
-          ...(projectId ? { projectId } : {}),
-          ...(userId ? { userId } : {}),
-          ...(taskId ? { taskId } : {}),
-        },
-      });
-      setResult(res);
-    } catch (err) {
-      setResult(null);
-      setError(getErrorMessage(err, 'Lookup failed'));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="flex flex-col gap-1 text-sm text-slate">
-          Type
-          <Select
-            value={rateType}
-            onChange={(e) => setRateType(e.target.value as RateType)}
-          >
-            <option value="billable">Billable (charge)</option>
-            <option value="cost">Cost</option>
-          </Select>
-        </label>
-        <label className="flex flex-col gap-1 text-sm text-slate">
-          Date
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="rounded-md border border-navy/15 bg-white px-3 py-2 text-sm text-navy"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm text-slate">
-          Client
-          <Select
-            value={clientId}
-            onChange={(e) => setClientId(e.target.value)}
-          >
-            <option value="">Any</option>
-            {clients.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </Select>
-        </label>
-        <label className="flex flex-col gap-1 text-sm text-slate">
-          Project
-          <Select
-            value={projectId}
-            onChange={(e) => {
-              setProjectId(e.target.value);
-              setTaskId('');
-            }}
-          >
-            <option value="">Any</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </Select>
-        </label>
-        <label className="flex flex-col gap-1 text-sm text-slate">
-          Person
-          <Select value={userId} onChange={(e) => setUserId(e.target.value)}>
-            <option value="">Any</option>
-            {members.map((m) => (
-              <option key={m.userId} value={m.userId}>
-                {m.user.name || m.user.email}
-              </option>
-            ))}
-          </Select>
-        </label>
-        <label className="flex flex-col gap-1 text-sm text-slate">
-          Task
-          <Select value={taskId} onChange={(e) => setTaskId(e.target.value)}>
-            <option value="">Any</option>
-            {projectTasks.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </Select>
-        </label>
-      </div>
-
-      {error ? <p className="text-sm text-danger">{error}</p> : null}
-      {result ? (
-        <div className="rounded-lg bg-paper px-4 py-3 text-sm">
-          {result.amount != null ? (
-            <p className="font-medium text-navy">
-              {Number(result.amount).toFixed(2)}{' '}
-              {result.currency ?? 'GBP'}
-              <span className="ml-2 font-normal text-slate">
-                via {result.matchedScope?.replace(/_/g, ' ') ?? 'unknown'} scope
-              </span>
-            </p>
-          ) : (
-            <p className="text-slate">No matching rate for this context.</p>
-          )}
-        </div>
-      ) : null}
-
-      <div className="flex justify-end gap-2">
-        <Button type="button" variant="secondary" onClick={onClose}>
-          Close
-        </Button>
-        <Button type="button" loading={loading} onClick={() => void runLookup()}>
-          Look up
-        </Button>
-      </div>
     </div>
   );
 }

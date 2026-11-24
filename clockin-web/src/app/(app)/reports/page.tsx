@@ -8,6 +8,7 @@ import { BudgetReportPanel } from '@/components/reports/BudgetReportPanel';
 import { ReportDetailedTable } from '@/components/reports/ReportDetailedTable';
 import { ReportSummaryPanel } from '@/components/reports/ReportSummaryPanel';
 import { UtilisationPanel } from '@/components/reports/UtilisationPanel';
+import { DateTextField } from '@/components/common/DateTextField';
 import { EmptyState } from '@/components/common/EmptyState';
 import { PageHeader } from '@/components/common/PageHeader';
 import { Pagination } from '@/components/common/Pagination';
@@ -121,6 +122,10 @@ export default function ReportsPage() {
   );
   const summaryDepartments = useReportSummary(
     { ...filters, groupBy: 'department' },
+    canView && tab === 'summary',
+  );
+  const summaryClients = useReportSummary(
+    { ...filters, groupBy: 'client' },
     canView && tab === 'summary',
   );
   const summaryUtilYearMonth = filters.dateTo.slice(0, 7);
@@ -527,20 +532,16 @@ export default function ReportsPage() {
           <>
             <label className="flex flex-col gap-1 text-xs text-slate">
               From
-              <Input
-                type="date"
+              <DateTextField
                 value={filters.dateFrom}
-                onChange={(e) => patchFilters({ dateFrom: e.target.value })}
-                className="w-auto"
+                onChange={(dateFrom) => patchFilters({ dateFrom })}
               />
             </label>
             <label className="flex flex-col gap-1 text-xs text-slate">
               To
-              <Input
-                type="date"
+              <DateTextField
                 value={filters.dateTo}
-                onChange={(e) => patchFilters({ dateTo: e.target.value })}
-                className="w-auto"
+                onChange={(dateTo) => patchFilters({ dateTo })}
               />
             </label>
           </>
@@ -763,6 +764,7 @@ export default function ReportsPage() {
           taskGroups={summaryTasks.data?.groups ?? []}
           userGroups={summaryUsers.data?.groups ?? []}
           departmentGroups={summaryDepartments.data?.groups ?? []}
+          clientGroups={summaryClients.data?.groups ?? []}
           utilisationPeople={summaryUtilisation.data?.people ?? []}
           members={members}
         />

@@ -511,7 +511,9 @@ function TimePageInner() {
         startTime: range.startTime,
         endTime: range.endTime,
         line: {
-          taskId: values.taskId,
+          ...(values.taskId ? { taskId: values.taskId } : {}),
+          projectId: values.projectId || undefined,
+          clientId: values.clientId || undefined,
           durationMinutes,
           description: values.description.trim() || undefined,
           ...(values.ticketId ? { ticketId: values.ticketId } : {}),
@@ -550,7 +552,9 @@ function TimePageInner() {
       await api(`/time-lines/${line.id}`, {
         method: 'PATCH',
         body: {
-          taskId: values.taskId,
+          taskId: values.taskId || null,
+          projectId: values.projectId || null,
+          clientId: values.clientId || null,
           durationMinutes,
           description: values.description.trim() || null,
           ticketId: values.ticketId || null,
@@ -751,7 +755,36 @@ function TimePageInner() {
       <div className="space-y-3 border-b border-border/50 pb-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0 space-y-2.5">
-            <div className="space-y-1.5">
+            <div
+              className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-navy/10 pb-px"
+              role="group"
+              aria-label="Timesheet period"
+            >
+              <div className="flex gap-1">
+                {(
+                  [
+                    ['day', 'Day'],
+                    ['week', 'Week'],
+                    ['period', 'Period'],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    className={
+                      mode === id
+                        ? 'cursor-pointer border-b-2 border-coral px-3 py-2 text-sm font-medium text-coral'
+                        : 'cursor-pointer border-b-2 border-transparent px-3 py-2 text-sm text-slate hover:text-navy'
+                    }
+                    onClick={() => setMode(id)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-2">
                 {mode === 'day' ? (
                   <h2 className="text-lg font-semibold tracking-tight text-ink">
@@ -773,10 +806,10 @@ function TimePageInner() {
                 ) : null}
               </div>
               {mode === 'week' ? (
-                <div className="flex flex-wrap items-center gap-1">
+                <div className="flex flex-wrap items-center gap-1.5">
                   <Button
                     type="button"
-                    variant="ghost"
+                    variant="secondary"
                     size="sm"
                     onClick={() => shiftWeek(-1)}
                   >
@@ -785,7 +818,7 @@ function TimePageInner() {
                   {!isCurrentWeek ? (
                     <Button
                       type="button"
-                      variant="ghost"
+                      variant="secondary"
                       size="sm"
                       onClick={() => setWeekAnchor(new Date())}
                     >
@@ -794,7 +827,7 @@ function TimePageInner() {
                   ) : null}
                   <Button
                     type="button"
-                    variant="ghost"
+                    variant="secondary"
                     size="sm"
                     onClick={() => shiftWeek(1)}
                     disabled={isCurrentWeek}
@@ -803,33 +836,6 @@ function TimePageInner() {
                   </Button>
                 </div>
               ) : null}
-            </div>
-
-            <div
-              className="inline-flex rounded-lg bg-paper/80 p-0.5 ring-1 ring-border/40"
-              role="group"
-              aria-label="Timesheet period"
-            >
-              {(
-                [
-                  ['day', 'Day'],
-                  ['week', 'Week'],
-                  ['period', 'Period'],
-                ] as const
-              ).map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  className={`rounded-md px-3.5 py-1.5 text-sm font-medium transition ${
-                    mode === id
-                      ? 'bg-card text-ink shadow-sm'
-                      : 'text-slate hover:text-ink'
-                  }`}
-                  onClick={() => setMode(id)}
-                >
-                  {label}
-                </button>
-              ))}
             </div>
 
             {mode === 'period' ? (
@@ -862,12 +868,7 @@ function TimePageInner() {
                 ? 'Stop the running timer before submitting.'
                 : periodLocked
                   ? 'This period is locked — entries are read-only.'
-                  : activeSheet?.conflictDays &&
-                      activeSheet.conflictDays.length > 0
-                    ? `Some days already submitted (${activeSheet.conflictDays
-                        .map((d) => formatDisplayDate(d))
-                        .join(', ')}).`
-                    : 'Submit draft time when ready. After approval you can still add drafts and submit again.'}
+                  : 'Submit draft time when ready. After approval you can still add drafts and submit again.'}
             </p>
           </div>
 
@@ -981,7 +982,7 @@ function TimePageInner() {
                 >
                   <button
                     type="button"
-                    className="border-r border-border bg-card px-3 py-2 text-sm font-semibold text-ink transition hover:bg-coral-tint hover:text-coral disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-card disabled:hover:text-ink"
+                    className="cursor-pointer border-r border-border bg-card px-3 py-2 text-sm font-semibold text-ink transition hover:bg-coral-tint hover:text-coral disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-card disabled:hover:text-ink"
                     disabled={
                       !adjacentYearMonth(periodMonths, periodChipMonth, -1)
                     }
@@ -995,7 +996,7 @@ function TimePageInner() {
                   </span>
                   <button
                     type="button"
-                    className="border-l border-border bg-card px-3 py-2 text-sm font-semibold text-ink transition hover:bg-coral-tint hover:text-coral disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-card disabled:hover:text-ink"
+                    className="cursor-pointer border-l border-border bg-card px-3 py-2 text-sm font-semibold text-ink transition hover:bg-coral-tint hover:text-coral disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-card disabled:hover:text-ink"
                     disabled={
                       !adjacentYearMonth(periodMonths, periodChipMonth, 1)
                     }
@@ -1009,21 +1010,19 @@ function TimePageInner() {
             </div>
             {mode !== 'day' ? (
               <div className="space-y-1.5">
+                <button
+                  type="button"
+                  onClick={() => setPanelFocus('range')}
+                  className={`cursor-pointer rounded-lg border px-3 py-2 text-left text-sm font-semibold shadow-sm transition ${
+                    panelFocus === 'range'
+                      ? 'border-coral/40 bg-coral-tint text-coral'
+                      : 'border-border bg-card text-ink hover:border-coral/30 hover:bg-coral-tint/50 hover:text-coral'
+                  }`}
+                >
+                  {mode === 'week' ? 'Week' : 'This period'}
+                  <span className="font-medium opacity-80"> · All days</span>
+                </button>
                 <div className="flex flex-wrap gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setPanelFocus('range')}
-                    className={`rounded-lg px-2.5 py-1.5 text-left text-xs font-medium transition ring-1 ${
-                      panelFocus === 'range'
-                        ? 'bg-coral-tint text-coral shadow-sm ring-coral/40'
-                        : 'bg-paper/60 text-slate ring-border/40 hover:text-ink'
-                    }`}
-                  >
-                    <span className="block">
-                      {mode === 'week' ? 'Week' : 'This period'}
-                    </span>
-                    <span className="block opacity-80">All days</span>
-                  </button>
                   {chipDayList.map((day) => (
                     <button
                       key={day}
@@ -1032,14 +1031,14 @@ function TimePageInner() {
                         setPanelFocus(day);
                         setSlotDay(day);
                       }}
-                      className={`rounded-lg px-2.5 py-1.5 text-left text-xs font-medium transition ring-1 ${
+                      className={`min-w-[5.5rem] cursor-pointer rounded-lg border px-2.5 py-2 text-left text-xs font-semibold shadow-sm transition ${
                         panelFocus === day
-                          ? 'bg-card text-ink shadow-sm ring-border'
-                          : 'bg-paper/60 text-slate ring-border/40 hover:text-ink'
+                          ? 'border-coral/40 bg-coral-tint text-coral'
+                          : 'border-border bg-card text-ink hover:border-coral/30 hover:bg-coral-tint/40'
                       }`}
                     >
                       <span className="block">{weekdayShort(day)}</span>
-                      <span className="block tabular-nums opacity-80">
+                      <span className="block tabular-nums font-medium opacity-80">
                         {formatDisplayDate(day)}
                       </span>
                     </button>

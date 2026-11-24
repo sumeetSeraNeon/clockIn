@@ -955,11 +955,30 @@ export class TimeService {
       projectId = fromTask.projectId;
       clientId = fromTask.clientId;
     } else {
-      if (dto.projectId) {
-        await this.assertProjectInOrg(organisationId, dto.projectId);
+      // Ticket-only lines: derive project/client from the ticket when omitted
+      if (dto.ticketId && !projectId) {
+        const ticket = await this.prisma.ticket.findFirst({
+          where: { id: dto.ticketId, organisationId },
+          select: {
+            projectId: true,
+            project: { select: { clientId: true } },
+          },
+        });
+        if (ticket?.projectId) {
+          projectId = ticket.projectId;
+          clientId = clientId ?? ticket.project?.clientId ?? null;
+        }
       }
-      if (dto.clientId) {
-        await this.assertClientInOrg(organisationId, dto.clientId);
+      if (projectId) {
+        await this.assertProjectInOrg(organisationId, projectId);
+      }
+      if (clientId) {
+        await this.assertClientInOrg(organisationId, clientId);
+      }
+      if (!projectId) {
+        throw new BadRequestException(
+          'projectId or taskId is required (or a ticket linked to a project)',
+        );
       }
     }
 

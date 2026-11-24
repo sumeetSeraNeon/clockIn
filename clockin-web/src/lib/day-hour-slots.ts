@@ -14,12 +14,12 @@ export function clockFromMinutes(total: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
-/** UI-only 24h range for day-slot hover, e.g. `00:00–02:00`. */
+/** UI-only 24h range for day-slot hover, e.g. `00:00–01:00`. */
 export function formatSlotRange(startMin: number, endMin: number): string {
   return `${clockFromMinutes(startMin)}–${clockFromMinutes(endMin)}`;
 }
 
-/** 2h boundary ticks for the axis: 00:00, 02:00, … 24:00 (13 marks). */
+/** 1h boundary ticks for the axis: 00:00, 01:00, … 24:00 (25 marks). */
 export function slotAxisTickMinutes(): number[] {
   const ticks: number[] = [];
   for (let m = 0; m <= DAY_MINUTES; m += SLOT_MINUTES) {
@@ -55,15 +55,15 @@ export type SlotSegment = {
 };
 
 export type DayHourBucket = {
-  /** Bucket start minute (0, 120, …) */
+  /** Bucket start minute (0, 60, …) */
   startMin: number;
   endMin: number;
   segments: SlotSegment[];
 };
 
-export const SLOT_MINUTES = 120;
+export const SLOT_MINUTES = 60;
 export const DAY_MINUTES = 24 * 60;
-export const BASE_BUCKET_COUNT = 12;
+export const BASE_BUCKET_COUNT = 24;
 
 export function baseBuckets(): { startMin: number; endMin: number }[] {
   const out: { startMin: number; endMin: number }[] = [];
@@ -94,7 +94,7 @@ export function mergeBusy(intervals: BusyInterval[]): BusyInterval[] {
   return merged;
 }
 
-/** Prefill duration when clicking a free segment (modal shows 1h, slots stay 2h). */
+/** Prefill duration when clicking a free segment (1h within the free remnant). */
 export const CLICK_PREFILL_MINUTES = 60;
 
 /**
@@ -120,7 +120,7 @@ export function freeClickRange(
 }
 
 /**
- * Split each 2h bucket into free/busy segments from day's busy intervals.
+ * Split each 1h bucket into free/busy segments from day's busy intervals.
  */
 export function buildDayHourBuckets(
   busy: BusyInterval[],

@@ -11,9 +11,9 @@ import {
 } from './day-hour-slots';
 
 describe('formatSlotRange', () => {
-  it('formats 2h bucket ranges in 24h', () => {
-    expect(formatSlotRange(0, 120)).toBe('00:00–02:00');
-    expect(formatSlotRange(22 * 60, 24 * 60)).toBe('22:00–24:00');
+  it('formats 1h bucket ranges in 24h', () => {
+    expect(formatSlotRange(0, 60)).toBe('00:00–01:00');
+    expect(formatSlotRange(23 * 60, 24 * 60)).toBe('23:00–24:00');
   });
 
   it('formats partial ranges with minutes', () => {
@@ -22,12 +22,12 @@ describe('formatSlotRange', () => {
 });
 
 describe('slotAxisTickMinutes', () => {
-  it('returns thirteen 2h boundary marks including 24:00', () => {
+  it('returns twenty-five 1h boundary marks including 24:00', () => {
     const ticks = slotAxisTickMinutes();
-    expect(ticks).toHaveLength(13);
+    expect(ticks).toHaveLength(25);
     expect(ticks[0]).toBe(0);
-    expect(ticks[1]).toBe(120);
-    expect(ticks[12]).toBe(24 * 60);
+    expect(ticks[1]).toBe(60);
+    expect(ticks[24]).toBe(24 * 60);
   });
 });
 
@@ -42,24 +42,23 @@ describe('minutesFromClock', () => {
 });
 
 describe('buildDayHourBuckets', () => {
-  it('emits twelve free 2h slots when empty', () => {
+  it('emits twenty-four free 1h slots when empty', () => {
     const buckets = buildDayHourBuckets([]);
-    expect(buckets).toHaveLength(12);
+    expect(buckets).toHaveLength(24);
     expect(
       buckets.every(
         (b) => b.segments.length === 1 && b.segments[0].kind === 'free',
       ),
     ).toBe(true);
-    expect(buckets[0].endMin - buckets[0].startMin).toBe(120);
+    expect(buckets[0].endMin - buckets[0].startMin).toBe(60);
   });
 
-  it('splits an 8–10 slot into 1h free + 1h busy', () => {
+  it('marks a full hour busy when booking fills it', () => {
     const buckets = buildDayHourBuckets([
       { startMin: 9 * 60, endMin: 10 * 60, entryId: 'e1' },
     ]);
-    const eight = buckets.find((b) => b.startMin === 8 * 60)!;
-    expect(eight.segments).toEqual([
-      { startMin: 8 * 60, endMin: 9 * 60, kind: 'free' },
+    const nine = buckets.find((b) => b.startMin === 9 * 60)!;
+    expect(nine.segments).toEqual([
       {
         startMin: 9 * 60,
         endMin: 10 * 60,
@@ -68,25 +67,24 @@ describe('buildDayHourBuckets', () => {
         label: undefined,
       },
     ]);
+    const eight = buckets.find((b) => b.startMin === 8 * 60)!;
+    expect(eight.segments).toEqual([
+      { startMin: 8 * 60, endMin: 9 * 60, kind: 'free' },
+    ]);
     expect(formatHoursLabel(120)).toBe('2h');
   });
 
-  it('handles half-hour booking', () => {
+  it('handles half-hour booking inside one hour', () => {
     const buckets = buildDayHourBuckets([
       { startMin: 9 * 60, endMin: 9 * 60 + 30, entryId: 'e1' },
     ]);
-    const eight = buckets.find((b) => b.startMin === 8 * 60)!;
-    expect(eight.segments[0]).toMatchObject({
-      kind: 'free',
-      startMin: 480,
-      endMin: 540,
-    });
-    expect(eight.segments[1]).toMatchObject({
+    const nine = buckets.find((b) => b.startMin === 9 * 60)!;
+    expect(nine.segments[0]).toMatchObject({
       kind: 'busy',
       startMin: 540,
       endMin: 570,
     });
-    expect(eight.segments[2]).toMatchObject({
+    expect(nine.segments[1]).toMatchObject({
       kind: 'free',
       startMin: 570,
       endMin: 600,
@@ -95,8 +93,8 @@ describe('buildDayHourBuckets', () => {
 
   it('handles multiple bookings in one bucket', () => {
     const buckets = buildDayHourBuckets([
-      { startMin: 8 * 60, endMin: 8 * 60 + 30, entryId: 'a' },
-      { startMin: 9 * 60, endMin: 10 * 60, entryId: 'b' },
+      { startMin: 8 * 60, endMin: 8 * 60 + 20, entryId: 'a' },
+      { startMin: 8 * 60 + 40, endMin: 9 * 60, entryId: 'b' },
     ]);
     const eight = buckets.find((b) => b.startMin === 8 * 60)!;
     expect(eight.segments.map((s) => s.kind)).toEqual([
@@ -115,7 +113,7 @@ describe('freeClickRange', () => {
     });
   });
 
-  it('caps remnant at 1h even inside a 2h free slot', () => {
+  it('caps remnant at 1h even inside a longer free slot', () => {
     expect(freeClickRange(0, 4 * 60)).toEqual({
       startTime: '00:00',
       endTime: '01:00',

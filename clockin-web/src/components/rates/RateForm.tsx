@@ -6,6 +6,7 @@ import { MoneyAmountField } from '@/components/common/MoneyAmountField';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { clientLabel } from '@/lib/client-label';
 import { toDateParam } from '@/lib/date-range';
 import { resolveCurrency } from '@/lib/format-money';
 import type {
@@ -226,7 +227,7 @@ export function RateForm({
             <option value="">Select client</option>
             {clients.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.name}
+                {clientLabel(c)}
               </option>
             ))}
           </Select>

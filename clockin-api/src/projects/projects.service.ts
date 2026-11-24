@@ -27,6 +27,18 @@ import {
 
 const ENTITY_TYPE = 'project';
 const PROJECT_MEMBER_ENTITY = 'project_member';
+const DUPLICATE_NAME_MSG =
+  'A project with this name already exists for this client';
+
+function rethrowProjectUnique(error: unknown): never {
+  if (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === 'P2002'
+  ) {
+    throw new BadRequestException(DUPLICATE_NAME_MSG);
+  }
+  mapPrismaError(error);
+}
 
 const projectMemberInclude = {
   membership: {
@@ -138,7 +150,7 @@ export class ProjectsService {
       return project;
     } catch (error) {
       if (error instanceof ForbiddenException) throw error;
-      mapPrismaError(error);
+      rethrowProjectUnique(error);
     }
   }
 
@@ -315,7 +327,7 @@ export class ProjectsService {
       ) {
         throw error;
       }
-      mapPrismaError(error);
+      rethrowProjectUnique(error);
     }
   }
 

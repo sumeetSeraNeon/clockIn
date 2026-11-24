@@ -150,7 +150,9 @@ export default function CalendarPage() {
         startTime: range.startTime,
         endTime: range.endTime,
         line: {
-          taskId: values.taskId,
+          ...(values.taskId ? { taskId: values.taskId } : {}),
+          projectId: values.projectId || undefined,
+          clientId: values.clientId || undefined,
           durationMinutes,
           description: values.description.trim() || undefined,
           ...(values.ticketId ? { ticketId: values.ticketId } : {}),
@@ -191,7 +193,9 @@ export default function CalendarPage() {
       await api(`/time-lines/${line.id}`, {
         method: 'PATCH',
         body: {
-          taskId: values.taskId,
+          taskId: values.taskId || null,
+          projectId: values.projectId || null,
+          clientId: values.clientId || null,
           durationMinutes,
           description: values.description.trim() || null,
           ticketId: values.ticketId || null,

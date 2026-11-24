@@ -3,7 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { Client, Prisma } from '@prisma/client';
+import { Prisma, type Client } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import type { AuthMembership } from '../auth/auth.types';
 import { VisibilityService } from '../auth/visibility.service';
@@ -19,6 +19,17 @@ import { ListClientsQueryDto } from './dto/list-clients-query.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
 
 const ENTITY_TYPE = 'client';
+const DUPLICATE_NAME_MSG = 'A client with this name already exists';
+
+function rethrowClientUnique(error: unknown): never {
+  if (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === 'P2002'
+  ) {
+    throw new BadRequestException(DUPLICATE_NAME_MSG);
+  }
+  mapPrismaError(error);
+}
 
 @Injectable()
 export class ClientsService {
@@ -71,7 +82,7 @@ export class ClientsService {
 
       return client;
     } catch (error) {
-      mapPrismaError(error);
+      rethrowClientUnique(error);
     }
   }
 
@@ -184,7 +195,7 @@ export class ClientsService {
       if (error instanceof NotFoundException) {
         throw error;
       }
-      mapPrismaError(error);
+      rethrowClientUnique(error);
     }
   }
 

@@ -15,6 +15,7 @@ import { ImportModal } from '@/components/import/ImportModal';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
 import { api } from '@/lib/api-client';
+import { clientLabel } from '@/lib/client-label';
 import { getErrorMessage } from '@/lib/get-error-message';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { useTasks } from '@/lib/use-tasks';
@@ -301,7 +302,7 @@ export default function TasksPage() {
                 <option value="all">All clients</option>
                 {clients.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.name}
+                    {clientLabel(c)}
                   </option>
                 ))}
               </Select>
@@ -440,6 +441,7 @@ export default function TasksPage() {
           mode={modalMode === 'edit' ? 'edit' : 'create'}
           initial={editing}
           projects={projects}
+          clients={clients}
           members={members}
           submitting={submitting}
           canSetBillable={canSetBillable}

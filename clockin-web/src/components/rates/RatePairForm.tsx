@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { api } from '@/lib/api-client';
+import { clientLabel } from '@/lib/client-label';
 import { toDateParam } from '@/lib/date-range';
 import { formatMoney, resolveCurrency } from '@/lib/format-money';
 import type {
@@ -306,7 +307,7 @@ export function RatePairForm({
               <option value="">Select client</option>
               {clientOptions.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name}
+                  {clientLabel(c)}
                 </option>
               ))}
             </Select>

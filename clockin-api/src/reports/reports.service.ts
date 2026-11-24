@@ -387,8 +387,8 @@ export class ReportsService {
             groupsCost: groupsCost.toFixed(2),
             matchesTotals: departmentFanOut
               ? true
-              : groupsRevenue.equals(totalRevenue) &&
-                groupsCost.equals(totalCost),
+              : this.moneyMatches(groupsRevenue, totalRevenue) &&
+                this.moneyMatches(groupsCost, totalCost),
             lineCount: lines.length,
           }
         : {
@@ -1969,6 +1969,11 @@ export class ReportsService {
 
   private minutesToHours(minutes: number): string {
     return new Prisma.Decimal(minutes).div(60).toFixed(2);
+  }
+
+  /** Compare money the same way the UI shows it (2 decimal places). */
+  private moneyMatches(a: Prisma.Decimal, b: Prisma.Decimal): boolean {
+    return a.toFixed(2) === b.toFixed(2);
   }
 
   private assertDateRange(dateFrom: string, dateTo: string): void {

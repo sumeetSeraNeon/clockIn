@@ -182,8 +182,8 @@ export function TimeCalendar({
         eventStartEditable={canEdit}
         eventDurationEditable={canEdit}
         events={events}
-        slotMinTime="06:00:00"
-        slotMaxTime="22:00:00"
+        slotMinTime="00:00:00"
+        slotMaxTime="24:00:00"
         allDaySlot={false}
         weekends
         datesSet={(arg: DatesSetArg) => {

@@ -38,8 +38,8 @@ export const PAGE_HELP: Record<PageHelpKey, PageHelp> = {
     title: 'Timesheet',
     paragraphs: [
       'Log time on tasks you can access, then submit a day, week, or custom period for approval.',
-      'Use Add time or click a free day slot to open the add form (start and end). In Week or Period, the first chip (Week / This period) shows the full tree; other chips filter to one day.',
-      'Long custom periods page day chips by month — use the month control next to Day slots. Admins can turn on timers under Settings → Organisation (Allow timers).',
+      'Use Add time or click a free hour on the day slots bar to open the add form. Client and project are always required. Task is required unless you pick a ticket — then the task is optional.',
+      'In Week or Period, Week / This period shows the full tree; day chips filter to one day. Long custom periods page day chips by month. Admins can turn on timers under Settings → Organisation (Allow timers).',
       'Approved periods stay open for new drafts — submit again for another approval round. Already approved entries stay read-only.',
     ],
   },
@@ -61,8 +61,8 @@ export const PAGE_HELP: Record<PageHelpKey, PageHelp> = {
   clients: {
     title: 'Clients',
     paragraphs: [
-      'Clients are the organisations you deliver work for. Projects sit under a client.',
-      'Filter by status and search by name or code. Archive keeps history without deleting.',
+      'Clients are the organisations you deliver work for. Projects sit under a client. Each client name must be unique in your organisation.',
+      'Filter by status and search by name or code. Pickers show name · code when a code is set. Archive keeps history without deleting.',
       'What you see depends on your role — members only see clients tied to their work.',
     ],
   },
@@ -108,18 +108,18 @@ export const PAGE_HELP: Record<PageHelpKey, PageHelp> = {
   rates: {
     title: 'Rates',
     paragraphs: [
-      'Cost and billable rates used for reporting and pricing. Pair rates attach people to projects with cost and sell amounts.',
-      'Currency follows the client when set, otherwise the organisation default.',
-      'Only people with rate access see this screen — members do not.',
+      'Project + person rates are the primary way to set cost and bill. Use Set project rates for those pairs.',
+      'Advanced scopes (org, client, project, person, or task) appear under Other rates only when you have them — reporting still falls back through that hierarchy when a pair is missing.',
+      'Currency follows the client when set, otherwise the organisation default. Only people with rate access see this screen.',
     ],
   },
   reports: {
     title: 'Reports',
     paragraphs: [
       'Hours, billable mix, budget burn, utilisation, Change Requests (CR tab), and (when you have rate access) money views.',
-      'Summary includes top performance (approved hours, billable hours, or utilisation) by department and person, plus project/task billable breakdown.',
+      'Summary order after KPI cards: profitability by Group by, top performance (including margin when you have rate access), billable mix charts, billable by project/task, then client profitability.',
       'Utilisation uses a calendar month: approved tracked ÷ (planned hours − leave days × 8). Filter by department, person, manager, client, or project. Client/project only affect tracked hours.',
-      'Revenue and profitability use approved time. Pick a date range (or a month on Utilisation), then use the tabs to switch report types.',
+      'Dates use day/month/year (DD/MM/YYYY) with a calendar picker. Revenue and profitability use approved time only.',
     ],
   },
   settings: {

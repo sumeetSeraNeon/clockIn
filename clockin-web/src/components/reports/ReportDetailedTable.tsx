@@ -7,6 +7,7 @@ import {
 import { formatDisplayDate } from '@/lib/date-range';
 import { formatHoursMinutes } from '@/lib/format-duration';
 import { formatMoney } from '@/lib/format-money';
+import { rateScopeLabel } from '@/lib/rate-scope-label';
 import type { ReportDetailedLine } from '@/types/api';
 
 type ReportDetailedTableProps = {
@@ -98,13 +99,22 @@ export function ReportDetailedTable({
       {
         id: 'rate',
         header: 'Rate',
-        cell: (row) => (
-          <span className="tabular-nums text-xs text-slate">
-            {row.billableRate
-              ? `${row.billableRate}${row.rateScope ? ` (${row.rateScope})` : ''}`
-              : '—'}
-          </span>
-        ),
+        cell: (row) => {
+          if (!row.billableRate) {
+            return <span className="text-xs text-slate">—</span>;
+          }
+          const scope = rateScopeLabel(row.rateScope);
+          return (
+            <span className="text-xs text-slate">
+              <span className="tabular-nums text-ink">
+                {row.billableRate}/h
+              </span>
+              {scope ? (
+                <span className="text-slate"> · {scope}</span>
+              ) : null}
+            </span>
+          );
+        },
       },
     );
   }

@@ -5,6 +5,7 @@ import { FormField } from '@/components/common/FormField';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { clientLabel } from '@/lib/client-label';
 import type {
   Client,
   CreateProjectInput,
@@ -191,7 +192,7 @@ export function ProjectForm({
             </option>
             {clients.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.name}
+                {clientLabel(c)}
               </option>
             ))}
           </Select>

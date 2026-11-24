@@ -219,7 +219,7 @@ export function DayHourSlots({
             onMouseLeave={() => setHover(null)}
             onClick={handleTrackClick}
           >
-            {/* Twelve 2h cells — stronger zebra free wash, no mid-hour lines */}
+            {/* Twenty-four 1h cells — stronger zebra free wash */}
             <div className="pointer-events-none absolute inset-0 flex">
               {buckets.map((bucket, i) => (
                 <div
@@ -271,7 +271,7 @@ export function DayHourSlots({
             ) : null}
           </div>
 
-          {/* Edge ticks on 2h boundaries: 00:00 at left, 02:00 at next edge, … 24:00 at right */}
+          {/* Edge ticks on 1h boundaries: 00:00 … 24:00 */}
           <div className="relative h-4 text-[9px] tabular-nums tracking-tight text-slate sm:text-[10px]">
             {slotAxisTickMinutes().map((min, i, ticks) => {
               const isFirst = i === 0;

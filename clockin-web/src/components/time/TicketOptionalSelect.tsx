@@ -97,14 +97,14 @@ export function TicketOptionalSelect({
       loadOptions={loadOptions}
       loadKey={projectId || ''}
       className={cn('min-w-0 w-full', className)}
-      aria-label="Ticket (optional)"
+      aria-label="Ticket"
     />
   );
 
   if (compact) {
     return (
       <label className="flex min-h-[4.75rem] min-w-0 w-full flex-col gap-1 text-xs text-slate sm:flex-1">
-        <span>Ticket (optional)</span>
+        <span>Ticket</span>
         {select}
         <span
           className={cn(
@@ -126,7 +126,7 @@ export function TicketOptionalSelect({
       : 'Filter the list — only this project';
 
   return (
-    <FormField label="Ticket (optional)" htmlFor={id} hint={hint}>
+    <FormField label="Ticket" htmlFor={id} hint={hint}>
       {select}
     </FormField>
   );

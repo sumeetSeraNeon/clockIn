@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ResponsiveBar } from '@nivo/bar';
 import { ResponsivePie } from '@nivo/pie';
 import { Stat } from '@/app/(app)/dashboard/Stat';
@@ -8,7 +8,7 @@ import { InfoTip } from '@/components/common/InfoTip';
 import { Select } from '@/components/ui/Select';
 import { formatHoursMinutes } from '@/lib/format-duration';
 import { formatMoney } from '@/lib/format-money';
-import { CHART_COLORS, CHART_PALETTE, nivoTheme } from '@/lib/nivo-theme';
+import { CHART_COLORS, nivoTheme } from '@/lib/nivo-theme';
 import type {
   Member,
   ReportSummaryGroup,
@@ -16,7 +16,11 @@ import type {
   UtilisationPersonRow,
 } from '@/types/api';
 
-type PerformanceMetric = 'approved' | 'billable' | 'utilisation';
+type PerformanceMetric =
+  | 'approved'
+  | 'billable'
+  | 'utilisation'
+  | 'profitability';
 
 type ReportSummaryPanelProps = {
   report: ReportSummaryResponse;
@@ -24,10 +28,12 @@ type ReportSummaryPanelProps = {
   projectGroups?: ReportSummaryGroup[];
   /** Fixed groupBy=task for billable table */
   taskGroups?: ReportSummaryGroup[];
-  /** Fixed groupBy=user for top people (hours) */
+  /** Fixed groupBy=user for top people */
   userGroups?: ReportSummaryGroup[];
-  /** Fixed groupBy=department for top depts (hours) */
+  /** Fixed groupBy=department for top depts */
   departmentGroups?: ReportSummaryGroup[];
+  /** Fixed groupBy=client for client profitability */
+  clientGroups?: ReportSummaryGroup[];
   /** Person utilisation for metric=utilisation */
   utilisationPeople?: UtilisationPersonRow[];
   /** Members with departments — for department util averages */
@@ -53,9 +59,93 @@ function topByMinutes(
     }));
 }
 
+function marginNumber(g: ReportSummaryGroup): number | null {
+  if (g.margin == null || g.margin === '') return null;
+  const n = Number(g.margin);
+  return Number.isFinite(n) ? n : null;
+}
+
+function topByMargin(
+  groups: ReportSummaryGroup[],
+  limit = 10,
+): RankRow[] {
+  return [...groups]
+    .map((g) => {
+      const value = marginNumber(g);
+      if (value == null) return null;
+      const pct =
+        g.marginPercent != null && Number.isFinite(Number(g.marginPercent))
+          ? ` (${Number(g.marginPercent).toFixed(0)}%)`
+          : '';
+      return {
+        key: g.key,
+        label: g.label || 'Unassigned',
+        value,
+        display: `${formatMoney(g.margin, g.currency)}${pct}`,
+      };
+    })
+    .filter((r): r is RankRow => r != null)
+    .sort((a, b) => b.value - a.value)
+    .slice(0, limit);
+}
+
 function billablePct(billable: number, total: number): number {
   if (total <= 0) return 0;
   return Math.round((billable / total) * 100);
+}
+
+function metricHint(metric: PerformanceMetric): string {
+  switch (metric) {
+    case 'approved':
+      return 'Ranked by approved hours in this range.';
+    case 'billable':
+      return 'Ranked by approved billable hours in this range.';
+    case 'utilisation':
+      return 'Ranked by utilisation % for the To date’s month.';
+    case 'profitability':
+      return 'Ranked by margin (revenue − cost) on approved time.';
+    default:
+      return '';
+  }
+}
+
+function RankList({ rows }: { rows: RankRow[] }) {
+  if (rows.length === 0) {
+    return <p className="mt-3 text-sm text-slate">No data for this metric.</p>;
+  }
+  return (
+    <ol className="mt-3 divide-y divide-border/50">
+      {rows.map((row, i) => {
+        const isFirst = i === 0;
+        return (
+          <li
+            key={row.key}
+            className="flex items-center gap-2.5 rounded-md px-2 py-2.5 text-sm transition-colors hover:bg-muted/50"
+          >
+            <span
+              className={
+                isFirst
+                  ? 'flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-coral/15 text-xs font-semibold tabular-nums text-coral'
+                  : 'flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium tabular-nums text-slate'
+              }
+            >
+              {i + 1}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-ink">{row.label}</span>
+            <span
+              className={
+                isFirst
+                  ? 'shrink-0 font-semibold tabular-nums text-coral'
+                  : 'shrink-0 font-medium tabular-nums text-navy'
+              }
+            >
+              {row.display}
+            </span>
+          </li>
+        );
+      })}
+    </ol>
+  );
 }
 
 export function ReportSummaryPanel({
@@ -64,6 +154,7 @@ export function ReportSummaryPanel({
   taskGroups = [],
   userGroups = [],
   departmentGroups = [],
+  clientGroups = [],
   utilisationPeople = [],
   members = [],
 }: ReportSummaryPanelProps) {
@@ -79,6 +170,12 @@ export function ReportSummaryPanel({
   const unratedMinutes = commercial ? (totals.unratedBillableMinutes ?? 0) : 0;
   const uncostedMinutes = commercial ? (totals.uncostedMinutes ?? 0) : 0;
   const pendingMinutes = totals.pendingDurationMinutes ?? 0;
+
+  useEffect(() => {
+    if (!commercial && metric === 'profitability') {
+      setMetric('approved');
+    }
+  }, [commercial, metric]);
 
   const mixData = useMemo(() => {
     return [
@@ -121,7 +218,9 @@ export function ReportSummaryPanel({
   const topPeople = useMemo((): RankRow[] => {
     if (metric === 'utilisation') {
       return [...utilisationPeople]
-        .filter((p) => p.utilisationPct != null && Number.isFinite(p.utilisationPct))
+        .filter(
+          (p) => p.utilisationPct != null && Number.isFinite(p.utilisationPct),
+        )
         .sort((a, b) => (b.utilisationPct ?? 0) - (a.utilisationPct ?? 0))
         .slice(0, 10)
         .map((p) => ({
@@ -130,6 +229,9 @@ export function ReportSummaryPanel({
           value: p.utilisationPct ?? 0,
           display: `${(p.utilisationPct ?? 0).toFixed(0)}%`,
         }));
+    }
+    if (metric === 'profitability') {
+      return topByMargin(userGroups);
     }
     return topByMinutes(
       userGroups,
@@ -176,11 +278,20 @@ export function ReportSummaryPanel({
         .sort((a, b) => b.value - a.value)
         .slice(0, 10);
     }
+    if (metric === 'profitability') {
+      return topByMargin(departmentGroups);
+    }
     return topByMinutes(
       departmentGroups,
       metric === 'billable' ? 'billableMinutes' : 'durationMinutes',
     );
   }, [metric, members, utilByUserId, departmentGroups]);
+
+  const profitabilityRows = useMemo(
+    () =>
+      [...groups].sort((a, b) => b.durationMinutes - a.durationMinutes),
+    [groups],
+  );
 
   const projectBillableRows = useMemo(
     () =>
@@ -197,6 +308,18 @@ export function ReportSummaryPanel({
         .sort((a, b) => b.durationMinutes - a.durationMinutes),
     [taskGroups],
   );
+
+  const clientProfitRows = useMemo(() => {
+    if (!commercial) return [];
+    return [...clientGroups]
+      .filter((g) => g.durationMinutes > 0 || marginNumber(g) != null)
+      .sort((a, b) => {
+        const ma = marginNumber(a) ?? Number.NEGATIVE_INFINITY;
+        const mb = marginNumber(b) ?? Number.NEGATIVE_INFINITY;
+        if (mb !== ma) return mb - ma;
+        return b.durationMinutes - a.durationMinutes;
+      });
+  }, [clientGroups, commercial]);
 
   return (
     <div className="space-y-6">
@@ -313,10 +436,149 @@ export function ReportSummaryPanel({
 
       {commercial && reconcile && !reconcile.matchesTotals ? (
         <p className="rounded-lg border border-danger/20 bg-danger/10 px-4 py-3 text-sm text-danger">
-          Group revenue ({reconcile.groupsRevenue}) does not match totals (
-          {totals.revenue}). Check rate lookup.
+          Group totals do not match org totals — revenue{' '}
+          {reconcile.groupsRevenue} vs {totals.revenue}, cost{' '}
+          {reconcile.groupsCost} vs {totals.cost ?? '0.00'}. Check rate lookup.
         </p>
       ) : null}
+
+      {profitabilityRows.length > 0 ? (
+        <section className="rounded-lg border border-border/80 bg-card px-5 py-5 sm:px-6 sm:py-6">
+          <div>
+            <h2 className="text-base font-semibold tracking-tight text-ink">
+              {showProfitability ? 'Profitability' : 'Breakdown'}
+            </h2>
+            <p className="mt-1 text-sm text-slate">
+              By {groupBy} for this range
+              {showProfitability
+                ? ' — hours plus revenue, cost, and margin.'
+                : ' — approved hours split.'}
+            </p>
+          </div>
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[40rem] table-fixed text-sm">
+              <thead>
+                <tr className="border-b border-border/60 text-xs uppercase tracking-wide text-slate">
+                  <th className="px-3 py-2 text-left font-medium">Name</th>
+                  <th className="px-3 py-2 text-right font-medium">Hours</th>
+                  <th className="px-3 py-2 text-right font-medium">Billable</th>
+                  <th className="px-3 py-2 text-right font-medium">
+                    Non-billable
+                  </th>
+                  <th className="px-3 py-2 text-right font-medium">Share</th>
+                  {commercial ? (
+                    <>
+                      <th className="px-3 py-2 text-right font-medium">
+                        Revenue
+                      </th>
+                      <th className="px-3 py-2 text-right font-medium">Cost</th>
+                      <th className="px-3 py-2 text-right font-medium">
+                        Margin
+                      </th>
+                      <th className="px-3 py-2 text-right font-medium">
+                        Margin %
+                      </th>
+                    </>
+                  ) : null}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/50">
+                {profitabilityRows.map((group) => {
+                  const share =
+                    totals.durationMinutes > 0
+                      ? Math.round(
+                          (group.durationMinutes / totals.durationMinutes) *
+                            100,
+                        )
+                      : 0;
+                  return (
+                    <tr key={group.key}>
+                      <td className="px-3 py-2 text-left font-medium text-ink">
+                        {group.label || 'Unassigned'}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-ink">
+                        {formatHoursMinutes(group.durationMinutes)}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-coral">
+                        {formatHoursMinutes(group.billableMinutes)}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-navy">
+                        {formatHoursMinutes(group.nonBillableMinutes)}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-slate">
+                        {share}%
+                      </td>
+                      {commercial ? (
+                        <>
+                          <td className="px-3 py-2 text-right tabular-nums text-slate">
+                            {formatMoney(group.revenue, group.currency)}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums text-slate">
+                            {formatMoney(group.cost ?? null, group.currency)}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums font-medium text-navy">
+                            {formatMoney(group.margin ?? null, group.currency)}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums text-slate">
+                            {group.marginPercent != null
+                              ? `${Number(group.marginPercent).toFixed(0)}%`
+                              : '—'}
+                          </td>
+                        </>
+                      ) : null}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+
+      <section className="rounded-lg border border-border/80 bg-card px-5 py-5 sm:px-6 sm:py-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold tracking-tight text-ink">
+              Top performance
+            </h2>
+            <p className="mt-1 text-sm text-slate">
+              Ranked departments and people for the selected metric (top 10).
+            </p>
+          </div>
+          <label className="flex flex-col gap-1 text-xs text-slate">
+            Metric
+            <Select
+              className="min-w-[200px]"
+              value={metric}
+              onChange={(e) =>
+                setMetric(e.target.value as PerformanceMetric)
+              }
+            >
+              <option value="approved">Approved hours</option>
+              <option value="billable">Billable hours</option>
+              <option value="utilisation">Utilisation %</option>
+              {commercial ? (
+                <option value="profitability">Profitability (margin)</option>
+              ) : null}
+            </Select>
+          </label>
+        </div>
+        <p className="mt-2 text-xs text-slate">{metricHint(metric)}</p>
+        <div className="mt-5 grid gap-8 sm:grid-cols-2">
+          <div>
+            <h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-slate">
+              Departments
+            </h3>
+            <RankList rows={topDepartments} />
+          </div>
+          <div>
+            <h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-slate">
+              People
+            </h3>
+            <RankList rows={topPeople} />
+          </div>
+        </div>
+      </section>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="rounded-lg border border-border/80 bg-card px-5 py-5">
@@ -347,6 +609,20 @@ export function ReportSummaryPanel({
                 arcLabelsSkipAngle={16}
                 arcLabelsTextColor="#ffffff"
                 valueFormat={(v) => formatHoursMinutes(Number(v))}
+                tooltip={({ datum }) => (
+                  <div className="min-w-[10rem] rounded-lg border border-border bg-white px-3 py-2.5 text-sm shadow-[0_4px_16px_rgba(20,20,43,0.12)]">
+                    <div className="flex items-center gap-2 font-medium text-navy">
+                      <span
+                        className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                        style={{ backgroundColor: String(datum.color) }}
+                      />
+                      {datum.label}
+                    </div>
+                    <p className="mt-1.5 tabular-nums text-slate">
+                      {formatHoursMinutes(Number(datum.value))}
+                    </p>
+                  </div>
+                )}
               />
             </div>
           )}
@@ -412,19 +688,62 @@ export function ReportSummaryPanel({
                     symbolShape: 'square',
                   },
                 ]}
-                tooltip={({ id, indexValue, value, data }) => {
+                tooltip={({ id, indexValue, data }) => {
                   const billable = Number(data.Billable ?? 0);
                   const nonBillable = Number(data['Non-billable'] ?? 0);
                   const total = billable + nonBillable;
+                  const active = String(id);
                   return (
-                    <div className="rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs shadow-sm">
-                      <div className="font-medium text-navy">{indexValue}</div>
-                      <div className="mt-0.5 tabular-nums text-slate">
-                        {String(id)}: {Number(value).toFixed(2)}h
-                      </div>
-                      <div className="tabular-nums text-slate">
-                        Total: {total.toFixed(2)}h
-                      </div>
+                    <div className="min-w-[12.5rem] rounded-lg border border-border bg-white px-3 py-2.5 text-sm shadow-[0_4px_16px_rgba(20,20,43,0.12)]">
+                      <div className="font-semibold text-navy">{indexValue}</div>
+                      <dl className="mt-2 space-y-1 text-xs">
+                        <div className="flex items-center justify-between gap-6">
+                          <dt
+                            className={
+                              active === 'Billable'
+                                ? 'font-medium text-coral'
+                                : 'text-slate'
+                            }
+                          >
+                            Billable
+                          </dt>
+                          <dd
+                            className={
+                              active === 'Billable'
+                                ? 'font-medium tabular-nums text-coral'
+                                : 'tabular-nums text-ink'
+                            }
+                          >
+                            {billable.toFixed(2)}h
+                          </dd>
+                        </div>
+                        <div className="flex items-center justify-between gap-6">
+                          <dt
+                            className={
+                              active === 'Non-billable'
+                                ? 'font-medium text-navy'
+                                : 'text-slate'
+                            }
+                          >
+                            Non-billable
+                          </dt>
+                          <dd
+                            className={
+                              active === 'Non-billable'
+                                ? 'font-medium tabular-nums text-navy'
+                                : 'tabular-nums text-ink'
+                            }
+                          >
+                            {nonBillable.toFixed(2)}h
+                          </dd>
+                        </div>
+                        <div className="flex items-center justify-between gap-6 border-t border-border/60 pt-1.5">
+                          <dt className="font-medium text-slate">Total</dt>
+                          <dd className="font-semibold tabular-nums text-ink">
+                            {total.toFixed(2)}h
+                          </dd>
+                        </div>
+                      </dl>
                     </div>
                   );
                 }}
@@ -434,94 +753,11 @@ export function ReportSummaryPanel({
         </section>
       </div>
 
-      <section className="rounded-lg border border-border/80 bg-card px-5 py-5 sm:px-6 sm:py-6">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h2 className="text-base font-semibold tracking-tight text-ink">
-              Top performance
-            </h2>
-            <p className="mt-1 text-sm text-slate">
-              Ranked departments and people for the selected metric (top 10).
-            </p>
-          </div>
-          <label className="flex flex-col gap-1 text-xs text-slate">
-            Metric
-            <Select
-              className="min-w-[180px]"
-              value={metric}
-              onChange={(e) =>
-                setMetric(e.target.value as PerformanceMetric)
-              }
-            >
-              <option value="approved">Approved hours</option>
-              <option value="billable">Billable hours</option>
-              <option value="utilisation">Utilisation %</option>
-            </Select>
-          </label>
-        </div>
-        <div className="mt-4 grid gap-6 sm:grid-cols-2">
-          <div>
-            <h3 className="text-xs font-medium uppercase tracking-wide text-slate">
-              Departments
-            </h3>
-            {topDepartments.length === 0 ? (
-              <p className="mt-2 text-sm text-slate">No data for this metric.</p>
-            ) : (
-              <ol className="mt-2 divide-y divide-border/60">
-                {topDepartments.map((row, i) => (
-                  <li
-                    key={row.key}
-                    className="flex items-baseline justify-between gap-3 py-2 text-sm"
-                  >
-                    <span className="min-w-0 truncate text-ink">
-                      <span className="mr-2 tabular-nums text-slate">
-                        {i + 1}.
-                      </span>
-                      {row.label}
-                    </span>
-                    <span className="shrink-0 font-medium tabular-nums text-navy">
-                      {row.display}
-                    </span>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </div>
-          <div>
-            <h3 className="text-xs font-medium uppercase tracking-wide text-slate">
-              People
-            </h3>
-            {topPeople.length === 0 ? (
-              <p className="mt-2 text-sm text-slate">No data for this metric.</p>
-            ) : (
-              <ol className="mt-2 divide-y divide-border/60">
-                {topPeople.map((row, i) => (
-                  <li
-                    key={row.key}
-                    className="flex items-baseline justify-between gap-3 py-2 text-sm"
-                  >
-                    <span className="min-w-0 truncate text-ink">
-                      <span className="mr-2 tabular-nums text-slate">
-                        {i + 1}.
-                      </span>
-                      {row.label}
-                    </span>
-                    <span className="shrink-0 font-medium tabular-nums text-navy">
-                      {row.display}
-                    </span>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </div>
-        </div>
-      </section>
-
       {(projectBillableRows.length > 0 || taskBillableRows.length > 0) && (
         <section className="space-y-4 rounded-lg border border-border/80 bg-card px-5 py-5 sm:px-6 sm:py-6">
           <div>
             <h2 className="text-base font-semibold tracking-tight text-ink">
-              Billable breakdown
+              Billable
             </h2>
             <p className="mt-1 text-sm text-slate">
               Approved billable vs non-billable by project and task.
@@ -533,37 +769,41 @@ export function ReportSummaryPanel({
                 By project
               </h3>
               <div className="mt-2 overflow-x-auto">
-                <table className="w-full min-w-[28rem] text-left text-sm">
+                <table className="w-full min-w-[32rem] table-fixed text-sm">
                   <thead>
                     <tr className="border-b border-border/60 text-xs uppercase tracking-wide text-slate">
-                      <th className="py-2 pr-3 font-medium">Project</th>
-                      <th className="py-2 pr-3 font-medium">Billable</th>
-                      <th className="py-2 pr-3 font-medium">Non-billable</th>
-                      <th className="py-2 pr-3 font-medium">Total</th>
-                      <th className="py-2 font-medium">Billable %</th>
+                      <th className="px-3 py-2 text-left font-medium">
+                        Project
+                      </th>
+                      <th className="px-3 py-2 text-right font-medium">
+                        Billable
+                      </th>
+                      <th className="px-3 py-2 text-right font-medium">
+                        Non-billable
+                      </th>
+                      <th className="px-3 py-2 text-right font-medium">Total</th>
+                      <th className="px-3 py-2 text-right font-medium">
+                        Billable %
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/50">
                     {projectBillableRows.map((g) => (
                       <tr key={g.key}>
-                        <td className="py-2 pr-3 font-medium text-ink">
+                        <td className="px-3 py-2 text-left font-medium text-ink">
                           {g.label || 'Unassigned'}
                         </td>
-                        <td className="py-2 pr-3 tabular-nums text-coral">
+                        <td className="px-3 py-2 text-right tabular-nums text-coral">
                           {formatHoursMinutes(g.billableMinutes)}
                         </td>
-                        <td className="py-2 pr-3 tabular-nums text-navy">
+                        <td className="px-3 py-2 text-right tabular-nums text-navy">
                           {formatHoursMinutes(g.nonBillableMinutes)}
                         </td>
-                        <td className="py-2 pr-3 tabular-nums text-ink">
+                        <td className="px-3 py-2 text-right tabular-nums text-ink">
                           {formatHoursMinutes(g.durationMinutes)}
                         </td>
-                        <td className="py-2 tabular-nums text-slate">
-                          {billablePct(
-                            g.billableMinutes,
-                            g.durationMinutes,
-                          )}
-                          %
+                        <td className="px-3 py-2 text-right tabular-nums text-slate">
+                          {billablePct(g.billableMinutes, g.durationMinutes)}%
                         </td>
                       </tr>
                     ))}
@@ -578,37 +818,39 @@ export function ReportSummaryPanel({
                 By task
               </h3>
               <div className="mt-2 overflow-x-auto">
-                <table className="w-full min-w-[28rem] text-left text-sm">
+                <table className="w-full min-w-[32rem] table-fixed text-sm">
                   <thead>
                     <tr className="border-b border-border/60 text-xs uppercase tracking-wide text-slate">
-                      <th className="py-2 pr-3 font-medium">Task</th>
-                      <th className="py-2 pr-3 font-medium">Billable</th>
-                      <th className="py-2 pr-3 font-medium">Non-billable</th>
-                      <th className="py-2 pr-3 font-medium">Total</th>
-                      <th className="py-2 font-medium">Billable %</th>
+                      <th className="px-3 py-2 text-left font-medium">Task</th>
+                      <th className="px-3 py-2 text-right font-medium">
+                        Billable
+                      </th>
+                      <th className="px-3 py-2 text-right font-medium">
+                        Non-billable
+                      </th>
+                      <th className="px-3 py-2 text-right font-medium">Total</th>
+                      <th className="px-3 py-2 text-right font-medium">
+                        Billable %
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/50">
                     {taskBillableRows.map((g) => (
                       <tr key={g.key}>
-                        <td className="py-2 pr-3 font-medium text-ink">
+                        <td className="px-3 py-2 text-left font-medium text-ink">
                           {g.label || 'Unassigned'}
                         </td>
-                        <td className="py-2 pr-3 tabular-nums text-coral">
+                        <td className="px-3 py-2 text-right tabular-nums text-coral">
                           {formatHoursMinutes(g.billableMinutes)}
                         </td>
-                        <td className="py-2 pr-3 tabular-nums text-navy">
+                        <td className="px-3 py-2 text-right tabular-nums text-navy">
                           {formatHoursMinutes(g.nonBillableMinutes)}
                         </td>
-                        <td className="py-2 pr-3 tabular-nums text-ink">
+                        <td className="px-3 py-2 text-right tabular-nums text-ink">
                           {formatHoursMinutes(g.durationMinutes)}
                         </td>
-                        <td className="py-2 tabular-nums text-slate">
-                          {billablePct(
-                            g.billableMinutes,
-                            g.durationMinutes,
-                          )}
-                          %
+                        <td className="px-3 py-2 text-right tabular-nums text-slate">
+                          {billablePct(g.billableMinutes, g.durationMinutes)}%
                         </td>
                       </tr>
                     ))}
@@ -620,71 +862,61 @@ export function ReportSummaryPanel({
         </section>
       )}
 
-      {groups.length > 0 ? (
+      {commercial && clientProfitRows.length > 0 ? (
         <section className="rounded-lg border border-border/80 bg-card px-5 py-5 sm:px-6 sm:py-6">
-          <h2 className="text-base font-semibold tracking-tight text-ink">
-            {showProfitability ? 'Profitability' : 'Breakdown'}
-          </h2>
-          <ul className="mt-4 divide-y divide-navy/10">
-            {groups.map((group, index) => {
-              const share =
-                totals.durationMinutes > 0
-                  ? Math.round(
-                      (group.durationMinutes / totals.durationMinutes) * 100,
-                    )
-                  : 0;
-              return (
-                <li
-                  key={group.key}
-                  className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm"
-                >
-                  <div className="flex min-w-0 items-center gap-2.5">
-                    <span
-                      className="h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{
-                        backgroundColor:
-                          CHART_PALETTE[index % CHART_PALETTE.length],
-                      }}
-                    />
-                    <span className="truncate font-medium text-ink">
-                      {group.label || 'Unassigned'}
-                    </span>
-                  </div>
-                  <div className="flex shrink-0 flex-wrap items-baseline gap-3 tabular-nums">
-                    <span className="text-xs text-coral">
-                      {formatHoursMinutes(group.billableMinutes)} billable
-                    </span>
-                    <span className="text-xs text-navy">
-                      {formatHoursMinutes(group.nonBillableMinutes)}{' '}
-                      non-billable
-                    </span>
-                    {commercial && group.revenue != null ? (
-                      <span className="text-xs text-slate">
-                        Rev {formatMoney(group.revenue, group.currency)}
-                      </span>
-                    ) : null}
-                    {commercial && group.cost != null ? (
-                      <span className="text-xs text-slate">
-                        Cost {formatMoney(group.cost, group.currency)}
-                      </span>
-                    ) : null}
-                    {commercial && group.margin != null ? (
-                      <span className="text-xs font-medium text-navy">
-                        Margin {formatMoney(group.margin, group.currency)}
-                        {group.marginPercent != null
-                          ? ` (${Number(group.marginPercent).toFixed(0)}%)`
-                          : ''}
-                      </span>
-                    ) : null}
-                    <span className="text-xs text-slate">{share}%</span>
-                    <span className="font-medium text-ink">
-                      {formatHoursMinutes(group.durationMinutes)}
-                    </span>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+          <div>
+            <h2 className="text-base font-semibold tracking-tight text-ink">
+              Client profitability
+            </h2>
+            <p className="mt-1 text-sm text-slate">
+              Approved time by client — revenue, cost, and margin (independent of
+              Group by).
+            </p>
+          </div>
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[40rem] table-fixed text-sm">
+              <thead>
+                <tr className="border-b border-border/60 text-xs uppercase tracking-wide text-slate">
+                  <th className="px-3 py-2 text-left font-medium">Client</th>
+                  <th className="px-3 py-2 text-right font-medium">Hours</th>
+                  <th className="px-3 py-2 text-right font-medium">Billable</th>
+                  <th className="px-3 py-2 text-right font-medium">Revenue</th>
+                  <th className="px-3 py-2 text-right font-medium">Cost</th>
+                  <th className="px-3 py-2 text-right font-medium">Margin</th>
+                  <th className="px-3 py-2 text-right font-medium">Margin %</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/50">
+                {clientProfitRows.map((g) => (
+                  <tr key={g.key}>
+                    <td className="px-3 py-2 text-left font-medium text-ink">
+                      {g.label || 'Unassigned'}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-ink">
+                      {formatHoursMinutes(g.durationMinutes)}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-coral">
+                      {formatHoursMinutes(g.billableMinutes)}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-slate">
+                      {formatMoney(g.revenue, g.currency)}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-slate">
+                      {formatMoney(g.cost ?? null, g.currency)}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums font-medium text-navy">
+                      {formatMoney(g.margin ?? null, g.currency)}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-slate">
+                      {g.marginPercent != null
+                        ? `${Number(g.marginPercent).toFixed(0)}%`
+                        : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       ) : null}
     </div>

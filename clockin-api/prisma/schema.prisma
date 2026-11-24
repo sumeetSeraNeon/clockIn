@@ -286,6 +286,7 @@ model Client {
   expenses           Expense[]
   portalAccess       PortalAccess[]
 
+  @@unique([organisationId, name])
   @@index([organisationId])
   @@index([ownerId])
   @@map("clients")
@@ -326,6 +327,7 @@ model Project {
   forecasts          Forecast[]
   timesheetPeriodSlices TimesheetPeriodSlice[]
 
+  @@unique([clientId, name])
   @@index([organisationId])
   @@index([clientId])
   @@index([ownerId])

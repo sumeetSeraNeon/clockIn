@@ -21,6 +21,10 @@ import {
   TicketImportCommitDto,
   TicketImportPreviewDto,
 } from './dto/ticket-import.dto';
+import {
+  LeaveImportCommitDto,
+  LeaveImportPreviewDto,
+} from './dto/leave-import.dto';
 import { ImportsService } from './imports.service';
 
 @Controller('imports')
@@ -136,6 +140,36 @@ export class ImportsController {
     return this.importsService.commitTickets(
       organisationId,
       membership,
+      dto.rows,
+    );
+  }
+
+  @Post('leave/preview')
+  @RequirePermission('member', 'view')
+  previewLeave(
+    @CurrentOrg() organisationId: string,
+    @CurrentMembership() membership: AuthMembership,
+    @Body() dto: LeaveImportPreviewDto,
+  ) {
+    return this.importsService.previewLeave(
+      organisationId,
+      membership,
+      dto.yearMonth,
+      dto.rows,
+    );
+  }
+
+  @Post('leave/commit')
+  @RequirePermission('member', 'view')
+  commitLeave(
+    @CurrentOrg() organisationId: string,
+    @CurrentMembership() membership: AuthMembership,
+    @Body() dto: LeaveImportCommitDto,
+  ) {
+    return this.importsService.commitLeave(
+      organisationId,
+      membership,
+      dto.yearMonth,
       dto.rows,
     );
   }

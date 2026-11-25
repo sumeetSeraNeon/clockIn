@@ -1259,6 +1259,20 @@ export type TaskImportRow = {
   matchedTaskId?: string | null;
 };
 
+export type LeaveImportRow = {
+  rowKey: string;
+  name: string;
+  email: string;
+  leaveDays: string;
+  excluded?: boolean;
+  status: ImportRowStatus;
+  reason?: string;
+  matchedUserId?: string | null;
+  matchedMemberName?: string | null;
+  currentLeaveDays?: number | null;
+  parsedLeaveDays?: number | null;
+};
+
 export type TicketImportRow = {
   rowKey: string;
   clientName: string;

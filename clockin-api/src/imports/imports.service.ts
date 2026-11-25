@@ -4,18 +4,21 @@ import {
   Injectable,
 } from '@nestjs/common';
 import type { AuthMembership } from '../auth/auth.types';
-import { can, scopeFor } from '../auth/permissions';
+import { can, highestRoleName, scopeFor } from '../auth/permissions';
 import { VisibilityService } from '../auth/visibility.service';
 import { ClientsService } from '../clients/clients.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProjectsService } from '../projects/projects.service';
 import { TasksService } from '../tasks/tasks.service';
+import { UtilisationService } from '../utilisation/utilisation.service';
 import {
   type ClientImportRowInput,
   type ClientImportRowResult,
   type ImportClientLookup,
   type ImportCommitResult,
   type ImportProjectLookup,
+  type LeaveImportRowInput,
+  type LeaveImportRowResult,
   type ProjectImportRowInput,
   type ProjectImportRowResult,
   type TaskImportRowInput,
@@ -48,6 +51,31 @@ type NameMatch<T> =
   | { kind: 'one'; item: T }
   | { kind: 'ambiguous'; count: number };
 
+type LeaveMemberRow = {
+  membershipId: string;
+  userId: string;
+  managerId: string | null;
+  name: string;
+  email: string;
+};
+
+function parseLeaveDaysInput(
+  value: string,
+): { ok: true; days: number } | { ok: false; reason: string } {
+  if (!value.trim()) {
+    return { ok: false, reason: 'Enter leave days' };
+  }
+  const n = Number(value.trim());
+  if (!Number.isFinite(n) || n < 0) {
+    return { ok: false, reason: 'Leave days must be a number ≥ 0' };
+  }
+  const doubled = n * 2;
+  if (Math.abs(doubled - Math.round(doubled)) > 1e-9) {
+    return { ok: false, reason: 'Leave days must be a multiple of 0.5' };
+  }
+  return { ok: true, days: Math.round(n * 2) / 2 };
+}
+
 @Injectable()
 export class ImportsService {
   constructor(
@@ -56,6 +84,7 @@ export class ImportsService {
     private readonly clientsService: ClientsService,
     private readonly projectsService: ProjectsService,
     private readonly tasksService: TasksService,
+    private readonly utilisation: UtilisationService,
     private readonly audit: AuditService,
   ) {}
 
@@ -1561,7 +1590,258 @@ export class ImportsService {
     });
   }
 
+  // ─── leave ────────────────────────────────────────────────────────────────
+
+  async previewLeave(
+    organisationId: string,
+    membership: AuthMembership,
+    yearMonth: string,
+    rows: LeaveImportRowInput[],
+  ) {
+    this.assertRowCount(rows);
+    this.assertCanEditLeave(membership);
+    this.assertYearMonth(yearMonth);
+    const members = await this.loadActiveMembersForLeave(organisationId);
+    const leaveByUserId = await this.loadLeaveMap(organisationId, yearMonth);
+    const resultRows = this.validateLeaveRows(
+      rows,
+      membership,
+      members,
+      leaveByUserId,
+    );
+    return {
+      rows: resultRows,
+      summary: summarizeRows(resultRows),
+      lookups: { clients: [] as ImportClientLookup[] },
+      yearMonth,
+    };
+  }
+
+  async commitLeave(
+    organisationId: string,
+    membership: AuthMembership,
+    yearMonth: string,
+    rows: LeaveImportRowInput[],
+  ): Promise<ImportCommitResult> {
+    this.assertRowCount(rows);
+    this.assertCanEditLeave(membership);
+    this.assertYearMonth(yearMonth);
+    const members = await this.loadActiveMembersForLeave(organisationId);
+    const leaveByUserId = await this.loadLeaveMap(organisationId, yearMonth);
+    const validated = this.validateLeaveRows(
+      rows,
+      membership,
+      members,
+      leaveByUserId,
+    );
+
+    let updated = 0;
+    let skipped = 0;
+    let errors = 0;
+    const seenUsers = new Set<string>();
+
+    for (const row of validated) {
+      if (row.excluded || row.status === 'excluded') {
+        skipped += 1;
+        continue;
+      }
+      if (row.status === 'skip') {
+        skipped += 1;
+        continue;
+      }
+      if (row.status === 'error' || !row.matchedUserId || row.parsedLeaveDays == null) {
+        errors += 1;
+        continue;
+      }
+      if (seenUsers.has(row.matchedUserId)) {
+        skipped += 1;
+        continue;
+      }
+
+      await this.utilisation.upsertLeave(
+        organisationId,
+        membership,
+        row.matchedUserId,
+        yearMonth,
+        { leaveDays: row.parsedLeaveDays },
+      );
+      seenUsers.add(row.matchedUserId);
+      updated += 1;
+    }
+
+    return this.commitMessage(0, skipped, errors, updated);
+  }
+
+  private validateLeaveRows(
+    rows: LeaveImportRowInput[],
+    membership: AuthMembership,
+    members: LeaveMemberRow[],
+    leaveByUserId: Record<string, number>,
+  ): LeaveImportRowResult[] {
+    const role = highestRoleName(membership.roles.map((r) => r.name));
+    const isAdmin = role === 'owner' || role === 'admin';
+    const byEmail = new Map<string, LeaveMemberRow>();
+    const byName = new Map<string, LeaveMemberRow[]>();
+    for (const m of members) {
+      byEmail.set(m.email.toLowerCase(), m);
+      const nk = nameKey(m.name);
+      if (!nk) continue;
+      const list = byName.get(nk) ?? [];
+      list.push(m);
+      byName.set(nk, list);
+    }
+
+    return rows.map((row) => {
+      const name = normName(row.name);
+      const email = (row.email ?? '').trim();
+      const leaveRaw = String(row.leaveDays ?? '').trim();
+      const base: LeaveImportRowResult = {
+        ...row,
+        name,
+        email,
+        leaveDays: leaveRaw,
+        matchedUserId: null,
+        matchedMemberName: null,
+        currentLeaveDays: null,
+        parsedLeaveDays: null,
+        status: 'error',
+      };
+
+      if (row.excluded) {
+        return { ...base, status: 'excluded', reason: 'Removed from import' };
+      }
+
+      const parsed = parseLeaveDaysInput(leaveRaw);
+      if (!parsed.ok) {
+        return { ...base, status: 'error', reason: parsed.reason };
+      }
+
+      let matched: LeaveMemberRow | null = null;
+      if (email) {
+        matched = byEmail.get(email.toLowerCase()) ?? null;
+        if (!matched) {
+          return {
+            ...base,
+            parsedLeaveDays: parsed.days,
+            status: 'error',
+            reason: 'No active member with this email',
+          };
+        }
+      } else if (name) {
+        const list = byName.get(nameKey(name)) ?? [];
+        if (list.length === 0) {
+          return {
+            ...base,
+            parsedLeaveDays: parsed.days,
+            status: 'error',
+            reason: 'No active member with this name',
+          };
+        }
+        if (list.length > 1) {
+          return {
+            ...base,
+            parsedLeaveDays: parsed.days,
+            status: 'error',
+            reason: 'Multiple members share this name — use email',
+          };
+        }
+        matched = list[0]!;
+      } else {
+        return {
+          ...base,
+          status: 'error',
+          reason: 'Enter an email or name',
+        };
+      }
+
+      if (!isAdmin && matched.managerId !== membership.id) {
+        return {
+          ...base,
+          parsedLeaveDays: parsed.days,
+          matchedUserId: matched.userId,
+          matchedMemberName: matched.name || matched.email,
+          currentLeaveDays: leaveByUserId[matched.userId] ?? 0,
+          status: 'error',
+          reason: 'You can only import leave for your direct reports',
+        };
+      }
+
+      const current = leaveByUserId[matched.userId] ?? 0;
+      if (current === parsed.days) {
+        return {
+          ...base,
+          parsedLeaveDays: parsed.days,
+          matchedUserId: matched.userId,
+          matchedMemberName: matched.name || matched.email,
+          currentLeaveDays: current,
+          status: 'skip',
+          reason: 'Already set to this leave',
+        };
+      }
+
+      return {
+        ...base,
+        parsedLeaveDays: parsed.days,
+        matchedUserId: matched.userId,
+        matchedMemberName: matched.name || matched.email,
+        currentLeaveDays: current,
+        status: 'update',
+      };
+    });
+  }
+
+  private async loadActiveMembersForLeave(
+    organisationId: string,
+  ): Promise<LeaveMemberRow[]> {
+    const rows = await this.prisma.membership.findMany({
+      where: { organisationId, status: 'active' },
+      select: {
+        id: true,
+        userId: true,
+        managerId: true,
+        user: { select: { name: true, email: true } },
+      },
+    });
+    return rows.map((r) => ({
+      membershipId: r.id,
+      userId: r.userId,
+      managerId: r.managerId,
+      name: r.user.name ?? '',
+      email: r.user.email,
+    }));
+  }
+
+  private async loadLeaveMap(
+    organisationId: string,
+    yearMonth: string,
+  ): Promise<Record<string, number>> {
+    const rows = await this.prisma.leaveEntry.findMany({
+      where: { organisationId, yearMonth },
+      select: { userId: true, leaveDays: true },
+    });
+    const map: Record<string, number> = {};
+    for (const r of rows) {
+      map[r.userId] = Number(r.leaveDays);
+    }
+    return map;
+  }
+
   // ─── guards / helpers ─────────────────────────────────────────────────────
+
+  private assertYearMonth(yearMonth: string): void {
+    if (!/^\d{4}-\d{2}$/.test(yearMonth)) {
+      throw new BadRequestException('yearMonth must be YYYY-MM');
+    }
+  }
+
+  private assertCanEditLeave(membership: AuthMembership): void {
+    const role = highestRoleName(membership.roles.map((r) => r.name));
+    if (role !== 'owner' && role !== 'admin' && role !== 'team_manager') {
+      throw new ForbiddenException(
+        'Only owners, admins, and team managers can import leave',
+      );
+    }
+  }
 
   private assertRowCount(rows: unknown[]): void {
     if (!rows.length) {

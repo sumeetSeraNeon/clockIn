@@ -2,13 +2,19 @@ import * as XLSX from 'xlsx';
 
 export const IMPORT_MAX_ROWS = 2000;
 
-export type ImportKind = 'clients' | 'projects' | 'tasks' | 'tickets';
+export type ImportKind =
+  | 'clients'
+  | 'projects'
+  | 'tasks'
+  | 'tickets'
+  | 'leave';
 
 export const IMPORT_HEADERS: Record<ImportKind, string[]> = {
   clients: ['client name'],
   projects: ['client name', 'project name'],
   tasks: ['client name', 'project name', 'task name'],
   tickets: ['ticket id', 'subject', 'status', 'type'],
+  leave: ['name', 'email', 'leave days'],
 };
 
 export const IMPORT_TEMPLATE_FILENAME: Record<ImportKind, string> = {
@@ -16,6 +22,7 @@ export const IMPORT_TEMPLATE_FILENAME: Record<ImportKind, string> = {
   projects: 'projects-import-template.csv',
   tasks: 'tasks-import-template.csv',
   tickets: 'tickets-import-template.csv',
+  leave: 'leave-import-template.csv',
 };
 
 export type ParsedImportRow = {
@@ -23,6 +30,10 @@ export type ParsedImportRow = {
   clientName?: string;
   projectName?: string;
   taskName?: string;
+  /** Leave import */
+  memberName?: string;
+  memberEmail?: string;
+  leaveDays?: string;
   /** Freshdesk ticket fields */
   reference?: string;
   title?: string;
@@ -182,6 +193,14 @@ export async function parseImportFile(
         clientName: cell(row, 'client name'),
         projectName: cell(row, 'project name'),
         taskName: cell(row, 'task name'),
+      };
+    }
+    if (kind === 'leave') {
+      return {
+        ...base,
+        memberName: cell(row, 'name'),
+        memberEmail: cell(row, 'email'),
+        leaveDays: cell(row, 'leave days'),
       };
     }
 

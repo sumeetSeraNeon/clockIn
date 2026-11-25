@@ -12,6 +12,7 @@ import {
 } from 'react';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { Modal } from '@/components/common/Modal';
+import { Pagination } from '@/components/common/Pagination';
 import { useToast } from '@/components/common/Toast';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -25,6 +26,7 @@ import {
   type ParsedImportRow,
 } from '@/lib/import-file';
 import { cn } from '@/lib/cn';
+import { formatDisplayYearMonth } from '@/lib/date-range';
 import type {
   ClientImportRow,
   ImportClientLookup,
@@ -33,6 +35,7 @@ import type {
   ImportProjectLookup,
   ImportRowStatus,
   ImportSummary,
+  LeaveImportRow,
   ProjectImportRow,
   TaskImportRow,
   TicketImportRow,
@@ -43,13 +46,16 @@ type ImportModalProps = {
   kind: ImportKind;
   onClose: () => void;
   onImported: () => void;
+  /** Required when kind is leave — selected Leave tab month (YYYY-MM). */
+  yearMonth?: string;
 };
 
 type PreviewRow =
   | ClientImportRow
   | ProjectImportRow
   | TaskImportRow
-  | TicketImportRow;
+  | TicketImportRow
+  | LeaveImportRow;
 
 type DraftRow = ParsedImportRow & {
   excluded?: boolean;
@@ -64,6 +70,7 @@ const KIND_LABEL: Record<ImportKind, string> = {
   projects: 'Projects',
   tasks: 'Tasks',
   tickets: 'Tickets',
+  leave: 'Leave',
 };
 
 const ENDPOINT: Record<ImportKind, string> = {
@@ -71,7 +78,10 @@ const ENDPOINT: Record<ImportKind, string> = {
   projects: '/imports/projects',
   tasks: '/imports/tasks',
   tickets: '/imports/tickets',
+  leave: '/imports/leave',
 };
+
+const LEAVE_PREVIEW_PAGE_SIZE = 15;
 
 function statusTone(status: ImportRowStatus): string {
   switch (status) {
@@ -202,6 +212,7 @@ export function ImportModal({
   kind,
   onClose,
   onImported,
+  yearMonth,
 }: ImportModalProps) {
   const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -224,6 +235,7 @@ export function ImportModal({
   const [expandedTicketKeys, setExpandedTicketKeys] = useState<Set<string>>(
     () => new Set(),
   );
+  const [leavePreviewPage, setLeavePreviewPage] = useState(1);
 
   const reset = useCallback(() => {
     if (previewTimer.current) clearTimeout(previewTimer.current);
@@ -241,6 +253,7 @@ export function ImportModal({
     setResult(null);
     setFileName(null);
     setExpandedTicketKeys(new Set());
+    setLeavePreviewPage(1);
     if (fileRef.current) fileRef.current.value = '';
   }, []);
 
@@ -302,6 +315,15 @@ export function ImportModal({
           excluded: Boolean(r.excluded),
         }));
       }
+      if (kind === 'leave') {
+        return rows.map((r) => ({
+          rowKey: r.rowKey,
+          name: r.memberName ?? '',
+          email: r.memberEmail ?? '',
+          leaveDays: r.leaveDays ?? '',
+          excluded: Boolean(r.excluded),
+        }));
+      }
       return rows.map((r) => ({
         rowKey: r.rowKey,
         taskName: r.taskName ?? '',
@@ -329,7 +351,15 @@ export function ImportModal({
         const seq = ++previewSeq.current;
         setPreviewLoading(true);
         try {
-          const body = { rows: buildPayloadRows(rows) };
+          if (kind === 'leave' && !yearMonth) {
+            toast.error('Select a month before importing leave');
+            setPreviewLoading(false);
+            return;
+          }
+          const body =
+            kind === 'leave'
+              ? { yearMonth, rows: buildPayloadRows(rows) }
+              : { rows: buildPayloadRows(rows) };
           const res = await api<ImportPreviewResponse<PreviewRow>>(
             `${ENDPOINT[kind]}/preview`,
             { method: 'POST', body },
@@ -358,7 +388,7 @@ export function ImportModal({
         }, 280);
       }
     },
-    [kind, toast, buildPayloadRows],
+    [kind, yearMonth, toast, buildPayloadRows],
   );
 
   async function handleFile(file: File | null) {
@@ -369,6 +399,7 @@ export function ImportModal({
     try {
       const parsed = await parseImportFile(kind, file);
       const next: DraftRow[] = parsed.map((r) => ({ ...r }));
+      setLeavePreviewPage(1);
       setDrafts(next);
       await runPreview(next, true);
     } catch (err) {
@@ -407,9 +438,16 @@ export function ImportModal({
   const canCommit = writableCount > 0 && !previewLoading && !committing;
 
   async function handleCommit() {
+    if (kind === 'leave' && !yearMonth) {
+      toast.error('Select a month before importing leave');
+      return;
+    }
     setCommitting(true);
     try {
-      const body = { rows: buildPayloadRows(drafts) };
+      const body =
+        kind === 'leave'
+          ? { yearMonth, rows: buildPayloadRows(drafts) }
+          : { rows: buildPayloadRows(drafts) };
       const res = await api<ImportCommitResult>(`${ENDPOINT[kind]}/commit`, {
         method: 'POST',
         body,
@@ -430,17 +468,39 @@ export function ImportModal({
     onClose();
   }
 
-  const title = `Import ${KIND_LABEL[kind]}`;
+  const title =
+    kind === 'leave' && yearMonth
+      ? `Import leave · ${formatDisplayYearMonth(yearMonth)}`
+      : `Import ${KIND_LABEL[kind]}`;
   const hasPreview = drafts.length > 0 || Boolean(result);
   const modalSize = !hasPreview
     ? 'md'
     : kind === 'tickets'
       ? 'full'
-      : kind === 'clients'
-        ? 'lg'
-        : kind === 'tasks'
-          ? '2xl'
-          : 'xl';
+      : kind === 'leave'
+        ? '2xl'
+        : kind === 'clients'
+          ? 'lg'
+          : kind === 'tasks'
+            ? '2xl'
+            : 'xl';
+
+  const leavePreviewTotalPages = Math.max(
+    1,
+    Math.ceil(drafts.length / LEAVE_PREVIEW_PAGE_SIZE),
+  );
+  const leavePreviewDrafts = useMemo(() => {
+    if (kind !== 'leave') return drafts;
+    const start = (leavePreviewPage - 1) * LEAVE_PREVIEW_PAGE_SIZE;
+    return drafts.slice(start, start + LEAVE_PREVIEW_PAGE_SIZE);
+  }, [kind, drafts, leavePreviewPage]);
+
+  useEffect(() => {
+    if (kind !== 'leave') return;
+    if (leavePreviewPage > leavePreviewTotalPages) {
+      setLeavePreviewPage(leavePreviewTotalPages);
+    }
+  }, [kind, leavePreviewPage, leavePreviewTotalPages]);
 
   function toggleTicketExpand(rowKey: string) {
     setExpandedTicketKeys((prev) => {
@@ -461,7 +521,11 @@ export function ImportModal({
             ? hasPreview
               ? 'Review Create/Update rows, fix any errors, then confirm.'
               : 'Upload a Freshdesk CSV or Excel export to preview.'
-            : 'Upload a CSV or Excel file, review the preview, then confirm. Only Create rows are written.'
+            : kind === 'leave'
+              ? hasPreview
+                ? `Review Update rows for ${yearMonth ? formatDisplayYearMonth(yearMonth) : 'the selected month'}, fix errors, then confirm.`
+                : `Upload CSV or Excel (name, email, leave days) for ${yearMonth ? formatDisplayYearMonth(yearMonth) : 'the selected month'}.`
+              : 'Upload a CSV or Excel file, review the preview, then confirm. Only Create rows are written.'
         }
         onClose={handleClose}
         size={modalSize}
@@ -610,21 +674,41 @@ export function ImportModal({
                     Review each row, fix anything marked Error, then import.
                     Update means that Ticket ID already exists in ClockIn.
                   </p>
+                ) : kind === 'leave' ? (
+                  <p className="text-xs text-slate">
+                    Rows match people by email (or unique name). Update writes
+                    leave days for{' '}
+                    {yearMonth
+                      ? formatDisplayYearMonth(yearMonth)
+                      : 'the selected month'}
+                    .
+                  </p>
                 ) : null}
               </div>
 
               {summary.error > 0 ? (
                 <p className="shrink-0 rounded-lg border border-amber-200/80 bg-amber-50/90 px-3 py-2 text-sm text-amber-950">
-                  {summary.error}{' '}
-                  {summary.error === 1 ? 'row needs' : 'rows need'} a fix —
-                  {kind === 'tickets'
-                    ? ' match an existing client (or fix Type/Status), then try again'
-                    : kind === 'clients'
-                      ? ' correct the name'
-                      : kind === 'projects'
-                        ? ' correct the name or choose an existing client under Link to client'
-                        : ' correct the name or choose an existing client / project in the link columns'}
-                  .
+                  {kind === 'leave' ? (
+                    <>
+                      {summary.error}{' '}
+                      {summary.error === 1 ? 'row' : 'rows'} couldn’t be
+                      matched or have invalid leave days — see Status for each
+                      row.
+                    </>
+                  ) : (
+                    <>
+                      {summary.error}{' '}
+                      {summary.error === 1 ? 'row needs' : 'rows need'} a fix —
+                      {kind === 'tickets'
+                        ? ' match an existing client (or fix Type/Status), then try again'
+                        : kind === 'clients'
+                          ? ' correct the name'
+                          : kind === 'projects'
+                            ? ' correct the name or choose an existing client under Link to client'
+                            : ' correct the name or choose an existing client / project in the link columns'}
+                      .
+                    </>
+                  )}
                 </p>
               ) : null}
 
@@ -1106,6 +1190,154 @@ export function ImportModal({
                       })}
                     </tbody>
                   </table>
+                ) : kind === 'leave' ? (
+                  <div>
+                  <table className="w-full table-fixed border-collapse text-left text-sm">
+                    <colgroup>
+                      <col className="w-[22%]" />
+                      <col className="w-[22%]" />
+                      <col className="w-[34%]" />
+                      <col className="w-[12%]" />
+                      <col className="w-[10%]" />
+                    </colgroup>
+                    <thead>
+                      <tr className="border-b border-navy/15">
+                        <th className="px-3 py-2.5 text-xs font-medium uppercase tracking-wide text-navy/55">
+                          Status
+                        </th>
+                        <th className="px-3 py-2.5 text-xs font-medium uppercase tracking-wide text-navy/55">
+                          Name
+                        </th>
+                        <th className="px-3 py-2.5 text-xs font-medium uppercase tracking-wide text-navy/55">
+                          Email
+                        </th>
+                        <th className="px-3 py-2.5 text-xs font-medium uppercase tracking-wide text-navy/55">
+                          Days
+                        </th>
+                        <th className="px-3 py-2.5 text-right text-xs font-medium uppercase tracking-wide text-navy/55">
+                          <span className="sr-only">Actions</span>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {leavePreviewDrafts.map((draft) => {
+                        const preview = previewByKey.get(draft.rowKey) as
+                          | LeaveImportRow
+                          | undefined;
+                        const status = preview?.status ?? 'error';
+                        const reason = preview?.reason;
+                        const matchHint = preview?.matchedMemberName
+                          ? `Matched: ${preview.matchedMemberName}${
+                              preview.currentLeaveDays != null
+                                ? ` · now ${preview.currentLeaveDays}d`
+                                : ''
+                            }`
+                          : null;
+                        const statusDetail = reason || matchHint;
+                        const isRemoved = Boolean(draft.excluded);
+                        return (
+                          <tr
+                            key={draft.rowKey}
+                            className={cn(
+                              'border-b border-navy/[0.08] align-middle transition-colors hover:bg-navy/[0.03]',
+                              isRemoved && 'opacity-50',
+                            )}
+                          >
+                            <td className="px-3 py-2.5 text-navy">
+                              <span
+                                className={cn(
+                                  'inline-flex rounded border px-2 py-0.5 text-xs font-medium',
+                                  statusTone(status),
+                                )}
+                                title={statusDetail ?? undefined}
+                              >
+                                {statusLabel(status)}
+                              </span>
+                              {statusDetail ? (
+                                <p
+                                  className="mt-1 truncate text-xs text-slate"
+                                  title={statusDetail}
+                                >
+                                  {statusDetail}
+                                </p>
+                              ) : null}
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <Input
+                                className="w-full py-1.5"
+                                value={draft.memberName ?? ''}
+                                disabled={isRemoved}
+                                onChange={(e) =>
+                                  updateDraft(draft.rowKey, {
+                                    memberName: e.target.value,
+                                  })
+                                }
+                              />
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <Input
+                                className="w-full py-1.5"
+                                value={draft.memberEmail ?? ''}
+                                disabled={isRemoved}
+                                onChange={(e) =>
+                                  updateDraft(draft.rowKey, {
+                                    memberEmail: e.target.value,
+                                  })
+                                }
+                              />
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <Input
+                                className="w-full py-1.5"
+                                type="text"
+                                inputMode="decimal"
+                                value={draft.leaveDays ?? ''}
+                                disabled={isRemoved}
+                                onChange={(e) =>
+                                  updateDraft(draft.rowKey, {
+                                    leaveDays: e.target.value,
+                                  })
+                                }
+                              />
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2.5 text-right">
+                              {isRemoved ? (
+                                <Button
+                                  type="button"
+                                  variant="secondary"
+                                  size="sm"
+                                  onClick={() => restoreRow(draft.rowKey)}
+                                >
+                                  Restore
+                                </Button>
+                              ) : (
+                                <Button
+                                  type="button"
+                                  variant="secondary"
+                                  size="sm"
+                                  onClick={() => removeRow(draft.rowKey)}
+                                >
+                                  Remove
+                                </Button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  <p className="mt-2 text-xs text-slate">
+                    Leave days: whole or half days (0, 0.5, 1, …).
+                  </p>
+                  <Pagination
+                    page={leavePreviewPage}
+                    totalPages={leavePreviewTotalPages}
+                    total={drafts.length}
+                    pageSize={LEAVE_PREVIEW_PAGE_SIZE}
+                    onPageChange={setLeavePreviewPage}
+                    className="mt-2"
+                  />
+                  </div>
                 ) : (
                 <table className="w-full border-collapse text-left text-sm">
                   <thead>
@@ -1397,11 +1629,17 @@ export function ImportModal({
 
       <ConfirmDialog
         open={confirmOpen}
-        title={`Import ${writableCount} ${KIND_LABEL[kind].toLowerCase()}?`}
+        title={
+          kind === 'leave'
+            ? `Import leave for ${writableCount} ${writableCount === 1 ? 'person' : 'people'}?`
+            : `Import ${writableCount} ${KIND_LABEL[kind].toLowerCase()}?`
+        }
         description={
           kind === 'tickets'
             ? `${summary.create} will be created, ${summary.update ?? 0} updated, ${summary.skip} skipped, ${summary.error} errored (errored rows are not imported).`
-            : `${summary.create} will be created, ${summary.skip} skipped, ${summary.error} errored (errored rows are not imported).`
+            : kind === 'leave'
+              ? `${summary.update} will be updated for ${yearMonth ? formatDisplayYearMonth(yearMonth) : 'the selected month'}, ${summary.skip} skipped, ${summary.error} errored (errored rows are not imported).`
+              : `${summary.create} will be created, ${summary.skip} skipped, ${summary.error} errored (errored rows are not imported).`
         }
         confirmLabel="Import"
         loading={committing}

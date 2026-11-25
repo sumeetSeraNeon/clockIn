@@ -2,11 +2,12 @@
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { updateProfile } from 'firebase/auth';
+import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { CurrencySelect } from '@/components/common/CurrencySelect';
 import { FormField } from '@/components/common/FormField';
 import { PageHeader } from '@/components/common/PageHeader';
 import { useToast } from '@/components/common/Toast';
-import { OrganisationLeavePanel } from '@/components/settings/OrganisationLeavePanel';
+import { LeavePeoplePanel } from '@/components/settings/LeavePeoplePanel';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -31,7 +32,7 @@ import type {
   UtilisationMonthResponse,
 } from '@/types/api';
 
-type SettingsTab = 'account' | 'security' | 'notifications' | 'organisation';
+type SettingsTab = 'account' | 'notifications' | 'organisation' | 'leave';
 
 type OrganisationSettings = {
   id: string;
@@ -42,25 +43,61 @@ type OrganisationSettings = {
   timersEnabled?: boolean;
 };
 
+const MONTH_LABELS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+] as const;
+
 function currentYearMonth(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
+function shiftCapacityYear(yearMonth: string, delta: number): string {
+  const [y, m] = yearMonth.split('-');
+  const year = Number(y) + delta;
+  if (!Number.isFinite(year) || !m) return yearMonth;
+  return `${year}-${m}`;
+}
+
+/** `YYYY-MM` → `September 2026`. */
+function formatFullYearMonth(yearMonth: string): string {
+  const [y, m] = yearMonth.slice(0, 7).split('-');
+  const year = Number(y);
+  const month = Number(m);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1) {
+    return yearMonth;
+  }
+  return new Date(year, month - 1, 1).toLocaleDateString('en-GB', {
+    month: 'long',
+    year: 'numeric',
+  });
+}
+
 /**
- * Personal Settings (everyone) + Organisation currency (rate:edit).
- * Tabbed panels — Account / Security / Notifications / Organisation.
+ * Personal Settings (everyone) + Organisation defaults (rate:edit) + Leave.
+ * Tabs — Account & security / Notifications / Organisation / Leave.
  */
 export default function SettingsPage() {
   const toast = useToast();
   const { me, refreshMe, changePassword } = useAuth();
   const { can, highestRole } = usePermissions();
   const canEditOrg = can('rate', 'edit');
-  const canEditLeave =
+  const showLeave =
     highestRole === 'owner' ||
     highestRole === 'admin' ||
     highestRole === 'team_manager';
-  const showOrganisation = canEditOrg || canEditLeave;
+  const showOrganisation = canEditOrg;
 
   const [tab, setTab] = useState<SettingsTab>('account');
   const [name, setName] = useState(me?.user.name ?? '');
@@ -94,6 +131,7 @@ export default function SettingsPage() {
   const [plannedHours, setPlannedHours] = useState('');
   const [loadingCapacity, setLoadingCapacity] = useState(false);
   const [savingCapacity, setSavingCapacity] = useState(false);
+  const [confirmCapacityOpen, setConfirmCapacityOpen] = useState(false);
   const [recentMonths, setRecentMonths] = useState<UtilisationMonthListItem[]>(
     [],
   );
@@ -118,7 +156,7 @@ export default function SettingsPage() {
   ]);
 
   useEffect(() => {
-    if (!canEditOrg || tab !== 'organisation') return;
+    if (!canEditOrg || tab !== 'leave') return;
     let cancelled = false;
     async function loadCapacity() {
       setLoadingCapacity(true);
@@ -144,7 +182,7 @@ export default function SettingsPage() {
   }, [canEditOrg, tab, capacityMonth]);
 
   useEffect(() => {
-    if (!canEditOrg || tab !== 'organisation') return;
+    if (!canEditOrg || tab !== 'leave') return;
     let cancelled = false;
     async function loadRecent() {
       try {
@@ -253,12 +291,23 @@ export default function SettingsPage() {
     }
   }
 
-  async function handleSaveCapacity(event?: FormEvent) {
+  function requestSaveCapacity(event?: FormEvent) {
     event?.preventDefault();
     if (!canEditOrg) return;
     const hours = Number(plannedHours);
     if (!Number.isFinite(hours) || hours < 0) {
       toast.error('Enter planned hours as a number ≥ 0');
+      return;
+    }
+    setConfirmCapacityOpen(true);
+  }
+
+  async function handleConfirmSaveCapacity() {
+    if (!canEditOrg) return;
+    const hours = Number(plannedHours);
+    if (!Number.isFinite(hours) || hours < 0) {
+      toast.error('Enter planned hours as a number ≥ 0');
+      setConfirmCapacityOpen(false);
       return;
     }
     setSavingCapacity(true);
@@ -274,6 +323,7 @@ export default function SettingsPage() {
         res.plannedHours != null ? String(res.plannedHours) : String(hours),
       );
       setRecentReloadKey((k) => k + 1);
+      setConfirmCapacityOpen(false);
       toast.success(
         `Capacity saved for ${formatDisplayYearMonth(capacityMonth)}`,
       );
@@ -287,29 +337,42 @@ export default function SettingsPage() {
   const orgName = me?.organisation?.name ?? 'Organisation';
   const email = me?.user.email ?? '—';
 
+  const capacityYear = Number(capacityMonth.slice(0, 4)) || new Date().getFullYear();
+  const hoursByMonth = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const row of recentMonths) {
+      map[row.yearMonth] = row.plannedHours;
+    }
+    return map;
+  }, [recentMonths]);
+
   const tabs = useMemo(() => {
     const list: { id: SettingsTab; label: string }[] = [
-      { id: 'account', label: 'Account' },
-      { id: 'security', label: 'Security' },
+      { id: 'account', label: 'Account & security' },
       { id: 'notifications', label: 'Notifications' },
     ];
     if (showOrganisation) {
       list.push({ id: 'organisation', label: 'Organisation' });
     }
+    if (showLeave) {
+      list.push({ id: 'leave', label: 'Leave' });
+    }
     return list;
-  }, [showOrganisation]);
+  }, [showOrganisation, showLeave]);
 
   useEffect(() => {
     if (tab === 'organisation' && !showOrganisation) {
       setTab('account');
+    } else if (tab === 'leave' && !showLeave) {
+      setTab('account');
     }
-  }, [tab, showOrganisation]);
+  }, [tab, showOrganisation, showLeave]);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <PageHeader
         title="Settings"
-        description="Your account, and organisation defaults when you manage them."
+        description="Your account, organisation defaults, and leave when you manage them."
         helpKey="settings"
       />
 
@@ -332,8 +395,9 @@ export default function SettingsPage() {
       </div>
 
       {tab === 'account' ? (
-        <section className="space-y-4">
+        <section className="max-w-2xl space-y-6">
           <p className="text-sm text-slate">How you appear in ClockIn.</p>
+
           <form
             onSubmit={(e) => void handleSaveProfile(e)}
             className="space-y-4"
@@ -369,19 +433,15 @@ export default function SettingsPage() {
                     </option>
                   ))}
                 </Select>
-                <p className="mt-1 text-xs text-slate">
-                  Preference for how dates appear later. Does not change stored
-                  hours or approvals.
-                </p>
               </FormField>
+            </div>
 
-              <div>
-                <p className="text-sm font-medium text-navy">Email</p>
-                <p className="mt-1 text-sm text-ink">{email}</p>
-                <p className="mt-1 text-xs text-slate">
-                  From your sign-in account — not editable here.
-                </p>
-              </div>
+            <div>
+              <p className="text-sm font-medium text-navy">Email</p>
+              <p className="mt-1 text-sm text-ink">{email}</p>
+              <p className="mt-1 text-xs text-slate">
+                From your sign-in account — not editable here.
+              </p>
             </div>
 
             <Button
@@ -392,66 +452,68 @@ export default function SettingsPage() {
               Save account
             </Button>
           </form>
-        </section>
-      ) : null}
 
-      {tab === 'security' ? (
-        <section className="space-y-4">
-          <p className="text-sm text-slate">
-            Enter your current password to set a new one.
-          </p>
-          <form
-            onSubmit={(e) => void handleChangePassword(e)}
-            className="space-y-4"
-          >
-            <div className="grid gap-4 sm:grid-cols-3">
-              <FormField
-                label="Current password"
-                htmlFor="me-current-password"
-                required
-              >
-                <Input
-                  id="me-current-password"
-                  type="password"
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                  disabled={savingPassword}
-                  autoComplete="current-password"
-                />
-              </FormField>
-              <FormField label="New password" htmlFor="me-new-password" required>
-                <Input
-                  id="me-new-password"
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  disabled={savingPassword}
-                  autoComplete="new-password"
-                />
-              </FormField>
-              <FormField
-                label="Confirm new password"
-                htmlFor="me-confirm-password"
-                required
-              >
-                <Input
-                  id="me-confirm-password"
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  disabled={savingPassword}
-                  autoComplete="new-password"
-                />
-              </FormField>
-            </div>
-            <Button
-              type="submit"
-              loading={savingPassword}
-              disabled={savingPassword}
+          <div className="space-y-4 border-t border-border/60 pt-6">
+            <p className="text-sm text-slate">
+              Enter your current password to set a new one.
+            </p>
+            <form
+              onSubmit={(e) => void handleChangePassword(e)}
+              className="space-y-4"
             >
-              Update password
-            </Button>
-          </form>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <FormField
+                  label="Current password"
+                  htmlFor="me-current-password"
+                  required
+                >
+                  <Input
+                    id="me-current-password"
+                    type="password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    disabled={savingPassword}
+                    autoComplete="current-password"
+                  />
+                </FormField>
+                <FormField
+                  label="New password"
+                  htmlFor="me-new-password"
+                  required
+                >
+                  <Input
+                    id="me-new-password"
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    disabled={savingPassword}
+                    autoComplete="new-password"
+                  />
+                </FormField>
+                <FormField
+                  label="Confirm new password"
+                  htmlFor="me-confirm-password"
+                  required
+                >
+                  <Input
+                    id="me-confirm-password"
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    disabled={savingPassword}
+                    autoComplete="new-password"
+                  />
+                </FormField>
+              </div>
+              <Button
+                type="submit"
+                loading={savingPassword}
+                disabled={savingPassword}
+              >
+                Update password
+              </Button>
+            </form>
+          </div>
         </section>
       ) : null}
 
@@ -505,185 +567,197 @@ export default function SettingsPage() {
 
       {tab === 'organisation' && showOrganisation ? (
         <section className="max-w-3xl space-y-5">
-          {canEditOrg ? (
-            <div className="rounded-xl border border-border/80 bg-card p-4 sm:p-5">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold text-ink">Defaults</h3>
-                  <p className="mt-0.5 text-sm text-slate">
-                    {orgName} · clients can override currency
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  loading={savingOrg}
+          <div className="rounded-xl border border-border/80 bg-card p-4 sm:p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-ink">Defaults</h3>
+                <p className="mt-0.5 text-sm text-slate">
+                  {orgName} · clients can override currency
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                loading={savingOrg}
+                disabled={savingOrg}
+                onClick={() => void handleSaveOrg()}
+              >
+                Save organisation
+              </Button>
+            </div>
+            <form
+              onSubmit={(e) => void handleSaveOrg(e)}
+              className="mt-4 grid gap-4 sm:grid-cols-2"
+            >
+              <FormField label="Default currency" htmlFor="org-currency">
+                <CurrencySelect
+                  id="org-currency"
+                  value={currency}
+                  onChange={setCurrency}
                   disabled={savingOrg}
-                  onClick={() => void handleSaveOrg()}
-                >
-                  Save organisation
-                </Button>
-              </div>
-              <form
-                onSubmit={(e) => void handleSaveOrg(e)}
-                className="mt-4 grid gap-4 sm:grid-cols-2"
-              >
-                <FormField label="Default currency" htmlFor="org-currency">
-                  <CurrencySelect
-                    id="org-currency"
-                    value={currency}
-                    onChange={setCurrency}
-                    disabled={savingOrg}
-                  />
-                </FormField>
-                <label className="flex cursor-pointer items-start gap-3 text-sm text-ink sm:pt-6">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5 h-4 w-4 accent-coral"
-                    checked={managersCanSeeMargin}
-                    disabled={savingOrg}
-                    onChange={(e) =>
-                      setManagersCanSeeMargin(e.target.checked)
-                    }
-                  />
-                  <span>
-                    <span className="font-medium">
-                      Allow managers to see margin
-                    </span>
-                    <span className="mt-0.5 block text-xs text-slate">
-                      Admins/owners always see money; members never do.
-                    </span>
+                />
+              </FormField>
+              <label className="flex cursor-pointer items-start gap-3 text-sm text-ink sm:pt-6">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 accent-coral"
+                  checked={managersCanSeeMargin}
+                  disabled={savingOrg}
+                  onChange={(e) => setManagersCanSeeMargin(e.target.checked)}
+                />
+                <span>
+                  <span className="font-medium">
+                    Allow managers to see margin
                   </span>
-                </label>
-                <label className="flex cursor-pointer items-start gap-3 text-sm text-ink sm:col-span-2">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5 h-4 w-4 accent-coral"
-                    checked={timersEnabled}
-                    disabled={savingOrg}
-                    onChange={(e) => setTimersEnabled(e.target.checked)}
-                  />
-                  <span>
-                    <span className="font-medium">Allow timers</span>
-                    <span className="mt-0.5 block text-xs text-slate">
-                      Show Start timer on the timesheet. Off by default —
-                      people add time with start and end instead.
-                    </span>
+                  <span className="mt-0.5 block text-xs text-slate">
+                    Admins/owners always see money; members never do.
                   </span>
-                </label>
-              </form>
-            </div>
-          ) : (
-            <p className="text-sm text-slate">
-              Manage leave for people you manage. Capacity and org defaults stay
-              with admins.
-            </p>
-          )}
-
-          {(canEditOrg || canEditLeave) && (
-            <div className="rounded-xl border border-border/80 bg-card p-4 sm:p-5">
-              <div className="flex flex-wrap items-end justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold text-ink">
-                    Capacity & leave
-                  </h3>
-                  <p className="mt-0.5 text-sm text-slate">
-                    Shared month for utilisation planning
-                  </p>
-                </div>
-                <label className="flex w-40 flex-col gap-1 text-xs text-slate">
-                  Month
-                  <Input
-                    id="capacity-month"
-                    type="month"
-                    value={capacityMonth}
-                    disabled={canEditOrg && (savingCapacity || loadingCapacity)}
-                    onChange={(e) => setCapacityMonth(e.target.value)}
-                  />
-                </label>
-              </div>
-
-              <div
-                className={cn(
-                  'mt-4 grid gap-5',
-                  canEditOrg && canEditLeave
-                    ? 'sm:grid-cols-2 sm:gap-6'
-                    : 'grid-cols-1',
-                )}
-              >
-                {canEditOrg ? (
-                  <form
-                    onSubmit={(e) => void handleSaveCapacity(e)}
-                    className="space-y-3"
-                  >
-                    <p className="text-xs font-medium uppercase tracking-wide text-slate">
-                      Planned hours
-                    </p>
-                    <FormField label="Hours" htmlFor="planned-hours">
-                      <Input
-                        id="planned-hours"
-                        type="number"
-                        min={0}
-                        step={0.5}
-                        value={plannedHours}
-                        disabled={savingCapacity || loadingCapacity}
-                        placeholder="e.g. 160"
-                        onChange={(e) => setPlannedHours(e.target.value)}
-                      />
-                    </FormField>
-                    <Button
-                      type="submit"
-                      size="sm"
-                      loading={savingCapacity}
-                      disabled={savingCapacity || loadingCapacity}
-                    >
-                      Save capacity
-                    </Button>
-                    {recentMonths.length > 0 ? (
-                      <ul className="max-h-36 overflow-y-auto divide-y divide-border/80 rounded-lg border border-border/80">
-                        {recentMonths.slice(0, 6).map((row) => (
-                          <li key={row.yearMonth}>
-                            <button
-                              type="button"
-                              className={cn(
-                                'flex w-full items-center justify-between px-3 py-1.5 text-left text-sm transition hover:bg-paper',
-                                row.yearMonth === capacityMonth
-                                  ? 'bg-paper font-medium text-ink'
-                                  : 'text-navy',
-                              )}
-                              onClick={() => setCapacityMonth(row.yearMonth)}
-                            >
-                              <span>
-                                {formatDisplayYearMonth(row.yearMonth)}
-                              </span>
-                              <span className="tabular-nums text-slate">
-                                {row.plannedHours}h
-                              </span>
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                  </form>
-                ) : null}
-
-                {canEditLeave ? (
-                  <div
-                    className={cn(
-                      canEditOrg && 'border-t border-border/60 pt-4 sm:border-t-0 sm:border-l sm:pl-6 sm:pt-0',
-                    )}
-                  >
-                    <OrganisationLeavePanel
-                      yearMonth={capacityMonth}
-                      hideMonthControl
-                    />
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          )}
+                </span>
+              </label>
+              <label className="flex cursor-pointer items-start gap-3 text-sm text-ink sm:col-span-2">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 accent-coral"
+                  checked={timersEnabled}
+                  disabled={savingOrg}
+                  onChange={(e) => setTimersEnabled(e.target.checked)}
+                />
+                <span>
+                  <span className="font-medium">Allow timers</span>
+                  <span className="mt-0.5 block text-xs text-slate">
+                    Show Start timer on the timesheet. Off by default — people
+                    add time with start and end instead.
+                  </span>
+                </span>
+              </label>
+            </form>
+          </div>
         </section>
       ) : null}
+
+      {tab === 'leave' && showLeave ? (
+        <section>
+          <div className="rounded-xl border border-border/80 bg-card p-4 sm:p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-ink">Leave</h3>
+                <p className="mt-0.5 text-sm text-slate">
+                  Utilisation planning ·{' '}
+                  <span className="font-medium text-ink">
+                    {formatFullYearMonth(capacityMonth)}
+                  </span>
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  aria-label="Previous year"
+                  onClick={() =>
+                    setCapacityMonth((ym) => shiftCapacityYear(ym, -1))
+                  }
+                >
+                  ‹ Previous
+                </Button>
+                <span className="min-w-[3.25rem] px-1 text-center text-base font-semibold tabular-nums text-ink">
+                  {capacityYear}
+                </span>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  aria-label="Next year"
+                  onClick={() =>
+                    setCapacityMonth((ym) => shiftCapacityYear(ym, 1))
+                  }
+                >
+                  Next ›
+                </Button>
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              <ul className="grid grid-cols-4 gap-1.5 sm:grid-cols-6 md:grid-cols-12">
+                {MONTH_LABELS.map((label, index) => {
+                  const monthKey = `${capacityYear}-${String(index + 1).padStart(2, '0')}`;
+                  const selected = monthKey === capacityMonth;
+                  const hours = hoursByMonth[monthKey];
+                  return (
+                    <li key={monthKey}>
+                      <button
+                        type="button"
+                        className={cn(
+                          'flex w-full flex-col items-center rounded-md px-1 py-2 text-center transition',
+                          selected
+                            ? 'bg-coral/15 font-semibold text-coral'
+                            : 'text-slate hover:bg-paper hover:text-navy',
+                        )}
+                        onClick={() => setCapacityMonth(monthKey)}
+                      >
+                        <span className="text-sm">{label}</span>
+                        <span className="mt-0.5 min-h-[1rem] text-xs tabular-nums text-inherit opacity-90">
+                          {hours != null ? `${hours}h` : '\u00a0'}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+
+              {canEditOrg ? (
+                <form
+                  onSubmit={(e) => void requestSaveCapacity(e)}
+                  className="flex flex-wrap items-end gap-3"
+                >
+                  <FormField
+                    label="Planned hours"
+                    htmlFor="planned-hours"
+                    className="w-28"
+                  >
+                    <Input
+                      id="planned-hours"
+                      type="text"
+                      inputMode="decimal"
+                      value={plannedHours}
+                      disabled={savingCapacity || loadingCapacity}
+                      placeholder="e.g. 160"
+                      onChange={(e) => setPlannedHours(e.target.value)}
+                    />
+                  </FormField>
+                  <Button
+                    type="submit"
+                    size="sm"
+                    className="mb-px"
+                    disabled={savingCapacity || loadingCapacity}
+                  >
+                    Save capacity
+                  </Button>
+                </form>
+              ) : null}
+            </div>
+
+            <div className="mt-5 border-t border-border/60 pt-4">
+              <LeavePeoplePanel
+                yearMonth={capacityMonth}
+                hideMonthControl
+              />
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      <ConfirmDialog
+        open={confirmCapacityOpen}
+        title="Save planned hours?"
+        description={`Set planned hours for ${formatDisplayYearMonth(capacityMonth)} to ${plannedHours}. This affects utilisation reports.`}
+        confirmLabel="Save capacity"
+        loading={savingCapacity}
+        onConfirm={() => void handleConfirmSaveCapacity()}
+        onCancel={() => {
+          if (!savingCapacity) setConfirmCapacityOpen(false);
+        }}
+      />
     </div>
   );
 }

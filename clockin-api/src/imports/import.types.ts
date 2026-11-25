@@ -113,6 +113,23 @@ export type TicketImportRowInput = {
   excluded?: boolean;
 };
 
+export type LeaveImportRowInput = {
+  rowKey: string;
+  name: string;
+  email: string;
+  leaveDays: string;
+  excluded?: boolean;
+};
+
+export type LeaveImportRowResult = LeaveImportRowInput & {
+  status: ImportRowStatus;
+  reason?: string;
+  matchedUserId?: string | null;
+  matchedMemberName?: string | null;
+  currentLeaveDays?: number | null;
+  parsedLeaveDays?: number | null;
+};
+
 export type TicketImportRowResult = TicketImportRowInput & {
   status: ImportRowStatus;
   reason?: string;

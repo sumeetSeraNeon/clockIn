@@ -125,9 +125,9 @@ export const PAGE_HELP: Record<PageHelpKey, PageHelp> = {
   settings: {
     title: 'Settings',
     paragraphs: [
-      'Your account: profile, password, and notification preferences.',
-      'Organisation defaults (currency, manager margin visibility, timers, monthly planned hours, and leave) appear when you manage the org or leave. Use Manage leave for a searchable, paginated people list. Admins edit capacity; admins and team managers edit leave for people they can manage.',
-      'Personal settings are available to everyone; org sections stay permission-gated.',
+      'Account & security: profile and password. Notifications are saved on this device.',
+      'Organisation defaults (currency, manager margin visibility, timers) appear when you can edit rates. Leave is a separate tab for monthly planned hours and per-person leave days — pick a month, edit inline, or Import CSV/Excel (name, email, leave days) for that month with preview. Admins edit capacity; admins and team managers edit leave for people they can manage.',
+      'Personal settings are available to everyone; Organisation and Leave stay permission-gated.',
     ],
   },
 };
